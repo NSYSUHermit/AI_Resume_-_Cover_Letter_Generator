@@ -71,7 +71,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ 錯誤：請先在左側欄位設定 GEMINI API KEY"
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         report_md = ""
 
         # 🛑 階段一：簽證審查
