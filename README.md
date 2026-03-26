@@ -42,11 +42,8 @@
 1. 將本專案 Fork 或 Clone 到個人的 GitHub 儲存庫。
 2. 前往 Streamlit Cloud，並連結你的 GitHub 帳號。
 3. 選擇本專案的 Repository，設定主程式為 `app.py`。
-4. **重要**：在部署設定的 `Advanced settings` -> `Secrets` 中加入你的 Gemini API Key：
-   ```toml
-   GEMINI_API_KEY = "你的_API_KEY_填在這裡"
-   ```
-5. 點擊 `Deploy`，Streamlit 會自動讀取 `packages.txt` 安裝 LuaLaTeX，並安裝 `requirements.txt` 中的 Python 套件。
+4. 點擊 `Deploy`，Streamlit 會自動讀取 `packages.txt` 安裝 LuaLaTeX，並安裝 `requirements.txt` 中的 Python 套件。
+5. 部署完成後，打開網頁，即可在**左側邊欄 (Sidebar) 輸入個人的 Gemini API Key** 來啟用 AI 功能！
 
 ## 📝 待辦事項 (Roadmap)
 

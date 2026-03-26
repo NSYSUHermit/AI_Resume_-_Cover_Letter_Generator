@@ -40,9 +40,9 @@ if "resume_data" not in st.session_state:
 # ---------------------------------------------------------
 def polish_experience(draft_text):
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        api_key = st.session_state.get("api_key", "")
         if not api_key:
-            st.error("請在 Streamlit Secrets 中設定 GEMINI_API_KEY")
+            st.error("👈 請在左側欄位 (Sidebar) 中輸入您的 GEMINI API KEY")
             return []
             
         genai.configure(api_key=api_key)
@@ -122,6 +122,15 @@ def generate_pdf_from_json(data):
 # Streamlit UI 介面
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI 履歷生成器", page_icon="🚀", layout="wide")
+
+# --- 側邊欄 (Sidebar) 設定 API Key ---
+with st.sidebar:
+    st.header("⚙️ 設定 (Settings)")
+    api_key_input = st.text_input("🔑 Google Gemini API Key", type="password", help="需要 API Key 才能使用 AI 潤飾功能")
+    if api_key_input:
+        st.session_state.api_key = api_key_input
+    st.markdown("---")
+    st.markdown("👉 [點此免費取得 Gemini API Key](https://aistudio.google.com/app/apikey)")
 
 st.title("🚀 AI 履歷生成器 (AI-Powered Resume Builder)")
 st.write("結合 Gemini AI 與 LaTeX，快速撰寫、排版並匯出高質感 PDF 履歷。")
