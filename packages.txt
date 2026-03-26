@@ -1,0 +1,3 @@
+texlive-luatex
+texlive-fonts-extra
+texlive-latex-extra

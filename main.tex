@@ -1,0 +1,58 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=0.75in}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{1ex}{1ex}
+
+\begin{document}
+\pagestyle{empty} % No page numbers
+
+% Basic Info
+\begin{center}
+    {\huge \textbf{<< name >>}} \\ \vspace{0.5ex}
+    << email >> | << phone >> \\
+    \url{<< linkedin >>} | \url{<< github >>}
+\end{center}
+
+% Summary
+<%- if summary %>
+\section*{Professional Summary}
+<< summary >>
+<%- endif %>
+
+% Education
+\section*{Education}
+<%- for edu in education %>
+\noindent
+\textbf{<< edu.school >>} \hfill << edu.duration >> \\
+\textit{<< edu.degree >>} \hfill << edu.location >> \\
+<%- endfor %>
+
+% Experience
+\section*{Experience}
+<%- for exp in experience %>
+\noindent
+\textbf{<< exp.company >>} \hfill << exp.duration >> \\
+\textit{<< exp.title >>} \hfill << exp.location >>
+\begin{itemize}[leftmargin=*, parsep=0pt, itemsep=0pt, topsep=1pt]
+    <%- for item in exp.details %>
+    \item << item >>
+    <%- endfor %>
+\end{itemize}
+\vspace{1ex}
+<%- endfor %>
+
+% Skills
+\section*{Skills}
+<%- for skill in skills %>
+\noindent \textbf{<< skill.category >>:} << skill.items >> \\
+<%- endfor %>
+
+\end{document}
