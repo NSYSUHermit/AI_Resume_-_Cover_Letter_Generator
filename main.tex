@@ -16,43 +16,63 @@
 
 % Basic Info
 \begin{center}
-    {\huge \textbf{<< name >>}} \\ \vspace{0.5ex}
-    << email >> | << phone >> \\
-    \url{<< linkedin >>} | \url{<< github >>}
+    {\huge \textbf{<< heading.name >>}} \\ \vspace{0.5ex}
+    << heading.email >> | << heading.phone >> \\
+    \url{<< heading.linkedin >>} | \url{<< heading.website >>}
 \end{center}
 
 % Summary
 <%- if summary %>
 \section*{Professional Summary}
-<< summary >>
+<< summary | replace('%', '\\%') >>
 <%- endif %>
 
 % Education
 \section*{Education}
 <%- for edu in education %>
 \noindent
-\textbf{<< edu.school >>} \hfill << edu.duration >> \\
-\textit{<< edu.degree >>} \hfill << edu.location >> \\
+\textbf{<< edu.school >>}, << edu.school_location >> \hfill << edu.time_period >> \\
+\textit{<< edu.degree >>} \\
 <%- endfor %>
 
 % Experience
 \section*{Experience}
 <%- for exp in experience %>
 \noindent
-\textbf{<< exp.company >>} \hfill << exp.duration >> \\
-\textit{<< exp.title >>} \hfill << exp.location >>
+\textbf{<< exp.company >>}, << exp.company_location >> \hfill << exp.time_duration >> \\
+\textit{<< exp.role >>} \hfill << exp.team >>
 \begin{itemize}[leftmargin=*, parsep=0pt, itemsep=0pt, topsep=1pt]
     <%- for item in exp.details %>
-    \item << item >>
+    \item \textbf{<< item.title >>:} << item.description | replace('%', '\\%') >>
     <%- endfor %>
 \end{itemize}
 \vspace{1ex}
 <%- endfor %>
 
-% Skills
-\section*{Skills}
-<%- for skill in skills %>
-\noindent \textbf{<< skill.category >>:} << skill.items >> \\
+% Projects
+<%- if projects %>
+\section*{Projects}
+<%- for proj in projects %>
+\noindent \textbf{<< proj.name >>} \hfill << proj.time >> \\
+<< proj.description | replace('%', '\\%') >> \vspace{1ex}
 <%- endfor %>
+<%- endif %>
+
+% Patents
+<%- if patents %>
+\section*{Patents}
+<%- for pat in patents %>
+\noindent \textbf{<< pat.name >>} \hfill << pat.time >> \\
+<< pat.description | replace('%', '\\%') >> \vspace{1ex}
+<%- endfor %>
+<%- endif %>
+
+% Skills
+<%- if skills %>
+\section*{Skills}
+<%- for key, skill in skills.items() %>
+\noindent \textbf{<< skill.title >>:} << skill.items | join(', ') >> \\
+<%- endfor %>
+<%- endif %>
 
 \end{document}

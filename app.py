@@ -3,75 +3,174 @@ import google.generativeai as genai
 import jinja2
 import subprocess
 import os
+import json
 
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
 # ---------------------------------------------------------
 if "resume_data" not in st.session_state:
     st.session_state.resume_data = {
-        "name": "Jane Doe",
-        "email": "jane.doe@example.com",
-        "phone": "+1 234 567 8900",
-        "linkedin": "linkedin.com/in/janedoe",
-        "github": "github.com/janedoe",
-        "summary": "A highly motivated software engineer with experience in developing scalable web applications.",
+        "heading": {
+            "name": "Henry Lin",
+            "email": "hungjuli@asu.edu",
+            "phone": "+1-623-290-5568",
+            "website": "github.com/NSYSUHermit",
+            "linkedin": "linkedin.com/in/henry-lin-57b796187"
+        },
+        "about me more": "我獨立包辦了從底層模型優化、後端微服務架構，到前端使用者介面的端到端 (End-to-End) 開發...",
+        "summary": "Senior Software Engineer with 5 years of experience specializing in scalable Python backend architectures and AI-driven systems...",
         "education": [
-            {"school": "State University", "degree": "B.S. in Computer Science", "location": "New York, NY", "duration": "Aug 2018 - May 2022"}
+            {
+                "degree": "Master of Science in Computer Software Engineering",
+                "time_period": "Aug 2024 - May 2026",
+                "school": "Arizona State University",
+                "school_location": "Tempe, Arizona"
+            }
         ],
         "experience": [
             {
-                "company": "Tech Solutions Inc.",
-                "title": "Software Engineer",
-                "location": "San Francisco, CA",
-                "duration": "Jun 2022 - Present",
+                "role": "Software Engineer Intern",
+                "team": "BIOS Development Software Team",
+                "company": "Dell Technologies",
+                "company_location": "Hybrid",
+                "time_duration": "Jun 2025 - Aug 2025",
                 "details": [
-                    "Developed and maintained microservices using Python and FastAPI.",
-                    "Improved database query performance by 30%."
+                    {
+                        "title": "FastAPI & Agentic Workflow Architecture",
+                        "description": "Architected a high-performance backend using FastAPI and Asyncio to orchestrate LangGraph-based Agentic workflows..."
+                    }
                 ]
             }
         ],
-        "skills": [
-            {"category": "Programming Languages", "items": "Python, JavaScript, SQL, C++"}
-        ]
+        "projects": [
+            {
+                "name": "Capstone Project: WeVibe - AI-Powered Matchmaking Platform",
+                "time": "Jan 2026 -- Present",
+                "description": "Led a cross-functional team as Scrum Master to develop a modern dating app..."
+            }
+        ],
+        "patents": [],
+        "skills": {
+            "set1": {
+                "title": "Backend & Architecture",
+                "items": ["Python (FastAPI, Asyncio, Django, Pydantic)", "RESTful API Design"]
+            }
+        }
     }
 
+if "ai_report" not in st.session_state:
+    st.session_state.ai_report = ""
+
 # ---------------------------------------------------------
-# AI 潤飾功能邏輯
+# AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
 # ---------------------------------------------------------
-def polish_experience(draft_text):
+def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
     try:
         api_key = st.session_state.get("api_key", "")
         if not api_key:
-            st.error("👈 請在左側欄位 (Sidebar) 中輸入您的 GEMINI API KEY")
-            return []
+            return False, "⚠️ 錯誤：請先在左側欄位設定 GEMINI API KEY"
             
         genai.configure(api_key=api_key)
-        # 使用最新 gemini-1.5-flash 模型，速度快且效果好
-        model = genai.GenerativeModel('gemini-1.5-flash') 
-        
-        prompt = f"""
-        You are an expert resume writer. I will give you a rough draft of my work experience.
-        Please rewrite it into 2 to 4 professional, impactful, action-oriented bullet points suitable for a resume.
-        Focus on achievements and metrics where possible.
-        
-        Draft:
-        {draft_text}
-        
-        Output ONLY the bullet points, each starting with a hyphen (-) and separated by a new line. Do not include any intro or outro text.
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        report_md = ""
+
+        # 🛑 階段一：簽證審查
+        if check_visa:
+            visa_prompt = f"""
+            請嚴格審查以下 Job Description (JD)。請檢查是否有以下任何一種情況：
+            1. 明確要求必須是「美國公民」或「綠卡/永久居民」。
+            2. 明確標示「不提供簽證贊助 (No visa sponsorship)」。
+            直接回傳合法 JSON: {{"blocked": true/false, "reason": "..."}}
+            [JD]: {jd_text}
+            """
+            visa_res = model.generate_content(visa_prompt)
+            visa_json = json.loads(visa_res.text.replace('```json', '').replace('```', '').strip())
+            
+            if visa_json.get("blocked"):
+                report_md += f"### ⛔ 簽證審查未通過\n**原因:** {visa_json.get('reason')}\n\n💡 建議：因為簽證限制，AI 已中斷後續履歷優化，請將精力留給下一家公司！"
+                return False, report_md
+            else:
+                report_md += "✅ **簽證審查通過！未發現明確的身分阻礙。**\n\n---\n"
+
+        # 🚀 階段二：ATS 關鍵字與履歷優化
+        ats_instruction = ""
+        ats_example = ""
+        if enable_ats:
+            ats_instruction = """
+            - "keyword_analysis": 包含 "jd_keywords", "original_hits", "optimized_hits", "newly_added", "missing_keywords" (皆為字串陣列)。"""
+            ats_example = """
+            "keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
+
+        final_prompt = f"""
+        {custom_prompt}
+
+        [目標職位 JD]: {jd_text}
+        [原始履歷 JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
+
+        🔥 【高級 ATS 關鍵字強制寫入與平移規則】：
+        1. 技能平移：若 JD 要求 GCP，申請人有 AWS，請以「平移擴充」寫成 "AWS/GCP" 寫入 skills 或 summary。不准增加無關技術。
+        2. 概念替換：巧妙替換經歷描述中的同義詞命中 ATS 字眼。
+        3. ⚠️ 一致性鐵律：newly_added 中的字必須出現在 optimized_resume 中。
+
+        ⚠️ 【輸出格式限制】：回傳合法 JSON，無 ``` 標籤。
+        {{
+            "changelog": "修改細節說明...",{ats_example}
+            "optimized_resume": {{...更新後的完整履歷 JSON 結構...}}
+        }}
         """
         
-        response = model.generate_content(prompt)
-        # 處理回傳文字，移除開頭的 '-' 與多餘空白
-        bullets = [line.strip().lstrip('-').strip() for line in response.text.split('\n') if line.strip()]
-        return bullets
+        response = model.generate_content(final_prompt)
+        ai_result = json.loads(response.text.replace('```json', '').replace('```', '').strip())
+        
+        modified_resume_data = ai_result.get("optimized_resume", {})
+        if not modified_resume_data:
+            return False, "⚠️ 解析錯誤：找不到優化後的履歷資料。"
+            
+        st.session_state.resume_data = modified_resume_data
+        
+        # 生成 Markdown 報告
+        if enable_ats and "keyword_analysis" in ai_result:
+            kw = ai_result["keyword_analysis"]
+            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
+            orig_c = len(kw.get("original_hits", []))
+            opt_c = len(kw.get("optimized_hits", []))
+            opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
+            
+            report_md += f"### 🎯 ATS 關鍵字匹配率 (Match Score)\n"
+            report_md += f"- **優化前匹配度**: {orig_c} / {tot}\n"
+            report_md += f"- **AI優化後匹配度**: {opt_c} / {tot} (**{opt_pct}%**)\n\n"
+            
+            report_md += "**✅ 成功命中的關鍵字:**\n"
+            for k in kw.get("optimized_hits", []):
+                if k in kw.get("newly_added", []):
+                    report_md += f"- `{k}` 🌟 *(AI 已運用平移技術強制寫入)*\n"
+                else:
+                    report_md += f"- `{k}`\n"
+            if kw.get("missing_keywords"):
+                report_md += "\n**❌ 仍然缺乏的關鍵字:**\n"
+                for k in kw.get("missing_keywords", []):
+                    report_md += f"- `{k}`\n"
+            report_md += "\n---\n"
+            
+        report_md += f"### 📝 修改日誌 (Changelog)\n{ai_result.get('changelog', '')}"
+        
+        return True, report_md
     except Exception as e:
-        st.error(f"AI 潤飾發生錯誤: {e}")
-        return []
+        return False, f"⚠️ AI 執行過程發生錯誤: {e}"
 
 # ---------------------------------------------------------
-# PDF 生成邏輯 (Jinja2 + LuaLaTeX)
+# PDF 生成邏輯 (支援自訂 main.tex)
 # ---------------------------------------------------------
-def generate_pdf_from_json(data):
+def generate_pdf_from_json(data, custom_tex_bytes=None):
+    # 決定使用的 tex 模板內容
+    if custom_tex_bytes:
+        template_content = custom_tex_bytes.decode('utf-8')
+        template_name = "custom_main.tex"
+        with open(template_name, "w", encoding="utf-8") as f:
+            f.write(template_content)
+    else:
+        template_name = "main.tex"
+
     # 設定 Jinja2 環境，避免與 LaTeX 的 {} 衝突
     latex_jinja_env = jinja2.Environment(
         block_start_string='<%-',
@@ -88,7 +187,7 @@ def generate_pdf_from_json(data):
     )
     
     try:
-        template = latex_jinja_env.get_template('main.tex')
+        template = latex_jinja_env.get_template(template_name)
         rendered_tex = template.render(**data)
         
         # 將渲染後的內容寫入暫存的 tex 檔
@@ -135,57 +234,66 @@ with st.sidebar:
 st.title("🚀 AI 履歷生成器 (AI-Powered Resume Builder)")
 st.write("結合 Gemini AI 與 LaTeX，快速撰寫、排版並匯出高質感 PDF 履歷。")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["基本資料", "學歷", "工作經歷", "技能", "預覽與下載"])
+tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ 使用者基本資料", "2️⃣ AI 客製化", "3️⃣ AI 調整報告", "4️⃣ 下載履歷與預覽"])
 
-# --- 基本資料 Tab ---
+# --- 1. 使用者基本資料 Tab ---
 with tab1:
-    st.header("👤 基本資料 (Basic Info)")
-    col1, col2 = st.columns(2)
-    st.session_state.resume_data["name"] = col1.text_input("全名", st.session_state.resume_data["name"])
-    st.session_state.resume_data["email"] = col2.text_input("Email", st.session_state.resume_data["email"])
-    st.session_state.resume_data["phone"] = col1.text_input("電話", st.session_state.resume_data["phone"])
-    st.session_state.resume_data["linkedin"] = col2.text_input("LinkedIn 網址", st.session_state.resume_data["linkedin"])
-    st.session_state.resume_data["github"] = col1.text_input("GitHub 網址", st.session_state.resume_data["github"])
-    st.session_state.resume_data["summary"] = st.text_area("個人簡介 (Summary)", st.session_state.resume_data["summary"])
+    st.header("👤 編輯您的基礎履歷資料")
+    st.info("您可以在此直接編輯底層的 JSON 資料。修改後請務必點擊下方「儲存修改」。")
+    
+    json_str = json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False)
+    edited_json = st.text_area("履歷 JSON 結構", value=json_str, height=500)
+    
+    if st.button("💾 儲存 JSON 修改", type="primary"):
+        try:
+            st.session_state.resume_data = json.loads(edited_json)
+            st.success("JSON 資料已成功儲存！")
+        except Exception as e:
+            st.error(f"JSON 格式錯誤，請檢查語法: {e}")
 
-# --- 學歷 Tab ---
+# --- 2. AI 客製化 Tab ---
 with tab2:
-    st.header("🎓 學歷 (Education)")
-    # 為了簡化展示，目前綁定第一筆學歷。若需多筆可擴充動態新增按鈕。
-    edu = st.session_state.resume_data["education"][0]
-    edu["school"] = st.text_input("學校名稱", edu["school"])
-    edu["degree"] = st.text_input("學位", edu["degree"])
-    edu["location"] = st.text_input("地點", edu["location"])
-    edu["duration"] = st.text_input("就讀期間", edu["duration"])
-
-# --- 工作經歷 Tab ---
-with tab3:
-    st.header("💼 工作經歷 (Experience)")
-    exp = st.session_state.resume_data["experience"][0]
+    st.header("🤖 根據 JD 自動優化履歷")
     col1, col2 = st.columns(2)
-    exp["company"] = col1.text_input("公司名稱", exp["company"])
-    exp["title"] = col2.text_input("職稱", exp["title"])
-    exp["location"] = col1.text_input("地點", exp["location"], key="exp_loc")
-    exp["duration"] = col2.text_input("任職期間", exp["duration"], key="exp_dur")
+    enable_ats = col1.checkbox("開啟 ATS 關鍵字分析", value=True)
+    check_visa = col2.checkbox("檢查簽證/Sponsorship 限制", value=True)
     
-    st.subheader("工作內容描述 (AI 協作)")
-    draft = st.text_area("在這裡用白話文描述你的工作內容（例如：我負責寫Python爬蟲，幫公司提升了效率）")
-    if st.button("✨ 讓 AI 幫我潤飾成專業條列式"):
-        if draft:
-            with st.spinner("Gemini AI 正在思考中..."):
-                polished_bullets = polish_experience(draft)
-                if polished_bullets:
-                    exp["details"] = polished_bullets
-                    st.success("潤飾成功！已自動更新至履歷資料中。")
+    jd_input = st.text_area("📄 貼上目標職缺的 Job Description (JD)", height=250)
+    custom_prompt = st.text_area("🗣️ 您的特殊指令 (Optional)", value="請幫我把經歷修得更具侵略性與影響力，並著重在系統優化與微服務的關鍵字。")
     
-    exp["details"] = st.text_area("工作經歷條列 (請用換行分隔)", "\n".join(exp["details"])).split("\n")
+    if st.button("🚀 開始執行 AI 優化與分析", type="primary"):
+        if not jd_input:
+            st.warning("請先貼上 JD 內容！")
+        else:
+            with st.spinner("AI 正在深度分析並進行 ATS 平移改寫，這可能需要 30~60 秒..."):
+                success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
+                st.session_state.ai_report = report
+                if success:
+                    st.success("優化完成！請前往「3️⃣ AI 調整報告」查看結果。")
+                else:
+                    st.error("優化中斷或發生錯誤，請查看報告細節。")
 
-# --- 預覽與下載 Tab ---
-with tab5:
-    st.header("🖨️ 生成 PDF")
+# --- 3. AI 調整報告 Tab ---
+with tab3:
+    st.header(" AI 執行結果與 ATS 報告")
+    if st.session_state.ai_report:
+        st.markdown(st.session_state.ai_report)
+        st.info("💡 優化後的內容已自動套用至「使用者基本資料」中，您可以隨時前往修改或直接生成 PDF。")
+    else:
+        st.write("尚未執行 AI 優化。請先在「2️⃣ AI 客製化」填寫 JD 並執行。")
+
+# --- 4. 預覽與下載 Tab ---
+with tab4:
+    st.header("🖨️ 生成與下載 PDF 履歷")
+    st.write("您可以選擇上傳自己的 `.tex` 模板，或直接使用系統預設的模板進行編譯。")
+    
+    uploaded_tex = st.file_uploader("上傳自訂的 main.tex (選填)", type=["tex"])
+    
     if st.button("編譯並產生 PDF 履歷", type="primary"):
         with st.spinner("正在雲端呼叫 LaTeX 引擎編譯中..."):
-            pdf_path = generate_pdf_from_json(st.session_state.resume_data)
+            tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
+            pdf_path = generate_pdf_from_json(st.session_state.resume_data, tex_bytes)
+            
             if pdf_path:
                 st.success("✅ PDF 生成成功！")
                 with open(pdf_path, "rb") as f:
