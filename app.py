@@ -300,6 +300,77 @@ def generate_cover_letter_pdf(resume_data):
         return None
 
 # ---------------------------------------------------------
+# Custom Premium UI Components (Glassmorphism & Overlays)
+# ---------------------------------------------------------
+def get_glass_overlay_html(message="AI is processing your request..."):
+    """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
+    return f"""
+    <style>
+    .glass-overlay-bg {{
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(10, 10, 15, 0.7);
+        backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+        z-index: 999999; display: flex; justify-content: center; align-items: center;
+    }}
+    .glass-dialog-box {{
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        border-radius: 24px; padding: 50px 60px;
+        text-align: center; position: relative; overflow: hidden;
+        display: flex; flex-direction: column; align-items: center;
+    }}
+    .glass-dialog-box::before {{
+        content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+        background: radial-gradient(circle, rgba(138, 43, 226, 0.15) 0%, transparent 60%);
+        animation: pulse-glow 3s infinite alternate; z-index: 0;
+    }}
+    .organic-loader {{
+        width: 70px; height: 70px;
+        border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+        background: linear-gradient(135deg, #00f2fe 0%, #8a2be2 100%); /* Electric blue to purple */
+        animation: morph 3s ease-in-out infinite; margin-bottom: 25px;
+        box-shadow: 0 0 25px rgba(138, 43, 226, 0.6); z-index: 1; position: relative;
+    }}
+    .loading-text {{
+        color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
+        font-weight: 300; letter-spacing: 1px; margin: 0;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
+    }}
+    @keyframes morph {{
+        0%, 100% {{ border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; transform: scale(1); }}
+        34% {{ border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; transform: scale(1.05); }}
+        67% {{ border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; transform: scale(0.95); }}
+    }}
+    @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
+    </style>
+    <div class="glass-overlay-bg">
+        <div class="glass-dialog-box">
+            <div class="organic-loader"></div>
+            <h2 class="loading-text">{message}</h2>
+        </div>
+    </div>
+    """
+
+def get_glass_warning_html():
+    """帶有琥珀色脈衝三角核心的玻璃擬態警告框"""
+    return """
+    <div style="background: rgba(20, 10, 10, 0.5); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 16px; padding: 25px; display: flex; align-items: center; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); margin-bottom: 20px;">
+        <div style="width: 40px; height: 40px; background: radial-gradient(circle, rgba(255,165,0,0.9) 0%, rgba(255,140,0,0.2) 80%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); animation: pulse-amber 2s infinite alternate; margin-right: 25px; flex-shrink: 0; box-shadow: 0 0 20px rgba(255, 165, 0, 0.6);"></div>
+        <div>
+            <h3 style="color: #ffcc00; margin: 0 0 8px 0; font-family: sans-serif; font-weight: 500; letter-spacing: 0.5px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">resume.json Not Opened</h3>
+            <p style="color: #e0e0e0; margin: 0; font-size: 0.95em; font-weight: 300;">System cannot locate the generated resume data. Please execute the AI generation first to create the base file.</p>
+        </div>
+    </div>
+    <style>
+    @keyframes pulse-amber { 
+        0% { transform: scale(0.95); opacity: 0.7; filter: drop-shadow(0 0 5px rgba(255,165,0,0.5)); } 
+        100% { transform: scale(1.05); opacity: 1; filter: drop-shadow(0 0 15px rgba(255,165,0,1)); } 
+    }
+    </style>
+    """
+
+# ---------------------------------------------------------
 # Streamlit UI 介面
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
@@ -349,13 +420,20 @@ with tab2:
         if not jd_input:
             st.warning("Please paste the JD content first!")
         else:
-            with st.spinner("AI is deeply analyzing and rewriting to match ATS keywords. This might take 30~60 seconds..."):
-                success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
-                st.session_state.ai_report = report
-                if success:
-                    st.success("Optimization completed! Please go to '4️⃣ Edit Optimized Result' to review and tweak.")
-                else:
-                    st.error("Optimization interrupted or failed. Check the report details.")
+            # 呼叫全螢幕動態凍結載入層
+            loading_overlay = st.empty()
+            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait."), unsafe_allow_html=True)
+            
+            success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
+            st.session_state.ai_report = report
+            
+            # 執行完畢，移除載入層，解除凍結
+            loading_overlay.empty()
+            
+            if success:
+                st.success("Optimization completed! Please go to '4️⃣ Edit Optimized Result' to review and tweak.")
+            else:
+                st.error("Optimization interrupted or failed. Check the report details.")
 
 # --- 3. AI Report Tab ---
 with tab3:
@@ -379,7 +457,8 @@ with tab4:
                 st.session_state['opt_json_area'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
                 st.success("Refreshed data from `ml_resume.json`! The view will update.")
         else:
-            st.warning("`ml_resume.json` not found. Please generate a resume first.")
+            # 使用高質感的琥珀色警告框
+            st.markdown(get_glass_warning_html(), unsafe_allow_html=True)
 
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
@@ -407,14 +486,18 @@ with tab5:
     uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
-        with st.spinner("Calling LaTeX engine in the cloud..."):
-            tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
-            pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
-            
-            if pdf_path:
-                st.success("✅ PDF successfully generated!")
-                with open(pdf_path, "rb") as f:
-                    st.download_button(f"📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
+        loading_overlay = st.empty()
+        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume..."), unsafe_allow_html=True)
+        
+        tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
+        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
+        
+        loading_overlay.empty()
+        
+        if pdf_path:
+            st.success("✅ PDF successfully generated!")
+            with open(pdf_path, "rb") as f:
+                st.download_button(f"📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
                     
     st.markdown("---")
     st.subheader("✉️ Export Cover Letter")
@@ -423,8 +506,13 @@ with tab5:
         if 'cover_letter' not in data_to_use or not data_to_use['cover_letter']:
             st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
         else:
-            with st.spinner("Compiling the Cover Letter PDF from JSON data..."):
-                cl_pdf_path = generate_cover_letter_pdf(data_to_use)
-                if cl_pdf_path:
-                    with open(cl_pdf_path, "rb") as f:
-                        st.download_button("📥 Click to Download Cover Letter", f, file_name=cl_pdf_path, mime="application/pdf")
+            loading_overlay = st.empty()
+            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done."), unsafe_allow_html=True)
+            
+            cl_pdf_path = generate_cover_letter_pdf(data_to_use)
+            
+            loading_overlay.empty()
+            
+            if cl_pdf_path:
+                with open(cl_pdf_path, "rb") as f:
+                    st.download_button("📥 Click to Download Cover Letter", f, file_name=cl_pdf_path, mime="application/pdf")
