@@ -331,6 +331,7 @@ with tab2:
     check_visa = col2.checkbox("Check Visa/Sponsorship Restrictions", value=True)
     
     jd_input = st.text_area("📄 Paste the Target Job Description (JD)", height=250)
+    jd_input = st.text_area("📄 Paste the Target Job Description (JD)", height=250, key="jd_input_for_cl")
     custom_prompt = st.text_area("🗣️ Custom Prompt (Optional)", value="Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords.")
     
     if st.button("🚀 Start AI Optimization & Analysis", type="primary"):
@@ -399,16 +400,13 @@ with tab5:
 
     if st.button("✨ Generate & Download Cover Letter PDF", type="primary", key="gen_cl"):
         jd_text = st.session_state.get('jd_input_for_cl', "") # We need the JD from tab 2
-        if not jd_text:
-            st.warning("Please make sure you have pasted a JD in the '2️⃣ AI Customization' tab first.")
-        else:
-            with st.spinner("AI is crafting your cover letter..."):
-                cl_content = generate_cover_letter_content(data_to_use, jd_text, custom_cl_prompt)
-            
-            if cl_content:
-                st.text_area("Generated Cover Letter Body (for review)", cl_content, height=300)
-                with st.spinner("Now compiling the Cover Letter PDF..."):
-                    cl_pdf_path = generate_cover_letter_pdf(cl_content, data_to_use)
-                    if cl_pdf_path:
-                        with open(cl_pdf_path, "rb") as f:
-                            st.download_button("📥 Click to Download Cover Letter", f, file_name="cover_letter.pdf", mime="application/pdf")
+        with st.spinner("AI is crafting your cover letter..."):
+            cl_content = generate_cover_letter_content(data_to_use, jd_text, custom_cl_prompt)
+        
+        if cl_content:
+            st.text_area("Generated Cover Letter Body (for review)", cl_content, height=300)
+            with st.spinner("Now compiling the Cover Letter PDF..."):
+                cl_pdf_path = generate_cover_letter_pdf(cl_content, data_to_use)
+                if cl_pdf_path:
+                    with open(cl_pdf_path, "rb") as f:
+                        st.download_button("📥 Click to Download Cover Letter", f, file_name="cover_letter.pdf", mime="application/pdf")
