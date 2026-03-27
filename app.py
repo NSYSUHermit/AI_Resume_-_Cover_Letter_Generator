@@ -74,7 +74,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         report_md = ""
 
         # 🛑 Phase 1: Visa Sponsorship Check
@@ -291,9 +291,9 @@ with st.sidebar:
     if api_key_input:
         st.session_state.api_key = api_key_input
     st.markdown("---")
-    st.markdown("👉 Get Gemini API Key for free")
+    st.markdown("👉 [Get Gemini API Key for free](https://aistudio.google.com/app/apikey)")
     st.markdown("---")
-    st.markdown("👨‍💻 **Developed by NSYSUHermit**")
+    st.markdown("👨‍💻 **Developed by [NSYSUHermit](https://github.com/NSYSUHermit)**")
 
 st.title("🚀 AI-Powered Resume Builder")
 st.write("Combine Gemini AI with LaTeX to write, optimize, and export high-quality PDF resumes and cover letters effortlessly.")
