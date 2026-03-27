@@ -302,7 +302,7 @@ def generate_cover_letter_pdf(resume_data):
 # ---------------------------------------------------------
 # Custom Premium UI Components (Glassmorphism & Overlays)
 # ---------------------------------------------------------
-def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕"):
+def get_glass_overlay_html(message="AI is processing your request..."):
     """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
     return f"""
     <style>
@@ -325,52 +325,31 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
         background: radial-gradient(circle, rgba(138, 43, 226, 0.15) 0%, transparent 60%);
         animation: pulse-glow 3s infinite alternate; z-index: 0;
     }}
-    .animal-runner {{
-        font-size: 70px;
-        margin-bottom: 20px;
-        z-index: 1; position: relative;
-        display: inline-block;
-        animation: run-bounce 0.4s alternate infinite cubic-bezier(0.3, 0.05, 0.7, 0.95);
+    .organic-loader {{
+        width: 70px; height: 70px;
+        border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+        background: linear-gradient(135deg, #00f2fe 0%, #8a2be2 100%); /* Electric blue to purple */
+        animation: morph 3s ease-in-out infinite; margin-bottom: 25px;
+        box-shadow: 0 0 25px rgba(138, 43, 226, 0.6); z-index: 1; position: relative;
     }}
     .loading-text {{
         color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
         font-weight: 300; letter-spacing: 1px; margin: 0;
         text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
     }}
-    .timer-text {{
-        color: #00f2fe; font-family: monospace; font-size: 1.5rem;
-        font-weight: bold; margin-top: 15px;
-        text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); z-index: 1; position: relative;
-    }}
-    @keyframes run-bounce {{
-        0% {{ transform: translateY(0) rotate(0deg) skewX(0deg); }}
-        100% {{ transform: translateY(-20px) rotate(5deg) skewX(-10deg); }}
+    @keyframes morph {{
+        0%, 100% {{ border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; transform: scale(1); }}
+        34% {{ border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; transform: scale(1.05); }}
+        67% {{ border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; transform: scale(0.95); }}
     }}
     @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
     </style>
     <div class="glass-overlay-bg">
         <div class="glass-dialog-box">
-            <div class="animal-runner">{animal_emoji}</div>
+            <div class="organic-loader"></div>
             <h2 class="loading-text">{message}</h2>
-            <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
         </div>
     </div>
-    <script>
-    (function() {{
-        var sec = 0;
-        var el = document.getElementById('loading-timer-val');
-        if(!el) return;
-        var timer = setInterval(function() {{
-            // 如果視窗已經被 Streamlit empty() 清除，則停止計時器避免記憶體洩漏
-            if(!document.body.contains(el)) {{
-                clearInterval(timer);
-                return;
-            }}
-            sec++;
-            el.innerText = sec;
-        }}, 1000);
-    }})();
-    </script>
     """
 
 def get_glass_warning_html():
@@ -403,17 +382,8 @@ with st.sidebar:
     if api_key_input:
         st.session_state.api_key = api_key_input
     st.markdown("---")
-    
-    st.header("🏃 Loading Animation")
-    animal_choice = st.selectbox(
-        "Choose your runner",
-        ["🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
-        index=0
-    )
-    st.session_state.animal_emoji = animal_choice.split(" ")[0]
-    
-    st.markdown("---")
     st.markdown("👉 [Get Gemini API Key for free](https://aistudio.google.com/app/apikey)")
+    st.markdown("---")
     st.markdown("👨‍💻 **Developed by [NSYSUHermit](https://github.com/NSYSUHermit)**")
 
 st.title("🚀 AI-Powered Resume Builder")
@@ -452,7 +422,7 @@ with tab2:
         else:
             # 呼叫全螢幕動態凍結載入層
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait."), unsafe_allow_html=True)
             
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             st.session_state.ai_report = report
@@ -517,7 +487,7 @@ with tab5:
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
         loading_overlay = st.empty()
-        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume..."), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
         pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
@@ -537,7 +507,7 @@ with tab5:
             st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
         else:
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done."), unsafe_allow_html=True)
             
             cl_pdf_path = generate_cover_letter_pdf(data_to_use)
             
