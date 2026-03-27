@@ -192,7 +192,10 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         # We will rename it later for consistency.
         base_name = os.path.splitext(tex_filename)[0]
         expected_pdf_name = f"{base_name}.pdf"
-        final_pdf_name = "resume.pdf"
+        
+        company = data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
+        role = data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
+        final_pdf_name = f"{company}_{role}_resume.pdf"
             
         # 呼叫 LuaLaTeX 編譯
         process = subprocess.Popen(
@@ -390,7 +393,7 @@ with tab5:
             if pdf_path:
                 st.success("✅ PDF successfully generated!")
                 with open(pdf_path, "rb") as f:
-                    st.download_button("📥 Click to Download Resume (resume.pdf)", f, file_name="resume.pdf", mime="application/pdf")
+                    st.download_button(f"📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
                     
     st.markdown("---")
     st.subheader("✉️ Export Cover Letter")
