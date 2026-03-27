@@ -226,17 +226,26 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
 # ---------------------------------------------------------
 def generate_cover_letter_pdf(resume_data):
     """Generates a PDF from the 'cover_letter' field using a hardcoded clean LaTeX template."""
+    # --- NEW: Unify data source by reading from ml_resume.json first ---
+    temp_json_filename = "ml_resume.json"
+    if not os.path.exists(temp_json_filename):
+        st.error(f"Error: `{temp_json_filename}` not found. Please generate a resume first.")
+        return None
+    
+    with open(temp_json_filename, "r", encoding="utf-8") as f:
+        data_from_file = json.load(f)
+
     try:
         # 取得公司與職位名，處理檔名 (將空格與斜線替換為底線)
-        company = resume_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
-        role = resume_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
+        company = data_from_file.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
+        role = data_from_file.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
 
         custom_filename = f"{company}_{role}_coverletter"
         tex_filename = f"{custom_filename}.tex"
         pdf_filename = f"{custom_filename}.pdf"
 
         # 取得內容並進行清理
-        cl_content = resume_data.get('cover_letter', 'No content')
+        cl_content = data_from_file.get('cover_letter', 'No content')
         clean_cl_content = cl_content.replace('**', '')
 
         # 跳脫 LaTeX 特殊字元，防止 % (註解)、$ (數學模式) 等造成編譯失敗
@@ -372,6 +381,19 @@ with tab4:
             except Exception as e:
                 st.error(f"JSON format error, please check syntax: {e}")
     else:
+        st.info("💡 Tip: If you have manually edited the `ml_resume.json` file, you can load the content here.")
+    
+    if st.button("🔄 Refresh from ml_resume.json"):
+        if os.path.exists("ml_resume.json"):
+            with open("ml_resume.json", "r", encoding="utf-8") as f:
+                refreshed_data = json.load(f)
+                st.session_state.optimized_resume_data = refreshed_data
+                st.session_state['opt_json_area'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
+                st.success("Refreshed data from `ml_resume.json`!")
+        else:
+            st.warning("`ml_resume.json` not found. Please generate a resume first.")
+
+    if not st.session_state.optimized_resume_data:
         st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Customization' or proceed directly to '5️⃣ Export' to use your base profile.")
 
 # --- 5. Export Tab ---
