@@ -225,7 +225,7 @@ def generate_cover_letter_pdf(resume_data):
         pdf_filename = f"{custom_filename}.pdf"
 
         # 取得內容並進行清理
-        content = resume_data.get('cover_letter', 'No content')
+        cl_content = resume_data.get('cover_letter', 'No content')
         clean_cl_content = cl_content.replace('**', '')
 
         # --- 乾淨的 LaTeX 模板 ---
