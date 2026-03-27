@@ -136,10 +136,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             
         st.session_state.optimized_resume_data = modified_resume_data
 
-        # --- FIX: Force refresh of the text area in tab 4 ---
-        # By deleting the key, we force the text_area to re-read its default value
-        if 'opt_json_area' in st.session_state:
-            del st.session_state['opt_json_area']
+        # 強制將最新的 JSON 字串寫入文字框的 session state 中，確保 UI 100% 更新
+        st.session_state['opt_json_area'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
         
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
