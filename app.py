@@ -306,7 +306,7 @@ def generate_cover_letter_pdf(resume_data):
 # ---------------------------------------------------------
 # Custom Premium UI Components (Neumorphism & Overlays)
 # ---------------------------------------------------------
-def get_neumorphic_overlay_html(message="Verifying file...", animal_emoji="🐕"):
+def get_neumorphic_overlay_html(message="Verifying file...", animal_emoji="🐕", theme_color="#8a2be2"):
     """全螢幕的頂級新擬態(Neumorphism)載入層，包含下凹圓形視窗、漫步動物與極細漸層進度條"""
     return f"""
     <style>
@@ -343,7 +343,7 @@ def get_neumorphic_overlay_html(message="Verifying file...", animal_emoji="🐕"
     }}
     .particle {{
         position: absolute; bottom: 25px; left: 50%; border-radius: 50%;
-        background: radial-gradient(circle, #00f2fe, #8a2be2); /* Bokeh light */
+        background: radial-gradient(circle, #00f2fe, {theme_color}); /* Bokeh light */
         opacity: 0; z-index: 1; animation: bokeh-puff 1.2s infinite ease-out;
     }}
     .particle:nth-child(2) {{ animation-delay: 0.4s; left: 35%; width: 5px; height: 5px; }}
@@ -360,8 +360,8 @@ def get_neumorphic_overlay_html(message="Verifying file...", animal_emoji="🐕"
     }}
     .linear-progress-fill {{
         height: 100%; width: 35%; border-radius: 2px;
-        background: linear-gradient(90deg, #00f2fe, #8a2be2); /* Duo-tone electric blue to purple */
-        box-shadow: 0 0 10px rgba(138, 43, 226, 0.8);
+        background: linear-gradient(90deg, #00f2fe, {theme_color}); /* Duo-tone electric blue to custom color */
+        box-shadow: 0 0 10px {theme_color};
         animation: scan-bar 1.8s infinite ease-in-out; position: absolute; top: 0; left: 0;
     }}
     @keyframes stroll-bounce {{ 0% {{ transform: translateY(0) rotate(-4deg) scaleY(0.96); }} 100% {{ transform: translateY(-12px) rotate(4deg) scaleY(1.04); }} }}
@@ -450,7 +450,7 @@ with tab2:
         else:
             # 呼叫全螢幕動態凍結載入層
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_neumorphic_overlay_html("Verifying file & Generating...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_neumorphic_overlay_html("Verifying file & Generating...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             st.session_state.ai_report = report
@@ -515,7 +515,7 @@ with tab5:
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
         loading_overlay = st.empty()
-        loading_overlay.markdown(get_neumorphic_overlay_html("Compiling High-Quality PDF Resume...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+        loading_overlay.markdown(get_neumorphic_overlay_html("Compiling High-Quality PDF Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
         pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
@@ -535,7 +535,7 @@ with tab5:
             st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
         else:
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_neumorphic_overlay_html("Crafting Professional Cover Letter...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_neumorphic_overlay_html("Crafting Professional Cover Letter...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
             cl_pdf_path = generate_cover_letter_pdf(data_to_use)
             
