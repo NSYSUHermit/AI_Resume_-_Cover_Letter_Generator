@@ -123,8 +123,13 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         """
         
         response = model.generate_content(final_prompt)
-        ai_result = json.loads(response.text.replace('```json', '').replace('```', '').strip())
+        raw_text = response.text.replace('```json', '').replace('```', '').strip()
         
+        try:
+            ai_result = json.loads(raw_text)
+        except json.JSONDecodeError as json_err:
+            return False, f"⚠️ AI 輸出了格式錯誤的 JSON (JSON 語法錯誤)。建議您再點擊執行一次！\n\n**系統錯誤訊息:** {json_err}\n\n**AI 原始輸出片段 (供除錯):**\n```json\n{raw_text[:800]}\n```"
+
         modified_resume_data = ai_result.get("optimized_resume", {})
         if not modified_resume_data:
             return False, "⚠️ Parsing Error: Could not find the optimized resume data."
@@ -188,12 +193,8 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         # The final PDF will be named after the .tex file, e.g., main.pdf
         # We will rename it later for consistency.
         base_name = os.path.splitext(tex_filename)[0]
-        expected_pdf_name = f"{base_name}.pdf" # e.g. main.pdf
-
-        # --- NEW: Dynamic resume filename ---
-        company = data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
-        role = data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
-        final_pdf_name = f"{company}_{role}_resume.pdf"
+        expected_pdf_name = f"{base_name}.pdf"
+        final_pdf_name = "resume.pdf"
             
         # 呼叫 LuaLaTeX 編譯
         process = subprocess.Popen(
@@ -204,7 +205,7 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         stdout, stderr = process.communicate()
         
         if process.returncode == 0 and os.path.exists(expected_pdf_name):
-            # Rename the output file for a dynamic and consistent download name
+            # Rename the output file for a consistent download name
             if os.path.exists(final_pdf_name):
                 os.remove(final_pdf_name)
             os.rename(expected_pdf_name, final_pdf_name)
@@ -391,7 +392,7 @@ with tab5:
             if pdf_path:
                 st.success("✅ PDF successfully generated!")
                 with open(pdf_path, "rb") as f:
-                    st.download_button("📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
+                    st.download_button("📥 Click to Download Resume (resume.pdf)", f, file_name="resume.pdf", mime="application/pdf")
                     
     st.markdown("---")
     st.subheader("✉️ Export Cover Letter")
