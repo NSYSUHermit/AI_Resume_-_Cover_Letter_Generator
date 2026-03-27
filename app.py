@@ -139,10 +139,6 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         # 強制將最新的 JSON 字串寫入文字框的 session state 中，確保 UI 100% 更新
         st.session_state['opt_json_area'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
         
-        # --- 新增：將 AI 生成的最佳化履歷立即寫入 ml_resume.json 實體檔案 ---
-        with open("ml_resume.json", "w", encoding="utf-8") as f:
-            json.dump(modified_resume_data, f, ensure_ascii=False, indent=4)
-
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
             kw = ai_result["keyword_analysis"]
@@ -304,80 +300,77 @@ def generate_cover_letter_pdf(resume_data):
         return None
 
 # ---------------------------------------------------------
-# Custom Premium UI Components (Neumorphism & Overlays)
+# Custom Premium UI Components (Glassmorphism & Overlays)
 # ---------------------------------------------------------
-def get_neumorphic_overlay_html(message="Verifying file...", animal_emoji="🐕", theme_color="#8a2be2"):
-    """全螢幕的頂級新擬態(Neumorphism)載入層，包含下凹圓形視窗、漫步動物與極細漸層進度條"""
+def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕"):
+    """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
     return f"""
     <style>
-    .neu-overlay-bg {{
+    .glass-overlay-bg {{
         position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(35, 37, 41, 0.85); /* Deep dark blurred background */
-        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        background: rgba(10, 10, 15, 0.7);
+        backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
         z-index: 999999; display: flex; justify-content: center; align-items: center;
     }}
-    .neu-panel {{
-        background: #232529; /* Soft dark tactile texture base */
-        border-radius: 40px; padding: 60px 50px;
-        box-shadow: 14px 14px 28px #18191c, -14px -14px 28px #2e3136; /* Premium Neumorphism extrude */
+    .glass-dialog-box {{
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        border-radius: 24px; padding: 50px 60px;
+        text-align: center; position: relative; overflow: hidden;
         display: flex; flex-direction: column; align-items: center;
-        width: 400px; position: relative;
-        border: 1px solid rgba(255,255,255,0.03); /* Subtle edge highlight */
     }}
-    .neu-circle-window {{
-        width: 160px; height: 160px; border-radius: 50%; background: #232529;
-        box-shadow: inset 10px 10px 20px #151619, inset -10px -10px 20px #31343a; /* Depressed circles */
-        display: flex; justify-content: center; align-items: center;
-        margin-bottom: 35px; position: relative; overflow: hidden;
-        border: 1px solid rgba(0, 0, 0, 0.4);
+    .glass-dialog-box::before {{
+        content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+        background: radial-gradient(circle, rgba(138, 43, 226, 0.15) 0%, transparent 60%);
+        animation: pulse-glow 3s infinite alternate; z-index: 0;
     }}
-    .neu-circle-window::after {{
-        content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        border-radius: 50%; box-shadow: inset 0 3px 6px rgba(255, 230, 200, 0.08); /* Warm rim light */
-        pointer-events: none;
+    .animal-runner {{
+        font-size: 70px;
+        margin-bottom: 20px;
+        z-index: 1; position: relative;
+        display: inline-block;
+        animation: run-bounce 0.4s alternate infinite cubic-bezier(0.3, 0.05, 0.7, 0.95);
     }}
-    .animal-walker {{
-        font-size: 75px; position: relative; z-index: 2;
-        filter: drop-shadow(0 12px 10px rgba(0,0,0,0.5));
-        animation: stroll-bounce 0.5s infinite alternate cubic-bezier(0.3, 0.05, 0.7, 0.95);
+    .loading-text {{
+        color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
+        font-weight: 300; letter-spacing: 1px; margin: 0;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
     }}
-    .particle {{
-        position: absolute; bottom: 25px; left: 50%; border-radius: 50%;
-        background: radial-gradient(circle, #00f2fe, {theme_color}); /* Bokeh light */
-        opacity: 0; z-index: 1; animation: bokeh-puff 1.2s infinite ease-out;
+    .timer-text {{
+        color: #00f2fe; font-family: monospace; font-size: 1.5rem;
+        font-weight: bold; margin-top: 15px;
+        text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); z-index: 1; position: relative;
     }}
-    .particle:nth-child(2) {{ animation-delay: 0.4s; left: 35%; width: 5px; height: 5px; }}
-    .particle:nth-child(3) {{ animation-delay: 0.8s; left: 60%; width: 8px; height: 8px; }}
-    
-    .loading-title {{
-        color: #d1d1d6; font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem;
-        font-weight: 400; letter-spacing: 0.5px; margin: 0 0 25px 0;
+    @keyframes run-bounce {{
+        0% {{ transform: translateY(0) rotate(0deg) skewX(0deg); }}
+        100% {{ transform: translateY(-20px) rotate(5deg) skewX(-10deg); }}
     }}
-    .linear-progress-track {{
-        width: 100%; height: 3px; background: #18191c; border-radius: 2px;
-        box-shadow: inset 1px 1px 2px #111, inset -1px -1px 2px #2a2a2a;
-        overflow: hidden; position: relative;
-    }}
-    .linear-progress-fill {{
-        height: 100%; width: 35%; border-radius: 2px;
-        background: linear-gradient(90deg, #00f2fe, {theme_color}); /* Duo-tone electric blue to custom color */
-        box-shadow: 0 0 10px {theme_color};
-        animation: scan-bar 1.8s infinite ease-in-out; position: absolute; top: 0; left: 0;
-    }}
-    @keyframes stroll-bounce {{ 0% {{ transform: translateY(0) rotate(-4deg) scaleY(0.96); }} 100% {{ transform: translateY(-12px) rotate(4deg) scaleY(1.04); }} }}
-    @keyframes bokeh-puff {{ 0% {{ transform: translate(0, 0) scale(1); opacity: 0.7; }} 100% {{ transform: translate(-30px, -20px) scale(3); opacity: 0; }} }}
-    @keyframes scan-bar {{ 0% {{ left: -35%; }} 100% {{ left: 100%; }} }}
+    @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
     </style>
-    <div class="neu-overlay-bg">
-        <div class="neu-panel">
-            <div class="neu-circle-window">
-                <div class="animal-walker">{animal_emoji}</div>
-                <div class="particle" style="width:6px;height:6px;"></div><div class="particle"></div><div class="particle"></div>
-            </div>
-            <h3 class="loading-title">{message}</h3>
-            <div class="linear-progress-track"><div class="linear-progress-fill"></div></div>
+    <div class="glass-overlay-bg">
+        <div class="glass-dialog-box">
+            <div class="animal-runner">{animal_emoji}</div>
+            <h2 class="loading-text">{message}</h2>
+            <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
         </div>
     </div>
+    <script>
+    (function() {{
+        var sec = 0;
+        var el = document.getElementById('loading-timer-val');
+        if(!el) return;
+        var timer = setInterval(function() {{
+            // 如果視窗已經被 Streamlit empty() 清除，則停止計時器避免記憶體洩漏
+            if(!document.body.contains(el)) {{
+                clearInterval(timer);
+                return;
+            }}
+            sec++;
+            el.innerText = sec;
+        }}, 1000);
+    }})();
+    </script>
     """
 
 def get_glass_warning_html():
@@ -410,8 +403,20 @@ with st.sidebar:
     if api_key_input:
         st.session_state.api_key = api_key_input
     st.markdown("---")
-    st.markdown("👉 [Get Gemini API Key for free](https://aistudio.google.com/app/apikey)")
+    
+    st.header("🏃 Loading Animation")
+    animal_choice = st.selectbox(
+        "Choose your runner",
+        ["🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
+        index=0
+    )
+    st.session_state.animal_emoji = animal_choice.split(" ")[0]
+    
+    theme_color_choice = st.color_picker("Choose theme color", "#8a2be2")
+    st.session_state.theme_color = theme_color_choice
+    
     st.markdown("---")
+    st.markdown("👉 [Get Gemini API Key for free](https://aistudio.google.com/app/apikey)")
     st.markdown("👨‍💻 **Developed by [NSYSUHermit](https://github.com/NSYSUHermit)**")
 
 st.title("🚀 AI-Powered Resume Builder")
@@ -450,7 +455,7 @@ with tab2:
         else:
             # 呼叫全螢幕動態凍結載入層
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_neumorphic_overlay_html("Verifying file & Generating...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
             
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             st.session_state.ai_report = report
@@ -515,7 +520,7 @@ with tab5:
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
         loading_overlay = st.empty()
-        loading_overlay.markdown(get_neumorphic_overlay_html("Compiling High-Quality PDF Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
         pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
@@ -535,7 +540,7 @@ with tab5:
             st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
         else:
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_neumorphic_overlay_html("Crafting Professional Cover Letter...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
             
             cl_pdf_path = generate_cover_letter_pdf(data_to_use)
             
