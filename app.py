@@ -237,7 +237,7 @@ def generate_cover_letter_pdf(resume_data):
 \usepackage{parskip} % ✨ 魔法在這裡：這行會強制取消所有縮排，讓文字完美靠左！
 \onehalfspacing
 \begin{document}
-""" + clean_content.replace("\n", "\n\n") + r"""
+""" + clean_cl_content.replace("\n", "\n\n") + r"""
 \end{document}
 """
         
