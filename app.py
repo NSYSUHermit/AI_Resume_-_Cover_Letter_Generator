@@ -214,38 +214,45 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
 # Cover Letter AI and PDF Generation
 # ---------------------------------------------------------
 def generate_cover_letter_pdf(resume_data):
-    """Generates a PDF from the 'cover_letter' field in the resume data."""
+    """Generates a PDF from the 'cover_letter' field using a hardcoded clean LaTeX template."""
     try:
-        # Using Jinja2 for simple text replacement is cleaner and safer
-        latex_jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.abspath('.')),
-            autoescape=False
-        )
-        template = latex_jinja_env.get_template('cover_letter.tex')
+        # 取得公司與職位名，處理檔名 (將空格與斜線替換為底線)
+        company = resume_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
+        role = resume_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
 
-        # Directly get the cover letter content from the JSON data
-        cl_content = resume_data.get('cover_letter', 'Cover letter content not found in JSON.')
-        # Clean markdown bold characters
+        custom_filename = f"{company}_{role}_coverletter"
+        tex_filename = f"{custom_filename}.tex"
+        pdf_filename = f"{custom_filename}.pdf"
+
+        # 取得內容並進行清理
+        content = resume_data.get('cover_letter', 'No content')
         clean_cl_content = cl_content.replace('**', '')
 
-        # Prepare data for the template
-        template_data = {
-            "name": resume_data.get("heading", {}).get("name", "John Doe"),
-            "email": resume_data.get("heading", {}).get("email", ""),
-            "phone": resume_data.get("heading", {}).get("phone", ""),
-            "linkedin": resume_data.get("heading", {}).get("linkedin", ""),
-            "website": resume_data.get("heading", {}).get("website", ""),
-            "body": clean_cl_content.replace('\n', '\n\n') # Ensure paragraphs are spaced
-        }
-
-        rendered_tex = template.render(template_data)
+        # --- 乾淨的 LaTeX 模板 ---
+        latex_template = r"""
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fontspec}
+\usepackage{setspace}
+\usepackage{parskip} % ✨ 魔法在這裡：這行會強制取消所有縮排，讓文字完美靠左！
+\onehalfspacing
+\begin{document}
+""" + clean_content.replace("\n", "\n\n") + r"""
+\end{document}
+"""
         
-        with open("rendered_cl.tex", "w", encoding="utf-8") as f:
-            f.write(rendered_tex)
+        # 寫入 .tex
+        with open(tex_filename, "w", encoding="utf-8") as f:
+            f.write(latex_template)
 
         # Compile with lualatex
-        subprocess.run(['lualatex', '-interaction=nonstopmode', 'rendered_cl.tex'], check=True)
-        return "rendered_cl.pdf"
+        subprocess.run(['lualatex', '-interaction=nonstopmode', tex_filename], check=True)
+        
+        if os.path.exists(pdf_filename):
+            return pdf_filename
+        else:
+            st.error("❌ PDF 生成失敗。")
+            return None
 
     except Exception as e:
         st.error(f"Cover Letter PDF generation failed: {e}")
@@ -367,4 +374,4 @@ with tab5:
                 cl_pdf_path = generate_cover_letter_pdf(data_to_use)
                 if cl_pdf_path:
                     with open(cl_pdf_path, "rb") as f:
-                        st.download_button("📥 Click to Download Cover Letter", f, file_name="cover_letter.pdf", mime="application/pdf")
+                        st.download_button("📥 Click to Download Cover Letter", f, file_name=cl_pdf_path, mime="application/pdf")
