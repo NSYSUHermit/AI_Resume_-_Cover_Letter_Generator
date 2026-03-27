@@ -139,6 +139,10 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         # 強制將最新的 JSON 字串寫入文字框的 session state 中，確保 UI 100% 更新
         st.session_state['opt_json_area'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
         
+        # --- 新增：將 AI 生成的最佳化履歷立即寫入 ml_resume.json 實體檔案 ---
+        with open("ml_resume.json", "w", encoding="utf-8") as f:
+            json.dump(modified_resume_data, f, ensure_ascii=False, indent=4)
+
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
             kw = ai_result["keyword_analysis"]
