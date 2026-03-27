@@ -1,0 +1,39 @@
+\documentclass[11pt, a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fontspec}
+\usepackage{setspace}
+\usepackage{parskip} % Removes indentation and adds space between paragraphs
+\usepackage{hyperref}
+
+\onehalfspacing
+
+\begin{document}
+
+% --- Sender's Info ---
+\begin{flushright}
+\textbf{\Huge {{ name }} } \\
+\vspace{1em}
+{{ email }} \\
+{{ phone }} \\
+\href{https://{{ linkedin }}}{{{ linkedin }}} \\
+\href{https://{{ website }}}{{{ website }}}
+\end{flushright}
+
+\vspace{2em}
+
+% --- Date ---
+\today
+
+\vspace{2em}
+
+% --- Body ---
+{{ body }}
+
+\vspace{2em}
+
+% --- Closing ---
+Sincerely, \\
+\vspace{1em}
+{{ name }}
+
+\end{document}

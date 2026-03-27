@@ -74,7 +74,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         report_md = ""
 
         # 🛑 Phase 1: Visa Sponsorship Check
@@ -211,6 +211,83 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         return None
 
 # ---------------------------------------------------------
+# Cover Letter AI and PDF Generation
+# ---------------------------------------------------------
+def generate_cover_letter_content(resume_data, jd_text, custom_cl_prompt):
+    """Generates the body of the cover letter using AI."""
+    try:
+        api_key = st.session_state.get("api_key", "")
+        if not api_key:
+            st.error("Please set your Gemini API Key in the sidebar.")
+            return None
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        prompt = f"""
+        You are a professional career coach. Based on the candidate's resume and the target job description (JD), write a concise and impactful cover letter.
+
+        **Candidate's Resume:**
+        {json.dumps(resume_data, ensure_ascii=False)}
+
+        **Target Job Description (JD):**
+        {jd_text}
+
+        **User's Special Instructions:**
+        {custom_cl_prompt}
+
+        **Task:**
+        Generate the body of the cover letter only. It should be 3-4 paragraphs long.
+        - Start with a strong opening that grabs the reader's attention.
+        - Highlight 2-3 key experiences or skills from the resume that directly match the JD's requirements.
+        - End with a confident closing and a call to action.
+        - Do NOT include the sender's/recipient's address or the date. Just the body content, starting from "Dear Hiring Manager,".
+        - Do NOT use markdown like '**'.
+
+        **Output:**
+        (The generated cover letter body text)
+        """
+        response = model.generate_content(prompt)
+        return response.text
+
+    except Exception as e:
+        st.error(f"AI Cover Letter generation failed: {e}")
+        return None
+
+def generate_cover_letter_pdf(cl_content, resume_data):
+    """Generates a PDF from the cover letter content using a Jinja2 template."""
+    try:
+        # Using Jinja2 for simple text replacement is cleaner and safer
+        latex_jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(os.path.abspath('.')),
+            autoescape=False
+        )
+        template = latex_jinja_env.get_template('cover_letter.tex')
+
+        # Prepare data for the template
+        template_data = {
+            "name": resume_data.get("heading", {}).get("name", "John Doe"),
+            "email": resume_data.get("heading", {}).get("email", ""),
+            "phone": resume_data.get("heading", {}).get("phone", ""),
+            "linkedin": resume_data.get("heading", {}).get("linkedin", ""),
+            "website": resume_data.get("heading", {}).get("website", ""),
+            "body": cl_content.replace('\n', '\n\n') # Ensure paragraphs are spaced
+        }
+
+        rendered_tex = template.render(template_data)
+        
+        with open("rendered_cl.tex", "w", encoding="utf-8") as f:
+            f.write(rendered_tex)
+
+        # Compile with lualatex
+        subprocess.run(['lualatex', '-interaction=nonstopmode', 'rendered_cl.tex'], check=True)
+        return "rendered_cl.pdf"
+
+    except Exception as e:
+        st.error(f"Cover Letter PDF generation failed: {e}")
+        return None
+
+# ---------------------------------------------------------
 # Streamlit UI 介面
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
@@ -317,5 +394,21 @@ with tab5:
                     
     st.markdown("---")
     st.subheader("✉️ Export Cover Letter")
-    st.info("💡 This section is ready for Cover Letters! In the future, we just need to add a generation prompt and a `.tex` template to output one-click cover letters.")
-    st.button("Generate Cover Letter (Coming Soon)", disabled=True)
+    
+    custom_cl_prompt = st.text_area("🗣️ Custom Prompt for Cover Letter (Optional)", value="Please write in a professional but friendly tone. Emphasize my backend skills.", key="cl_prompt")
+
+    if st.button("✨ Generate & Download Cover Letter PDF", type="primary", key="gen_cl"):
+        jd_text = st.session_state.get('jd_input_for_cl', "") # We need the JD from tab 2
+        if not jd_text:
+            st.warning("Please make sure you have pasted a JD in the '2️⃣ AI Customization' tab first.")
+        else:
+            with st.spinner("AI is crafting your cover letter..."):
+                cl_content = generate_cover_letter_content(data_to_use, jd_text, custom_cl_prompt)
+            
+            if cl_content:
+                st.text_area("Generated Cover Letter Body (for review)", cl_content, height=300)
+                with st.spinner("Now compiling the Cover Letter PDF..."):
+                    cl_pdf_path = generate_cover_letter_pdf(cl_content, data_to_use)
+                    if cl_pdf_path:
+                        with open(cl_pdf_path, "rb") as f:
+                            st.download_button("📥 Click to Download Cover Letter", f, file_name="cover_letter.pdf", mime="application/pdf")
