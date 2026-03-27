@@ -74,7 +74,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         report_md = ""
 
         # 🛑 Phase 1: Visa Sponsorship Check
