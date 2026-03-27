@@ -369,6 +369,18 @@ with tab3:
 # --- 4. Edit Optimized Result Tab ---
 with tab4:
     st.header("📝 Review & Edit Optimized Resume")
+
+    # --- FIX: Move button to the top and handle state update before rendering ---
+    if st.button("🔄 Refresh from ml_resume.json"):
+        if os.path.exists("ml_resume.json"):
+            with open("ml_resume.json", "r", encoding="utf-8") as f:
+                refreshed_data = json.load(f)
+                st.session_state.optimized_resume_data = refreshed_data
+                st.success("Refreshed data from `ml_resume.json`! The view will update.")
+                # We don't need to manually set the text_area value here anymore.
+        else:
+            st.warning("`ml_resume.json` not found. Please generate a resume first.")
+
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
         opt_json_str = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
@@ -381,19 +393,6 @@ with tab4:
             except Exception as e:
                 st.error(f"JSON format error, please check syntax: {e}")
     else:
-        st.info("💡 Tip: If you have manually edited the `ml_resume.json` file, you can load the content here.")
-    
-    if st.button("🔄 Refresh from ml_resume.json"):
-        if os.path.exists("ml_resume.json"):
-            with open("ml_resume.json", "r", encoding="utf-8") as f:
-                refreshed_data = json.load(f)
-                st.session_state.optimized_resume_data = refreshed_data
-                st.session_state['opt_json_area'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
-                st.success("Refreshed data from `ml_resume.json`!")
-        else:
-            st.warning("`ml_resume.json` not found. Please generate a resume first.")
-
-    if not st.session_state.optimized_resume_data:
         st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Customization' or proceed directly to '5️⃣ Export' to use your base profile.")
 
 # --- 5. Export Tab ---
