@@ -165,40 +165,26 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 # PDF 生成邏輯 (支援自訂 main.tex)
 # ---------------------------------------------------------
 def generate_pdf_from_json(data, custom_tex_bytes=None):
-    # 決定使用的 tex 模板內容
+    # Determine which .tex file to use
+    tex_filename = "main.tex"
     if custom_tex_bytes:
         template_content = custom_tex_bytes.decode('utf-8')
-        template_name = "custom_main.tex"
-        with open(template_name, "w", encoding="utf-8") as f:
-            f.write(template_content)
-    else:
-        template_name = "main.tex"
-
-    # 設定 Jinja2 環境，避免與 LaTeX 的 {} 衝突
-    latex_jinja_env = jinja2.Environment(
-        block_start_string='<%-',
-        block_end_string='%>',
-        variable_start_string='<<',
-        variable_end_string='>>',
-        comment_start_string='<#',
-        comment_end_string='#>',
-        line_statement_prefix='%%',
-        line_comment_prefix='%#',
-        trim_blocks=True,
-        autoescape=False,
-        loader=jinja2.FileSystemLoader(os.path.abspath('.'))
-    )
-    
-    try:
-        template = latex_jinja_env.get_template(template_name)
-        rendered_tex = template.render(**data)
-        
-        # 將渲染後的內容寫入暫存的 tex 檔
-        tex_filename = "rendered_resume.tex"
-        pdf_filename = "rendered_resume.pdf"
-        
+        tex_filename = "custom_main.tex"
         with open(tex_filename, "w", encoding="utf-8") as f:
-            f.write(rendered_tex)
+            f.write(template_content)
+
+    try:
+        # --- NEW LOGIC ---
+        # Write the data to a temporary JSON file that the LuaLaTeX script expects.
+        temp_json_filename = "ml_resume.json"
+        with open(temp_json_filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
+        # The final PDF will be named after the .tex file, e.g., main.pdf
+        # We will rename it later for consistency.
+        base_name = os.path.splitext(tex_filename)[0]
+        expected_pdf_name = f"{base_name}.pdf"
+        final_pdf_name = "resume.pdf"
             
         # 呼叫 LuaLaTeX 編譯
         process = subprocess.Popen(
@@ -208,11 +194,15 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         )
         stdout, stderr = process.communicate()
         
-        if process.returncode == 0 and os.path.exists(pdf_filename):
-            return pdf_filename
+        if process.returncode == 0 and os.path.exists(expected_pdf_name):
+            # Rename the output file for a consistent download name
+            if os.path.exists(final_pdf_name):
+                os.remove(final_pdf_name)
+            os.rename(expected_pdf_name, final_pdf_name)
+            return final_pdf_name
         else:
-            st.error(f"LaTeX Compilation Failed (Return Code {process.returncode})")
-            with st.expander("View Compilation Log"):
+            st.error(f"LaTeX Compilation Failed (Return Code {process.returncode}) for {tex_filename}")
+            with st.expander("View Full Compilation Log"):
                 st.text(stdout.decode('utf-8', errors='ignore'))
                 st.text(stderr.decode('utf-8', errors='ignore'))
             return None

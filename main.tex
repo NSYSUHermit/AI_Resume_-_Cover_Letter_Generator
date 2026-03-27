@@ -1,78 +1,196 @@
-\documentclass[11pt,a4paper]{article}
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{geometry}
-\geometry{a4paper, margin=0.75in}
-\usepackage{hyperref}
-\usepackage{titlesec}
-\usepackage{enumitem}
+%-------------------------------------------
+% Resume in LuaLatex - Uniform Location and Time Font
+% Author: Henry Lin
+%-------------------------------------------
 
-% Section formatting
-\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
-\titlespacing{\section}{0pt}{1ex}{1ex}
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext,newtxmath} % Times New Roman
+\usepackage{latexsym}
+\usepackage{graphicx}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\RequirePackage{luatex85}
+\usepackage{luacode}
+\usepackage[hidelinks]{hyperref}
+\usepackage{multirow}
+
+\pagestyle{fancy}
+\fancyhf{} 
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% 邊距設定
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1.0in}
+\addtolength{\topmargin}{-0.8in} 
+\addtolength{\textheight}{1.8in} % <-- 將原本的 1in 改為 1.8in，大幅向下擴張可用空間
+\setlength{\footskip}{0pt}       % <-- 新增這行：徹底移除底部頁腳的隱藏留白
+
+\urlstyle{same}
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% 標題格式
+\titleformat{\section}{
+  \vspace{-12pt}\upshape\bfseries\raggedright\large
+}{}{0em}{}[\titlerule \vspace{-12pt}] 
+
+% --- 修改 1 & 2：寬度改為 1\textwidth，學校名稱去斜體 ---
+\newcommand{\resumeExpFixEntry}[4]{
+  \vspace{4pt} 
+  \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
+    \textbf{#1} $\cdot$ \textbf{#2} & \textbf{#4}, \textbf{#3} \\ 
+  \end{tabular*}\vspace{-1pt} 
+}
+
+\newcommand{\resumeEduEntry}[4]{
+  \vspace{4pt}
+  \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
+    \textbf{#3} & \textbf{#2} \\ 
+    \upshape{#1} & {\upshape #4} \\ % <-- 這裡將 \textit 改成 \upshape 
+  \end{tabular*}\vspace{-1pt}
+}
+
+% 列表間距指令
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=1.5em, itemsep=2pt, topsep=1pt, parsep=0pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{0pt}}
+
+%-------------------------------------------
+% Lua code
+%-------------------------------------------
+\begin{luacode*}
+require("lualibs")
+local resume = nil
+
+local function escapeTex(str)
+  if not str then return "" end
+  str = string.gsub(str, "%%", "\\%%")
+  str = string.gsub(str, "_", "\\_")
+  str = string.gsub(str, "&", "\\&")
+  str = string.gsub(str, "#", "\\#")
+  str = string.gsub(str, "{", "\\{")
+  str = string.gsub(str, "}", "\\}")
+  return str
+end
+
+local function getResume()
+  if resume then return resume end
+  local fh, err = io.open("ml_resume.json", "r")
+  if not fh then return {} end
+  local txt = fh:read("*a")
+  fh:close()
+  resume = utilities.json.tolua(txt)
+  return resume
+end
+
+function printHeading()
+  local r = getResume()
+  local h = r.heading or {}
+  tex.print("\\begin{tabular*}{\\textwidth}{l@{\\extracolsep{\\fill}}r}")
+  tex.print("{\\huge\\bfseries " .. escapeTex(h.name or "") .. "} & ")
+  tex.print("Email: " .. escapeTex(h.email or "") .. " \\\\")
+  tex.print(escapeTex(h.website or "") .. " $|$ " .. escapeTex(h.linkedin or "") .. " & ")
+  tex.print("Mobile: " .. escapeTex(h.phone or "") .. " \\\\")
+  tex.print("\\end{tabular*}")
+  tex.print("\\vspace{-5pt}") 
+end
+
+function printEducation()
+  local r = getResume()
+  for _, e in ipairs(r.education or {}) do
+    tex.print("\\resumeEduEntry{" .. escapeTex(e.school) .. "}{" .. escapeTex(e.time_period) .. "}{" .. escapeTex(e.degree) .. "}{" .. escapeTex(e.school_location) .. "}")
+  end
+end
+
+function printExperience()
+  local r = getResume()
+  for _, exp in ipairs(r.experience or {}) do
+    tex.print("\\resumeExpFixEntry{" .. escapeTex(exp.company) .. "}{" .. escapeTex(exp.role) .. "}{" .. escapeTex(exp.time_duration) .. "}{" .. escapeTex(exp.company_location or "") .. "}")
+    tex.print("\\resumeItemListStart")
+    for _, d in ipairs(exp.details or {}) do
+      tex.print("\\item " .. escapeTex(d.description or ""))
+    end
+    tex.print("\\resumeItemListEnd")
+  end
+end
+
+function printProjects()
+  local r = getResume()
+  for _, p in ipairs(r.projects or {}) do
+    -- 1. 移除了結尾的 \\ 
+    tex.print("\\noindent \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time or ""))
+    -- 2. 直接在這裡用 \vspace 微調它跟下方 description 的距離
+    tex.print("\\vspace{0pt}") 
+    tex.print("\\resumeItemListStart")
+    tex.print("\\item " .. escapeTex(p.description or ""))
+    tex.print("\\resumeItemListEnd")
+  end
+end
+
+function printPatents()
+  local r = getResume()
+  for _, p in ipairs(r.patents or {}) do
+    -- 1. 移除了結尾的 \\
+    tex.print("\\noindent \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time))
+    -- 2. 直接在這裡用 \vspace 微調它跟下方 description 的距離
+    tex.print("\\vspace{0pt}")
+    tex.print("\\resumeItemListStart")
+    tex.print("\\item " .. escapeTex(p.description or ""))
+    tex.print("\\resumeItemListEnd")
+  end
+end
+
+function printSkills()
+  local r = getResume()
+  local s = r.skills or {}
+  
+  tex.print("\\vspace{4pt}") 
+  
+  local function printDynamicCategory(key)
+    local set_data = s[key]
+    if set_data and set_data.title and set_data.items and #set_data.items > 0 then
+      local title_str = escapeTex(set_data.title)
+      local items_str = escapeTex(table.concat(set_data.items, ", "))
+      
+      -- --- 修改 3：移除 \hangindent 與 \hangafter，確保換行時靠左對齊 ---
+      tex.print("\\noindent \\textbf{" .. title_str .. "}: {\\upshape " .. items_str .. "} \\\\[4pt]")
+    end
+  end
+
+  printDynamicCategory("set1")
+  printDynamicCategory("set2")
+  printDynamicCategory("set3")
+end
+
+\end{luacode*}
 
 \begin{document}
-\pagestyle{empty} % No page numbers
 
-% Basic Info
-\begin{center}
-    {\huge \textbf{<< heading.name >>}} \\ \vspace{0.5ex}
-    << heading.email >> | << heading.phone >> \\
-    \url{<< heading.linkedin >>} | \url{<< heading.website >>}
-\end{center}
+\directlua{printHeading()}
 
-% Summary
-<%- if summary %>
-\section*{Professional Summary}
-<< summary | replace('%', '\\%') >>
-<%- endif %>
+\section{WORK EXPERIENCE}
+  \directlua{printExperience()}
 
-% Education
-\section*{Education}
-<%- for edu in education %>
-\noindent
-\textbf{<< edu.school >>}, << edu.school_location >> \hfill << edu.time_period >> \\
-\textit{<< edu.degree >>} \\
-<%- endfor %>
+\section{EDUCATION}
+  \directlua{printEducation()}
+  
+\vspace{-8pt} %
 
-% Experience
-\section*{Experience}
-<%- for exp in experience %>
-\noindent
-\textbf{<< exp.company >>}, << exp.company_location >> \hfill << exp.time_duration >> \\
-\textit{<< exp.role >>} \hfill << exp.team >>
-\begin{itemize}[leftmargin=*, parsep=0pt, itemsep=0pt, topsep=1pt]
-    <%- for item in exp.details %>
-    \item \textbf{<< item.title >>:} << item.description | replace('%', '\\%') >>
-    <%- endfor %>
-\end{itemize}
-\vspace{1ex}
-<%- endfor %>
-
-% Projects
-<%- if projects %>
-\section*{Projects}
-<%- for proj in projects %>
-\noindent \textbf{<< proj.name >>} \hfill << proj.time >> \\
-<< proj.description | replace('%', '\\%') >> \vspace{1ex}
-<%- endfor %>
-<%- endif %>
-
-% Patents
-<%- if patents %>
-\section*{Patents}
-<%- for pat in patents %>
-\noindent \textbf{<< pat.name >>} \hfill << pat.time >> \\
-<< pat.description | replace('%', '\\%') >> \vspace{1ex}
-<%- endfor %>
-<%- endif %>
-
-% Skills
-<%- if skills %>
-\section*{Skills}
-<%- for key, skill in skills.items() %>
-\noindent \textbf{<< skill.title >>:} << skill.items | join(', ') >> \\
-<%- endfor %>
-<%- endif %>
+\section{SELECTIVE PROJECTS \& PATENTS}
+  \vspace{6pt} %
+  \directlua{printProjects()}
+  \directlua{printPatents()}
+  
+\section{SKILLS}
+  \directlua{printSkills()}
 
 \end{document}
