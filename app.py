@@ -228,6 +228,19 @@ def generate_cover_letter_pdf(resume_data):
         cl_content = resume_data.get('cover_letter', 'No content')
         clean_cl_content = cl_content.replace('**', '')
 
+        # 跳脫 LaTeX 特殊字元，防止 % (註解)、$ (數學模式) 等造成編譯失敗
+        def escape_tex(text):
+            # 替換順序很重要，先處理反斜線
+            text = text.replace('\\', '\\textbackslash{}')
+            chars_to_escape = ['&', '%', '$', '#', '_', '{', '}']
+            for c in chars_to_escape:
+                text = text.replace(c, '\\' + c)
+            text = text.replace('~', '\\textasciitilde{}')
+            text = text.replace('^', '\\textasciicircum{}')
+            return text
+            
+        escaped_content = escape_tex(clean_cl_content)
+
         # --- 乾淨的 LaTeX 模板 ---
         latex_template = r"""
 \documentclass[11pt]{article}
@@ -237,7 +250,7 @@ def generate_cover_letter_pdf(resume_data):
 \usepackage{parskip} % ✨ 魔法在這裡：這行會強制取消所有縮排，讓文字完美靠左！
 \onehalfspacing
 \begin{document}
-""" + clean_cl_content.replace("\n", "\n\n") + r"""
+""" + escaped_content.replace("\n", "\n\n") + r"""
 \end{document}
 """
         
@@ -246,12 +259,20 @@ def generate_cover_letter_pdf(resume_data):
             f.write(latex_template)
 
         # Compile with lualatex
-        subprocess.run(['lualatex', '-interaction=nonstopmode', tex_filename], check=True)
+        process = subprocess.run(
+            ['lualatex', '-interaction=nonstopmode', tex_filename],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
         
-        if os.path.exists(pdf_filename):
+        if process.returncode == 0 and os.path.exists(pdf_filename):
             return pdf_filename
         else:
-            st.error("❌ PDF 生成失敗。")
+            st.error("❌ Cover Letter PDF 生成失敗。")
+            with st.expander("View Full Compilation Log (查看錯誤日誌)"):
+                st.text(process.stdout)
+                st.text(process.stderr)
             return None
 
     except Exception as e:
