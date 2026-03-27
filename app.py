@@ -376,8 +376,8 @@ with tab4:
             with open("ml_resume.json", "r", encoding="utf-8") as f:
                 refreshed_data = json.load(f)
                 st.session_state.optimized_resume_data = refreshed_data
+                st.session_state['opt_json_area'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
                 st.success("Refreshed data from `ml_resume.json`! The view will update.")
-                # We don't need to manually set the text_area value here anymore.
         else:
             st.warning("`ml_resume.json` not found. Please generate a resume first.")
 
