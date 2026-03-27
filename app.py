@@ -11,55 +11,58 @@ import json
 if "resume_data" not in st.session_state:
     st.session_state.resume_data = {
         "heading": {
-            "name": "Henry Lin",
-            "email": "hungjuli@asu.edu",
-            "phone": "+1-623-290-5568",
-            "website": "github.com/NSYSUHermit",
-            "linkedin": "linkedin.com/in/henry-lin-57b796187"
+            "name": "John Doe",
+            "email": "johndoe@example.com",
+            "phone": "+1-234-567-8900",
+            "website": "github.com/johndoe",
+            "linkedin": "linkedin.com/in/johndoe"
         },
-        "about me more": "我獨立包辦了從底層模型優化、後端微服務架構，到前端使用者介面的端到端 (End-to-End) 開發...",
-        "summary": "Senior Software Engineer with 5 years of experience specializing in scalable Python backend architectures and AI-driven systems...",
+        "about me more": "I have independently handled end-to-end development, from low-level model optimization and backend microservice architecture to frontend user interfaces...",
+        "summary": "Software Engineer with 3 years of experience specializing in scalable backend architectures and AI-driven systems...",
         "education": [
             {
-                "degree": "Master of Science in Computer Software Engineering",
-                "time_period": "Aug 2024 - May 2026",
-                "school": "Arizona State University",
-                "school_location": "Tempe, Arizona"
+                "degree": "Master of Science in Computer Science",
+                "time_period": "Aug 2021 - May 2023",
+                "school": "State University",
+                "school_location": "New York, NY"
             }
         ],
         "experience": [
             {
-                "role": "Software Engineer Intern",
-                "team": "BIOS Development Software Team",
-                "company": "Dell Technologies",
-                "company_location": "Hybrid",
-                "time_duration": "Jun 2025 - Aug 2025",
+                "role": "Software Engineer",
+                "team": "Backend Core Team",
+                "company": "Tech Corp",
+                "company_location": "San Francisco, CA",
+                "time_duration": "Jun 2023 - Present",
                 "details": [
                     {
-                        "title": "FastAPI & Agentic Workflow Architecture",
-                        "description": "Architected a high-performance backend using FastAPI and Asyncio to orchestrate LangGraph-based Agentic workflows..."
+                        "title": "Microservices Architecture",
+                        "description": "Architected a high-performance backend using Python and FastAPI to orchestrate automated workflows, improving efficiency by 40%."
                     }
                 ]
             }
         ],
         "projects": [
             {
-                "name": "Capstone Project: WeVibe - AI-Powered Matchmaking Platform",
-                "time": "Jan 2026 -- Present",
-                "description": "Led a cross-functional team as Scrum Master to develop a modern dating app..."
+                "name": "E-Commerce Platform",
+                "time": "Jan 2023 - May 2023",
+                "description": "Led a team of 4 to develop a full-stack e-commerce web application using React and Django."
             }
         ],
         "patents": [],
         "skills": {
             "set1": {
                 "title": "Backend & Architecture",
-                "items": ["Python (FastAPI, Asyncio, Django, Pydantic)", "RESTful API Design"]
+                "items": ["Python (FastAPI, Django)", "RESTful API Design", "Docker", "AWS"]
             }
         }
     }
 
 if "ai_report" not in st.session_state:
     st.session_state.ai_report = ""
+
+if "optimized_resume_data" not in st.session_state:
+    st.session_state.optimized_resume_data = None
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -68,54 +71,54 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
     try:
         api_key = st.session_state.get("api_key", "")
         if not api_key:
-            return False, "⚠️ 錯誤：請先在左側欄位設定 GEMINI API KEY"
+            return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         report_md = ""
 
-        # 🛑 階段一：簽證審查
+        # 🛑 Phase 1: Visa Sponsorship Check
         if check_visa:
             visa_prompt = f"""
-            請嚴格審查以下 Job Description (JD)。請檢查是否有以下任何一種情況：
-            1. 明確要求必須是「美國公民」或「綠卡/永久居民」。
-            2. 明確標示「不提供簽證贊助 (No visa sponsorship)」。
-            直接回傳合法 JSON: {{"blocked": true/false, "reason": "..."}}
+            Strictly review the following Job Description (JD). Check for either of these conditions:
+            1. Explicitly requires "U.S. Citizen" or "Green Card / Permanent Resident".
+            2. Explicitly states "No visa sponsorship" or "Unable to sponsor".
+            Return ONLY valid JSON: {{"blocked": true/false, "reason": "..."}}
             [JD]: {jd_text}
             """
             visa_res = model.generate_content(visa_prompt)
             visa_json = json.loads(visa_res.text.replace('```json', '').replace('```', '').strip())
             
             if visa_json.get("blocked"):
-                report_md += f"### ⛔ 簽證審查未通過\n**原因:** {visa_json.get('reason')}\n\n💡 建議：因為簽證限制，AI 已中斷後續履歷優化，請將精力留給下一家公司！"
+                report_md += f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {visa_json.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization. Save your time for the next company!"
                 return False, report_md
             else:
-                report_md += "✅ **簽證審查通過！未發現明確的身分阻礙。**\n\n---\n"
+                report_md += "✅ **Visa check passed! No explicit sponsorship barriers found.**\n\n---\n"
 
-        # 🚀 階段二：ATS 關鍵字與履歷優化
+        # 🚀 Phase 2: ATS Keyword & Resume Optimization
         ats_instruction = ""
         ats_example = ""
         if enable_ats:
             ats_instruction = """
-            - "keyword_analysis": 包含 "jd_keywords", "original_hits", "optimized_hits", "newly_added", "missing_keywords" (皆為字串陣列)。"""
+            - "keyword_analysis": Contains "jd_keywords", "original_hits", "optimized_hits", "newly_added", "missing_keywords" (all array of strings)."""
             ats_example = """
             "keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
 
         final_prompt = f"""
         {custom_prompt}
 
-        [目標職位 JD]: {jd_text}
-        [原始履歷 JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
+        [Target JD]: {jd_text}
+        [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
 
-        🔥 【高級 ATS 關鍵字強制寫入與平移規則】：
-        1. 技能平移：若 JD 要求 GCP，申請人有 AWS，請以「平移擴充」寫成 "AWS/GCP" 寫入 skills 或 summary。不准增加無關技術。
-        2. 概念替換：巧妙替換經歷描述中的同義詞命中 ATS 字眼。
-        3. ⚠️ 一致性鐵律：newly_added 中的字必須出現在 optimized_resume 中。
+        🔥 [Advanced ATS Keyword Injection Rules]:
+        1. Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
+        2. Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
+        3. ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
 
-        ⚠️ 【輸出格式限制】：回傳合法 JSON，無 ``` 標籤。
+        ⚠️ [Output Format Limitation]: Return ONLY valid JSON, no markdown ticks like ```json.
         {{
-            "changelog": "修改細節說明...",{ats_example}
-            "optimized_resume": {{...更新後的完整履歷 JSON 結構...}}
+            "changelog": "Brief explanation of modifications...",{ats_example}
+            "optimized_resume": {{...Updated full resume JSON structure...}}
         }}
         """
         
@@ -124,9 +127,9 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         
         modified_resume_data = ai_result.get("optimized_resume", {})
         if not modified_resume_data:
-            return False, "⚠️ 解析錯誤：找不到優化後的履歷資料。"
+            return False, "⚠️ Parsing Error: Could not find the optimized resume data."
             
-        st.session_state.resume_data = modified_resume_data
+        st.session_state.optimized_resume_data = modified_resume_data
         
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
@@ -136,27 +139,27 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             opt_c = len(kw.get("optimized_hits", []))
             opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
             
-            report_md += f"### 🎯 ATS 關鍵字匹配率 (Match Score)\n"
-            report_md += f"- **優化前匹配度**: {orig_c} / {tot}\n"
-            report_md += f"- **AI優化後匹配度**: {opt_c} / {tot} (**{opt_pct}%**)\n\n"
+            report_md += f"### 🎯 ATS Keyword Match Score\n"
+            report_md += f"- **Before Optimization**: {orig_c} / {tot}\n"
+            report_md += f"- **After AI Optimization**: {opt_c} / {tot} (**{opt_pct}%**)\n\n"
             
-            report_md += "**✅ 成功命中的關鍵字:**\n"
+            report_md += "**✅ Successfully Hit Keywords:**\n"
             for k in kw.get("optimized_hits", []):
                 if k in kw.get("newly_added", []):
-                    report_md += f"- `{k}` 🌟 *(AI 已運用平移技術強制寫入)*\n"
+                    report_md += f"- `{k}` 🌟 *(Forced injection via AI horizontal shift)*\n"
                 else:
                     report_md += f"- `{k}`\n"
             if kw.get("missing_keywords"):
-                report_md += "\n**❌ 仍然缺乏的關鍵字:**\n"
+                report_md += "\n**❌ Missing Keywords:**\n"
                 for k in kw.get("missing_keywords", []):
                     report_md += f"- `{k}`\n"
             report_md += "\n---\n"
             
-        report_md += f"### 📝 修改日誌 (Changelog)\n{ai_result.get('changelog', '')}"
+        report_md += f"### 📝 Changelog\n{ai_result.get('changelog', '')}"
         
         return True, report_md
     except Exception as e:
-        return False, f"⚠️ AI 執行過程發生錯誤: {e}"
+        return False, f"⚠️ AI execution error: {e}"
 
 # ---------------------------------------------------------
 # PDF 生成邏輯 (支援自訂 main.tex)
@@ -208,93 +211,121 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         if process.returncode == 0 and os.path.exists(pdf_filename):
             return pdf_filename
         else:
-            st.error(f"LaTeX 編譯失敗 (返回碼 {process.returncode})")
-            with st.expander("查看編譯日誌"):
+            st.error(f"LaTeX Compilation Failed (Return Code {process.returncode})")
+            with st.expander("View Compilation Log"):
                 st.text(stdout.decode('utf-8', errors='ignore'))
                 st.text(stderr.decode('utf-8', errors='ignore'))
             return None
     except Exception as e:
-        st.error(f"生成過程發生例外錯誤: {e}")
+        st.error(f"Exception during generation: {e}")
         return None
 
 # ---------------------------------------------------------
 # Streamlit UI 介面
 # ---------------------------------------------------------
-st.set_page_config(page_title="AI 履歷生成器", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
-# --- 側邊欄 (Sidebar) 設定 API Key ---
+# --- Sidebar Settings ---
 with st.sidebar:
-    st.header("⚙️ 設定 (Settings)")
-    api_key_input = st.text_input("🔑 Google Gemini API Key", type="password", help="需要 API Key 才能使用 AI 潤飾功能")
+    st.header("⚙️ Settings")
+    api_key_input = st.text_input("🔑 Google Gemini API Key", type="password", help="API Key is required to use AI features.")
     if api_key_input:
         st.session_state.api_key = api_key_input
     st.markdown("---")
-    st.markdown("👉 [點此免費取得 Gemini API Key](https://aistudio.google.com/app/apikey)")
+    st.markdown("👉 Get Gemini API Key for free")
+    st.markdown("---")
+    st.markdown("👨‍💻 **Developed by NSYSUHermit**")
 
-st.title("🚀 AI 履歷生成器 (AI-Powered Resume Builder)")
-st.write("結合 Gemini AI 與 LaTeX，快速撰寫、排版並匯出高質感 PDF 履歷。")
+st.title("🚀 AI-Powered Resume Builder")
+st.write("Combine Gemini AI with LaTeX to write, optimize, and export high-quality PDF resumes and cover letters effortlessly.")
 
-tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ 使用者基本資料", "2️⃣ AI 客製化", "3️⃣ AI 調整報告", "4️⃣ 下載履歷與預覽"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["1️⃣ Base Profile", "2️⃣ AI Customization", "3️⃣ AI Report", "4️⃣ Edit Optimized Result", "5️⃣ Export PDF & Cover Letter"])
 
-# --- 1. 使用者基本資料 Tab ---
+# --- 1. Base Profile Tab ---
 with tab1:
-    st.header("👤 編輯您的基礎履歷資料")
-    st.info("您可以在此直接編輯底層的 JSON 資料。修改後請務必點擊下方「儲存修改」。")
+    st.header("👤 Edit Your Base Profile")
+    st.info("This is your **Base Template**. AI will always use this as the ground truth for optimizations. Remember to click 'Save Changes' below.")
     
     json_str = json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False)
-    edited_json = st.text_area("履歷 JSON 結構", value=json_str, height=500)
+    edited_json = st.text_area("Resume JSON Structure", value=json_str, height=500)
     
-    if st.button("💾 儲存 JSON 修改", type="primary"):
+    if st.button("💾 Save JSON Changes", type="primary"):
         try:
             st.session_state.resume_data = json.loads(edited_json)
-            st.success("JSON 資料已成功儲存！")
+            st.success("JSON data saved successfully!")
         except Exception as e:
-            st.error(f"JSON 格式錯誤，請檢查語法: {e}")
+            st.error(f"JSON format error, please check syntax: {e}")
 
-# --- 2. AI 客製化 Tab ---
+# --- 2. AI Customization Tab ---
 with tab2:
-    st.header("🤖 根據 JD 自動優化履歷")
+    st.header("🤖 Auto-Optimize Resume based on JD")
     col1, col2 = st.columns(2)
-    enable_ats = col1.checkbox("開啟 ATS 關鍵字分析", value=True)
-    check_visa = col2.checkbox("檢查簽證/Sponsorship 限制", value=True)
+    enable_ats = col1.checkbox("Enable ATS Keyword Analysis", value=True)
+    check_visa = col2.checkbox("Check Visa/Sponsorship Restrictions", value=True)
     
-    jd_input = st.text_area("📄 貼上目標職缺的 Job Description (JD)", height=250)
-    custom_prompt = st.text_area("🗣️ 您的特殊指令 (Optional)", value="請幫我把經歷修得更具侵略性與影響力，並著重在系統優化與微服務的關鍵字。")
+    jd_input = st.text_area("📄 Paste the Target Job Description (JD)", height=250)
+    custom_prompt = st.text_area("🗣️ Custom Prompt (Optional)", value="Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords.")
     
-    if st.button("🚀 開始執行 AI 優化與分析", type="primary"):
+    if st.button("🚀 Start AI Optimization & Analysis", type="primary"):
         if not jd_input:
-            st.warning("請先貼上 JD 內容！")
+            st.warning("Please paste the JD content first!")
         else:
-            with st.spinner("AI 正在深度分析並進行 ATS 平移改寫，這可能需要 30~60 秒..."):
+            with st.spinner("AI is deeply analyzing and rewriting to match ATS keywords. This might take 30~60 seconds..."):
                 success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
                 st.session_state.ai_report = report
                 if success:
-                    st.success("優化完成！請前往「3️⃣ AI 調整報告」查看結果。")
+                    st.success("Optimization completed! Please go to '4️⃣ Edit Optimized Result' to review and tweak.")
                 else:
-                    st.error("優化中斷或發生錯誤，請查看報告細節。")
+                    st.error("Optimization interrupted or failed. Check the report details.")
 
-# --- 3. AI 調整報告 Tab ---
+# --- 3. AI Report Tab ---
 with tab3:
-    st.header(" AI 執行結果與 ATS 報告")
+    st.header("📊 AI Execution Result & ATS Report")
     if st.session_state.ai_report:
         st.markdown(st.session_state.ai_report)
-        st.info("💡 優化後的內容已自動套用至「使用者基本資料」中，您可以隨時前往修改或直接生成 PDF。")
+        st.info("💡 Report generated! The optimized resume has been saved to '4️⃣ Edit Optimized Result'. Your base profile remains untouched.")
     else:
-        st.write("尚未執行 AI 優化。請先在「2️⃣ AI 客製化」填寫 JD 並執行。")
+        st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Customization' and run it.")
 
-# --- 4. 預覽與下載 Tab ---
+# --- 4. Edit Optimized Result Tab ---
 with tab4:
-    st.header("🖨️ 生成與下載 PDF 履歷")
-    st.write("您可以選擇上傳自己的 `.tex` 模板，或直接使用系統預設的模板進行編譯。")
+    st.header("📝 Review & Edit Optimized Resume")
+    if st.session_state.optimized_resume_data:
+        st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
+        opt_json_str = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
+        edited_opt_json = st.text_area("Optimized Resume JSON", value=opt_json_str, height=500, key="opt_json_area")
+        
+        if st.button("💾 Save Optimized Changes", type="primary", key="save_opt"):
+            try:
+                st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+                st.success("Optimized data saved successfully!")
+            except Exception as e:
+                st.error(f"JSON format error, please check syntax: {e}")
+    else:
+        st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Customization' or proceed directly to '5️⃣ Export' to use your base profile.")
+
+# --- 5. Export Tab ---
+with tab5:
+    st.header("🖨️ Generate & Export PDF Resume / Cover Letter")
     
-    uploaded_tex = st.file_uploader("上傳自訂的 main.tex (選填)", type=["tex"])
+    st.subheader("📄 Export PDF Resume")
+    st.write("The system defaults to using the data from '4️⃣ Edit Optimized Result'. If no optimized data exists, it will use your '1️⃣ Base Profile'.")
     
-    if st.button("編譯並產生 PDF 履歷", type="primary"):
-        with st.spinner("正在雲端呼叫 LaTeX 引擎編譯中..."):
+    data_to_use = st.session_state.optimized_resume_data if st.session_state.optimized_resume_data else st.session_state.resume_data
+    
+    uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
+    
+    if st.button("Compile & Generate PDF Resume", type="primary"):
+        with st.spinner("Calling LaTeX engine in the cloud..."):
             tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
-            pdf_path = generate_pdf_from_json(st.session_state.resume_data, tex_bytes)
+            pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
             
             if pdf_path:
-                st.success("✅ PDF 生成成功！")
+                st.success("✅ PDF successfully generated!")
                 with open(pdf_path, "rb") as f:
-                    st.download_button("📥 點此下載履歷 (resume.pdf)", f, file_name="resume.pdf", mime="application/pdf")
+                    st.download_button("📥 Click to Download Resume (resume.pdf)", f, file_name="resume.pdf", mime="application/pdf")
+                    
+    st.markdown("---")
+    st.subheader("✉️ Export Cover Letter")
+    st.info("💡 This section is ready for Cover Letters! In the future, we just need to add a generation prompt and a `.tex` template to output one-click cover letters.")
+    st.button("Generate Cover Letter (Coming Soon)", disabled=True)

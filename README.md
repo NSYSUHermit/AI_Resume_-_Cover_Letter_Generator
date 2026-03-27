@@ -1,38 +1,41 @@
-# 🚀 AI 履歷生成器 (AI-Powered Resume Builder)
+# 🚀 AI-Powered Resume Builder
 
-這是一個基於 **Streamlit** 開發的雲端履歷生成工具。結合了 **Google Gemini AI** 的強大文字處理能力，以及 **LuaLaTeX** 的專業排版引擎，讓使用者能透過友善的網頁介面，輕鬆撰寫、優化並匯出高質感的 PDF 履歷。
+This is a cloud-based resume generation tool developed using **Streamlit**. It combines the powerful text processing capabilities of **Google Gemini AI** with the professional typesetting engine of **LuaLaTeX**.
 
-## ✨ 核心功能 (Core Features)
+👨‍💻 **Developed by [NSYSUHermit](https://github.com/NSYSUHermit)**
 
-1. **友善的使用者介面 (Friendly UI)**
-   - 直覺的表單設計，讓使用者輕鬆輸入履歷資料（個人資訊、學歷、經歷、技能等）。
-   - 將資料轉換為標準化的 JSON 格式進行管理。
+## ✨ Core Features
 
-2. **AI 智能協作 (AI Collaboration)**
-   - 整合 Gemini API，提供一鍵「經歷潤飾」、「關鍵字優化」或「翻譯」功能。
-   - 幫助使用者將口語化的經歷轉換為專業、具吸引力的職場描述。
+1. **Friendly UI & Data Protection**
+   - An intuitive interface that separates your "Base Profile" from "AI-Optimized Results" to prevent accidental overwrites.
+   - Manages data via standardized JSON format.
 
-3. **雲端高品質排版 (Cloud LaTeX Compilation)**
-   - 背景自動透過 `Jinja2` 將 JSON 資料注入至預先設計好的 LaTeX 模板。
-   - 雲端無縫呼叫 LuaLaTeX 進行編譯，直接生成高質感的 PDF 供使用者下載。
+2. **AI Smart Collaboration & ATS Optimization**
+   - Integrates Gemini API to provide one-click experience rewriting, keyword injection, and visa sponsorship screening.
+   - Translates casual descriptions into professional, impactful bullet points.
+   - Simulates ATS (Applicant Tracking System) logic to shift and inject keywords seamlessly.
 
-## 🛠️ 技術架構 (Tech Stack)
+3. **Cloud LaTeX Compilation**
+   - Automatically binds JSON data to LaTeX templates using `Jinja2` in the background.
+   - Calls LuaLaTeX to compile high-quality PDF resumes directly in the cloud.
 
-- **前端/後端框架**: Streamlit (Python)
-- **AI 引擎**: Google Generative AI (Gemini API)
-- **資料模板綁定**: Jinja2
-- **PDF 生成引擎**: TeX Live (LuaLaTeX)
-- **部署環境**: Streamlit Community Cloud + GitHub
+## 🛠️ Tech Stack
 
-## 📂 專案檔案結構 (Project Structure)
+- **Frontend/Backend**: Streamlit (Python)
+- **AI Engine**: Google Generative AI (Gemini API)
+- **Template Engine**: Jinja2
+- **PDF Generation Engine**: TeX Live (LuaLaTeX)
+- **Environment**: Streamlit Community Cloud + GitHub
+
+## 📂 Project Structure
 
 ```text
 .
-├── app.py              # Streamlit 網頁主程式（UI 介面、AI 互動與 PDF 生成邏輯）
-├── main.tex            # LaTeX 履歷主模板（使用 Jinja2 語法標記變數）
-├── requirements.txt    # Python 依賴套件 (streamlit, google-generativeai, jinja2)
-├── packages.txt        # Ubuntu 系統依賴套件（告訴 Streamlit Cloud 安裝 TeX 環境）
-└── README.md           # 專案說明文件
+├── app.py              # Main Streamlit application
+├── main.tex            # Main LaTeX resume template
+├── requirements.txt    # Python dependencies
+├── packages.txt        # Ubuntu system dependencies (TeX environment)
+└── README.md           # Documentation
 ```
 
 ## 🚀 部署指南 (Deployment Guide)
