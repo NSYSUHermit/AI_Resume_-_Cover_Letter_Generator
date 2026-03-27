@@ -304,54 +304,78 @@ def generate_cover_letter_pdf(resume_data):
         return None
 
 # ---------------------------------------------------------
-# Custom Premium UI Components (Glassmorphism & Overlays)
+# Custom Premium UI Components (Neumorphism & Overlays)
 # ---------------------------------------------------------
-def get_glass_overlay_html(message="AI is processing your request..."):
-    """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
+def get_neumorphic_overlay_html(message="Verifying file...", animal_emoji="🐕"):
+    """全螢幕的頂級新擬態(Neumorphism)載入層，包含下凹圓形視窗、漫步動物與極細漸層進度條"""
     return f"""
     <style>
-    .glass-overlay-bg {{
+    .neu-overlay-bg {{
         position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(10, 10, 15, 0.7);
-        backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+        background: rgba(35, 37, 41, 0.85); /* Deep dark blurred background */
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
         z-index: 999999; display: flex; justify-content: center; align-items: center;
     }}
-    .glass-dialog-box {{
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        border-radius: 24px; padding: 50px 60px;
-        text-align: center; position: relative; overflow: hidden;
+    .neu-panel {{
+        background: #232529; /* Soft dark tactile texture base */
+        border-radius: 40px; padding: 60px 50px;
+        box-shadow: 14px 14px 28px #18191c, -14px -14px 28px #2e3136; /* Premium Neumorphism extrude */
         display: flex; flex-direction: column; align-items: center;
+        width: 400px; position: relative;
+        border: 1px solid rgba(255,255,255,0.03); /* Subtle edge highlight */
     }}
-    .glass-dialog-box::before {{
-        content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-        background: radial-gradient(circle, rgba(138, 43, 226, 0.15) 0%, transparent 60%);
-        animation: pulse-glow 3s infinite alternate; z-index: 0;
+    .neu-circle-window {{
+        width: 160px; height: 160px; border-radius: 50%; background: #232529;
+        box-shadow: inset 10px 10px 20px #151619, inset -10px -10px 20px #31343a; /* Depressed circles */
+        display: flex; justify-content: center; align-items: center;
+        margin-bottom: 35px; position: relative; overflow: hidden;
+        border: 1px solid rgba(0, 0, 0, 0.4);
     }}
-    .organic-loader {{
-        width: 70px; height: 70px;
-        border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
-        background: linear-gradient(135deg, #00f2fe 0%, #8a2be2 100%); /* Electric blue to purple */
-        animation: morph 3s ease-in-out infinite; margin-bottom: 25px;
-        box-shadow: 0 0 25px rgba(138, 43, 226, 0.6); z-index: 1; position: relative;
+    .neu-circle-window::after {{
+        content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        border-radius: 50%; box-shadow: inset 0 3px 6px rgba(255, 230, 200, 0.08); /* Warm rim light */
+        pointer-events: none;
     }}
-    .loading-text {{
-        color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
-        font-weight: 300; letter-spacing: 1px; margin: 0;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
+    .animal-walker {{
+        font-size: 75px; position: relative; z-index: 2;
+        filter: drop-shadow(0 12px 10px rgba(0,0,0,0.5));
+        animation: stroll-bounce 0.5s infinite alternate cubic-bezier(0.3, 0.05, 0.7, 0.95);
     }}
-    @keyframes morph {{
-        0%, 100% {{ border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; transform: scale(1); }}
-        34% {{ border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; transform: scale(1.05); }}
-        67% {{ border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; transform: scale(0.95); }}
+    .particle {{
+        position: absolute; bottom: 25px; left: 50%; border-radius: 50%;
+        background: radial-gradient(circle, #00f2fe, #8a2be2); /* Bokeh light */
+        opacity: 0; z-index: 1; animation: bokeh-puff 1.2s infinite ease-out;
     }}
-    @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
+    .particle:nth-child(2) {{ animation-delay: 0.4s; left: 35%; width: 5px; height: 5px; }}
+    .particle:nth-child(3) {{ animation-delay: 0.8s; left: 60%; width: 8px; height: 8px; }}
+    
+    .loading-title {{
+        color: #d1d1d6; font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem;
+        font-weight: 400; letter-spacing: 0.5px; margin: 0 0 25px 0;
+    }}
+    .linear-progress-track {{
+        width: 100%; height: 3px; background: #18191c; border-radius: 2px;
+        box-shadow: inset 1px 1px 2px #111, inset -1px -1px 2px #2a2a2a;
+        overflow: hidden; position: relative;
+    }}
+    .linear-progress-fill {{
+        height: 100%; width: 35%; border-radius: 2px;
+        background: linear-gradient(90deg, #00f2fe, #8a2be2); /* Duo-tone electric blue to purple */
+        box-shadow: 0 0 10px rgba(138, 43, 226, 0.8);
+        animation: scan-bar 1.8s infinite ease-in-out; position: absolute; top: 0; left: 0;
+    }}
+    @keyframes stroll-bounce {{ 0% {{ transform: translateY(0) rotate(-4deg) scaleY(0.96); }} 100% {{ transform: translateY(-12px) rotate(4deg) scaleY(1.04); }} }}
+    @keyframes bokeh-puff {{ 0% {{ transform: translate(0, 0) scale(1); opacity: 0.7; }} 100% {{ transform: translate(-30px, -20px) scale(3); opacity: 0; }} }}
+    @keyframes scan-bar {{ 0% {{ left: -35%; }} 100% {{ left: 100%; }} }}
     </style>
-    <div class="glass-overlay-bg">
-        <div class="glass-dialog-box">
-            <div class="organic-loader"></div>
-            <h2 class="loading-text">{message}</h2>
+    <div class="neu-overlay-bg">
+        <div class="neu-panel">
+            <div class="neu-circle-window">
+                <div class="animal-walker">{animal_emoji}</div>
+                <div class="particle" style="width:6px;height:6px;"></div><div class="particle"></div><div class="particle"></div>
+            </div>
+            <h3 class="loading-title">{message}</h3>
+            <div class="linear-progress-track"><div class="linear-progress-fill"></div></div>
         </div>
     </div>
     """
@@ -426,7 +450,7 @@ with tab2:
         else:
             # 呼叫全螢幕動態凍結載入層
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait."), unsafe_allow_html=True)
+            loading_overlay.markdown(get_neumorphic_overlay_html("Verifying file & Generating...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
             
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             st.session_state.ai_report = report
@@ -491,7 +515,7 @@ with tab5:
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
         loading_overlay = st.empty()
-        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume..."), unsafe_allow_html=True)
+        loading_overlay.markdown(get_neumorphic_overlay_html("Compiling High-Quality PDF Resume...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
         pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
@@ -511,7 +535,7 @@ with tab5:
             st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
         else:
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done."), unsafe_allow_html=True)
+            loading_overlay.markdown(get_neumorphic_overlay_html("Crafting Professional Cover Letter...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
             
             cl_pdf_path = generate_cover_letter_pdf(data_to_use)
             
