@@ -130,6 +130,11 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ Parsing Error: Could not find the optimized resume data."
             
         st.session_state.optimized_resume_data = modified_resume_data
+
+        # --- FIX: Force refresh of the text area in tab 4 ---
+        # By deleting the key, we force the text_area to re-read its default value
+        if 'opt_json_area' in st.session_state:
+            del st.session_state['opt_json_area']
         
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
@@ -183,8 +188,12 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         # The final PDF will be named after the .tex file, e.g., main.pdf
         # We will rename it later for consistency.
         base_name = os.path.splitext(tex_filename)[0]
-        expected_pdf_name = f"{base_name}.pdf"
-        final_pdf_name = "resume.pdf"
+        expected_pdf_name = f"{base_name}.pdf" # e.g. main.pdf
+
+        # --- NEW: Dynamic resume filename ---
+        company = data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
+        role = data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
+        final_pdf_name = f"{company}_{role}_resume.pdf"
             
         # 呼叫 LuaLaTeX 編譯
         process = subprocess.Popen(
@@ -195,7 +204,7 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         stdout, stderr = process.communicate()
         
         if process.returncode == 0 and os.path.exists(expected_pdf_name):
-            # Rename the output file for a consistent download name
+            # Rename the output file for a dynamic and consistent download name
             if os.path.exists(final_pdf_name):
                 os.remove(final_pdf_name)
             os.rename(expected_pdf_name, final_pdf_name)
@@ -382,7 +391,7 @@ with tab5:
             if pdf_path:
                 st.success("✅ PDF successfully generated!")
                 with open(pdf_path, "rb") as f:
-                    st.download_button("📥 Click to Download Resume (resume.pdf)", f, file_name="resume.pdf", mime="application/pdf")
+                    st.download_button("📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
                     
     st.markdown("---")
     st.subheader("✉️ Export Cover Letter")
