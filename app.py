@@ -329,66 +329,49 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
     margin-bottom: 10px; z-index: 2; position: relative;
 }}
 .interactive-animal {{
-    font-size: 85px; cursor: pointer; user-select: none; display: inline-block;
+    font-size: 85px; user-select: none; display: inline-block;
     transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s ease;
 }}
 .interactive-animal:hover {{
     filter: drop-shadow(0 0 15px {theme_color});
 }}
-.click-hint {{
-    color: #888c96; font-size: 0.9rem; margin-bottom: 15px; z-index: 1; position: relative;
-    animation: fadeHint 2s infinite;
-}}
 @keyframes floatAnim {{ 0%, 100% {{ transform: translateY(0px); }} 50% {{ transform: translateY(-15px); }} }}
-@keyframes fadeHint {{ 0%, 100% {{ opacity: 0.4; }} 50% {{ opacity: 1; }} }}
 .loading-text {{
     color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
     font-weight: 300; letter-spacing: 1px; margin: 0;
     text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
-}}
-.timer-text {{
-    color: #00f2fe; font-family: monospace; font-size: 1.5rem;
-    font-weight: bold; margin-top: 15px;
-    text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); z-index: 1; position: relative;
 }}
 @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
 </style>
 <div class="glass-overlay-bg">
     <div class="glass-dialog-box">
         <div class="float-container">
-            <div class="interactive-animal" id="spinAnimal" data-rot="0" onclick="window.doSpin()">{animal_emoji}</div>
+            <div class="interactive-animal" id="autoAnimAnimal">{animal_emoji}</div>
         </div>
-        <div class="click-hint">👆 Click me to spin!</div>
         <h2 class="loading-text">{message}</h2>
-        <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
     </div>
 </div>
 <img src="x" style="display:none;" onerror="
-    var sec = 0; 
-    var el = document.getElementById('loading-timer-val');
-    if(el) {{
-        var timer = setInterval(function() {{
-            if(!document.body.contains(el)) {{
-                clearInterval(timer);
-                return;
-            }}
-            sec++;
-            el.innerText = sec;
-        }}, 1000);
-    }}
-    window.doSpin = function() {{
-        var animal = document.getElementById('spinAnimal');
-        if(!animal) return;
-        var currentRot = parseInt(animal.getAttribute('data-rot') || '0');
+    var animal = document.getElementById('autoAnimAnimal');
+    var currentRot = 0;
+    function triggerRandomAnim() {{
+        if(!animal || !document.body.contains(animal)) return;
+        
         var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1); 
-        var newRot = currentRot + addRot;
-        animal.setAttribute('data-rot', newRot);
-        var scale = Math.random() > 0.5 ? 1.25 : 0.75;
+        currentRot += addRot;
+        var scale = Math.random() * 0.5 + 0.8; // 隨機縮放 0.8 到 1.3
+        
         animal.style.transform = 'rotate(' + newRot + 'deg) scale(' + scale + ')';
         setTimeout(function(){{
-            animal.style.transform = 'rotate(' + newRot + 'deg) scale(1)';
+            if(document.body.contains(animal))
+                animal.style.transform = 'rotate(' + currentRot + 'deg) scale(1)';
         }}, 350);
-    }};
+        
+        // 隨機安排下一次動作的時間 (600毫秒 ~ 1800毫秒之間)
+        var nextTime = Math.random() * 1200 + 600;
+        setTimeout(triggerRandomAnim, nextTime);
+    }}
+    if(animal) setTimeout(triggerRandomAnim, 500);
 ">"""
 
 def get_glass_warning_html():
