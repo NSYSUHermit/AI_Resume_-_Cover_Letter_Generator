@@ -302,7 +302,7 @@ def generate_cover_letter_pdf(resume_data):
 # ---------------------------------------------------------
 # Custom Premium UI Components (Glassmorphism & Overlays)
 # ---------------------------------------------------------
-def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕"):
+def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕", theme_color="#8a2be2"):
     """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
     return f"""
     <style>
@@ -322,7 +322,7 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
     }}
     .glass-dialog-box::before {{
         content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-        background: radial-gradient(circle, rgba(138, 43, 226, 0.15) 0%, transparent 60%);
+        background: radial-gradient(circle, {theme_color}26 0%, transparent 60%); /* Use theme color with 15% opacity */
         animation: pulse-glow 3s infinite alternate; z-index: 0;
     }}
     .animal-runner {{
@@ -455,7 +455,7 @@ with tab2:
         else:
             # 呼叫全螢幕動態凍結載入層
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             st.session_state.ai_report = report
@@ -520,7 +520,7 @@ with tab5:
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
         loading_overlay = st.empty()
-        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
         pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
@@ -540,7 +540,7 @@ with tab5:
             st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
         else:
             loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
             cl_pdf_path = generate_cover_letter_pdf(data_to_use)
             
