@@ -406,7 +406,7 @@ with st.sidebar:
     st.header("🏃 Loading Animation")
     animal_choice = st.selectbox(
         "Choose your runner",
-        ["🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
+        ["🦦 Otter", "🦫 Beaver", "🥟🥟 Dumplings", "🅷🅴 Henry", "🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
         index=0
     )
     st.session_state.animal_emoji = animal_choice.split(" ")[0]
