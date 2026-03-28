@@ -325,35 +325,34 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
         background: radial-gradient(circle, {theme_color}26 0%, transparent 60%); /* Use theme color with 15% opacity */
         animation: pulse-glow 3s infinite alternate; z-index: 0;
     }}
-    /* --- Mini Game Styles --- */
-    .game-area {{
-        width: 320px; height: 120px; border-bottom: 3px solid {theme_color};
-        position: relative; overflow: hidden; margin-bottom: 10px; cursor: pointer;
-        z-index: 1; position: relative;
+    /* --- Interactive Floating Animal --- */
+    .float-container {{
+        animation: floatAnim 2.5s ease-in-out infinite;
+        margin-bottom: 10px; z-index: 2; position: relative;
     }}
-    .player {{
-        font-size: 50px; position: absolute; bottom: 0; left: 30px;
-        transition: bottom 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
+    .interactive-animal {{
+        font-size: 85px;
+        cursor: pointer;
+        user-select: none;
+        display: inline-block;
+        transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s ease;
     }}
-    .player.jump {{
-        bottom: 80px;
+    .interactive-animal:hover {{
+        filter: drop-shadow(0 0 15px {theme_color});
     }}
-    .obstacle {{
-        font-size: 35px; position: absolute; bottom: 0; right: -40px;
-        animation: moveObstacle 1.3s infinite linear;
-    }}
-    .score-board {{
-        position: absolute; top: 5px; right: 5px;
-        color: {theme_color}; font-family: monospace; font-size: 1.1rem; font-weight: bold;
-    }}
-    .jump-hint {{
+    .click-hint {{
         color: #888c96; font-size: 0.9rem; margin-bottom: 15px; z-index: 1; position: relative;
+        animation: fadeHint 2s infinite;
     }}
-    @keyframes moveObstacle {{
-        0% {{ right: -40px; }}
-        100% {{ right: 350px; }}
+    @keyframes floatAnim {{
+        0%, 100% {{ transform: translateY(0px); }}
+        50% {{ transform: translateY(-15px); }}
     }}
-    /* ------------------------ */
+    @keyframes fadeHint {{
+        0%, 100% {{ opacity: 0.4; }}
+        50% {{ opacity: 1; }}
+    }}
+    /* ----------------------------------- */
     .loading-text {{
         color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
         font-weight: 300; letter-spacing: 1px; margin: 0;
@@ -368,13 +367,10 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
     </style>
     <div class="glass-overlay-bg">
         <div class="glass-dialog-box">
-            <!-- 互動式跑酷小遊戲區塊 -->
-            <div class="game-area" id="gameArea" onclick="jump()">
-                <div class="score-board">Score: <span id="gameScore">0</span></div>
-                <div class="player" id="gamePlayer">{animal_emoji}</div>
-                <div class="obstacle" id="gameObstacle">🌵</div>
+            <div class="float-container">
+                <div class="interactive-animal" id="spinAnimal" data-rot="0" onclick="doSpin()">{animal_emoji}</div>
             </div>
-            <div class="jump-hint">👆 Click or press SPACE to jump!</div>
+            <div class="click-hint">👆 Click me to spin!</div>
             
             <h2 class="loading-text">{message}</h2>
             <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
@@ -396,47 +392,24 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
             el.innerText = sec;
         }}, 1000);
 
-        // 2. 跑酷小遊戲邏輯
-        var player = document.getElementById("gamePlayer");
-        var obstacle = document.getElementById("gameObstacle");
-        var scoreDisplay = document.getElementById("gameScore");
-        var isGameOver = false;
-        var score = 0;
-
-        // 綁定全域空白鍵跳躍
-        window.jump = function() {{
-            if (isGameOver || player.classList.contains("jump")) return;
-            player.classList.add("jump");
-            setTimeout(function() {{ player.classList.remove("jump"); }}, 400);
+        // 2. 互動旋轉邏輯
+        window.doSpin = function() {{
+            var el = document.getElementById('spinAnimal');
+            if(!el) return;
+            
+            var currentRot = parseInt(el.getAttribute('data-rot') || '0');
+            // 隨機決定旋轉方向與圈數 (正負 360~1080度)
+            var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1); 
+            var newRot = currentRot + addRot;
+            el.setAttribute('data-rot', newRot);
+            
+            // 旋轉時帶有隨機的彈跳縮放效果
+            var scale = Math.random() > 0.5 ? 1.25 : 0.75;
+            el.style.transform = "rotate(" + newRot + "deg) scale(" + scale + ")";
+            setTimeout(function(){{
+                el.style.transform = "rotate(" + newRot + "deg) scale(1)";
+            }}, 350); // 彈跳回原大小
         }};
-        document.addEventListener('keydown', function(event) {{
-            if(event.code === 'Space') jump();
-        }});
-
-        // 碰撞偵測與計分
-        var gameLoop = setInterval(function() {{
-            if(!document.body.contains(player)) {{ clearInterval(gameLoop); return; }}
-            if(isGameOver) return;
-
-            var playerBottom = parseInt(window.getComputedStyle(player).getPropertyValue("bottom"));
-            var obstacleLeft = parseInt(window.getComputedStyle(obstacle).getPropertyValue("left"));
-
-            // 判斷是否撞到仙人掌 (X軸交疊且Y軸高度不夠)
-            if (obstacleLeft > 10 && obstacleLeft < 60 && playerBottom < 30) {{
-                isGameOver = true;
-                obstacle.style.animation = "none"; // 暫停動畫
-                player.innerText = "😵"; // 換成死亡表情
-                setTimeout(function() {{
-                    // 1秒後復活重置
-                    isGameOver = false; score = 0;
-                    player.innerText = "{animal_emoji}";
-                    obstacle.style.animation = "moveObstacle 1.3s infinite linear";
-                }}, 1000);
-            }} else {{
-                score++;
-                scoreDisplay.innerText = Math.floor(score / 5);
-            }}
-        }}, 20);
     }})();
     </script>
     """
