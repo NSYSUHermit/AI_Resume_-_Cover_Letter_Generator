@@ -115,7 +115,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         2. Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
         3. ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
 
-        ⚠️ [Output Format Limitation]: Return ONLY valid JSON, no markdown ticks like ```json. 沒有粗體字 沒有斜體字
+        ⚠️ [Output Format Limitation]: Return ONLY valid JSON, no markdown ticks like ```json.
         {{
             "changelog": "Brief explanation of modifications...",{ats_example}
             "optimized_resume": {{...Updated full resume JSON structure...}}
@@ -325,13 +325,35 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
         background: radial-gradient(circle, {theme_color}26 0%, transparent 60%); /* Use theme color with 15% opacity */
         animation: pulse-glow 3s infinite alternate; z-index: 0;
     }}
-    .animal-runner {{
-        font-size: 70px;
-        margin-bottom: 20px;
+    /* --- Mini Game Styles --- */
+    .game-area {{
+        width: 320px; height: 120px; border-bottom: 3px solid {theme_color};
+        position: relative; overflow: hidden; margin-bottom: 10px; cursor: pointer;
         z-index: 1; position: relative;
-        display: inline-block;
-        animation: run-bounce 0.4s alternate infinite cubic-bezier(0.3, 0.05, 0.7, 0.95);
     }}
+    .player {{
+        font-size: 50px; position: absolute; bottom: 0; left: 30px;
+        transition: bottom 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }}
+    .player.jump {{
+        bottom: 80px;
+    }}
+    .obstacle {{
+        font-size: 35px; position: absolute; bottom: 0; right: -40px;
+        animation: moveObstacle 1.3s infinite linear;
+    }}
+    .score-board {{
+        position: absolute; top: 5px; right: 5px;
+        color: {theme_color}; font-family: monospace; font-size: 1.1rem; font-weight: bold;
+    }}
+    .jump-hint {{
+        color: #888c96; font-size: 0.9rem; margin-bottom: 15px; z-index: 1; position: relative;
+    }}
+    @keyframes moveObstacle {{
+        0% {{ right: -40px; }}
+        100% {{ right: 350px; }}
+    }}
+    /* ------------------------ */
     .loading-text {{
         color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
         font-weight: 300; letter-spacing: 1px; margin: 0;
@@ -342,21 +364,26 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
         font-weight: bold; margin-top: 15px;
         text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); z-index: 1; position: relative;
     }}
-    @keyframes run-bounce {{
-        0% {{ transform: translateY(0) rotate(0deg) skewX(0deg); }}
-        100% {{ transform: translateY(-20px) rotate(5deg) skewX(-10deg); }}
-    }}
     @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
     </style>
     <div class="glass-overlay-bg">
         <div class="glass-dialog-box">
-            <div class="animal-runner">{animal_emoji}</div>
+            <!-- 互動式跑酷小遊戲區塊 -->
+            <div class="game-area" id="gameArea" onclick="jump()">
+                <div class="score-board">Score: <span id="gameScore">0</span></div>
+                <div class="player" id="gamePlayer">{animal_emoji}</div>
+                <div class="obstacle" id="gameObstacle">🌵</div>
+            </div>
+            <div class="jump-hint">👆 Click or press SPACE to jump!</div>
+            
             <h2 class="loading-text">{message}</h2>
+            <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
         </div>
     </div>
     <script>
     (function() {{
-        var sec = 0;
+        // 1. 動態秒數計時器
+        var sec = 0; 
         var el = document.getElementById('loading-timer-val');
         if(!el) return;
         var timer = setInterval(function() {{
@@ -368,6 +395,48 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
             sec++;
             el.innerText = sec;
         }}, 1000);
+
+        // 2. 跑酷小遊戲邏輯
+        var player = document.getElementById("gamePlayer");
+        var obstacle = document.getElementById("gameObstacle");
+        var scoreDisplay = document.getElementById("gameScore");
+        var isGameOver = false;
+        var score = 0;
+
+        // 綁定全域空白鍵跳躍
+        window.jump = function() {{
+            if (isGameOver || player.classList.contains("jump")) return;
+            player.classList.add("jump");
+            setTimeout(function() {{ player.classList.remove("jump"); }}, 400);
+        }};
+        document.addEventListener('keydown', function(event) {{
+            if(event.code === 'Space') jump();
+        }});
+
+        // 碰撞偵測與計分
+        var gameLoop = setInterval(function() {{
+            if(!document.body.contains(player)) {{ clearInterval(gameLoop); return; }}
+            if(isGameOver) return;
+
+            var playerBottom = parseInt(window.getComputedStyle(player).getPropertyValue("bottom"));
+            var obstacleLeft = parseInt(window.getComputedStyle(obstacle).getPropertyValue("left"));
+
+            // 判斷是否撞到仙人掌 (X軸交疊且Y軸高度不夠)
+            if (obstacleLeft > 10 && obstacleLeft < 60 && playerBottom < 30) {{
+                isGameOver = true;
+                obstacle.style.animation = "none"; // 暫停動畫
+                player.innerText = "😵"; // 換成死亡表情
+                setTimeout(function() {{
+                    // 1秒後復活重置
+                    isGameOver = false; score = 0;
+                    player.innerText = "{animal_emoji}";
+                    obstacle.style.animation = "moveObstacle 1.3s infinite linear";
+                }}, 1000);
+            }} else {{
+                score++;
+                scoreDisplay.innerText = Math.floor(score / 5);
+            }}
+        }}, 20);
     }})();
     </script>
     """
@@ -406,7 +475,7 @@ with st.sidebar:
     st.header("🏃 Loading Animation")
     animal_choice = st.selectbox(
         "Choose your runner",
-        ["🦦 Otter", "🦫 Beaver", "🥟 Dumplings", "🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
+        ["🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
         index=0
     )
     st.session_state.animal_emoji = animal_choice.split(" ")[0]
