@@ -304,86 +304,70 @@ def generate_cover_letter_pdf(resume_data):
 # ---------------------------------------------------------
 def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕", theme_color="#8a2be2"):
     """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
-    return f"""
-    <style>
-    .glass-overlay-bg {{
-        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(10, 10, 15, 0.7);
-        backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-        z-index: 999999; display: flex; justify-content: center; align-items: center;
-    }}
-    .glass-dialog-box {{
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        border-radius: 24px; padding: 50px 60px;
-        text-align: center; position: relative; overflow: hidden;
-        display: flex; flex-direction: column; align-items: center;
-    }}
-    .glass-dialog-box::before {{
-        content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-        background: radial-gradient(circle, {theme_color}26 0%, transparent 60%); /* Use theme color with 15% opacity */
-        animation: pulse-glow 3s infinite alternate; z-index: 0;
-    }}
-    /* --- Interactive Floating Animal --- */
-    .float-container {{
-        animation: floatAnim 2.5s ease-in-out infinite;
-        margin-bottom: 10px; z-index: 2; position: relative;
-    }}
-    .interactive-animal {{
-        font-size: 85px;
-        cursor: pointer;
-        user-select: none;
-        display: inline-block;
-        transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s ease;
-    }}
-    .interactive-animal:hover {{
-        filter: drop-shadow(0 0 15px {theme_color});
-    }}
-    .click-hint {{
-        color: #888c96; font-size: 0.9rem; margin-bottom: 15px; z-index: 1; position: relative;
-        animation: fadeHint 2s infinite;
-    }}
-    @keyframes floatAnim {{
-        0%, 100% {{ transform: translateY(0px); }}
-        50% {{ transform: translateY(-15px); }}
-    }}
-    @keyframes fadeHint {{
-        0%, 100% {{ opacity: 0.4; }}
-        50% {{ opacity: 1; }}
-    }}
-    /* ----------------------------------- */
-    .loading-text {{
-        color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
-        font-weight: 300; letter-spacing: 1px; margin: 0;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
-    }}
-    .timer-text {{
-        color: #00f2fe; font-family: monospace; font-size: 1.5rem;
-        font-weight: bold; margin-top: 15px;
-        text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); z-index: 1; position: relative;
-    }}
-    @keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
-    </style>
-    <div class="glass-overlay-bg">
-        <div class="glass-dialog-box">
-            <div class="float-container">
-                <div class="interactive-animal" id="spinAnimal" data-rot="0" onclick="doSpin()">{animal_emoji}</div>
-            </div>
-            <div class="click-hint">👆 Click me to spin!</div>
-            
-            <h2 class="loading-text">{message}</h2>
-            <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
+    return f"""<style>
+.glass-overlay-bg {{
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(10, 10, 15, 0.7);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    z-index: 999999; display: flex; justify-content: center; align-items: center;
+}}
+.glass-dialog-box {{
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    border-radius: 24px; padding: 50px 60px;
+    text-align: center; position: relative; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center;
+}}
+.glass-dialog-box::before {{
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle, {theme_color}26 0%, transparent 60%);
+    animation: pulse-glow 3s infinite alternate; z-index: 0;
+}}
+.float-container {{
+    animation: floatAnim 2.5s ease-in-out infinite;
+    margin-bottom: 10px; z-index: 2; position: relative;
+}}
+.interactive-animal {{
+    font-size: 85px; cursor: pointer; user-select: none; display: inline-block;
+    transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s ease;
+}}
+.interactive-animal:hover {{
+    filter: drop-shadow(0 0 15px {theme_color});
+}}
+.click-hint {{
+    color: #888c96; font-size: 0.9rem; margin-bottom: 15px; z-index: 1; position: relative;
+    animation: fadeHint 2s infinite;
+}}
+@keyframes floatAnim {{ 0%, 100% {{ transform: translateY(0px); }} 50% {{ transform: translateY(-15px); }} }}
+@keyframes fadeHint {{ 0%, 100% {{ opacity: 0.4; }} 50% {{ opacity: 1; }} }}
+.loading-text {{
+    color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
+    font-weight: 300; letter-spacing: 1px; margin: 0;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
+}}
+.timer-text {{
+    color: #00f2fe; font-family: monospace; font-size: 1.5rem;
+    font-weight: bold; margin-top: 15px;
+    text-shadow: 0 0 10px rgba(0, 242, 254, 0.6); z-index: 1; position: relative;
+}}
+@keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
+</style>
+<div class="glass-overlay-bg">
+    <div class="glass-dialog-box">
+        <div class="float-container">
+            <div class="interactive-animal" id="spinAnimal" data-rot="0" onclick="window.doSpin()">{animal_emoji}</div>
         </div>
+        <div class="click-hint">👆 Click me to spin!</div>
+        <h2 class="loading-text">{message}</h2>
+        <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
     </div>
-    <script>
-    (function() {{
-        // 1. 動態秒數計時器
-        var sec = 0; 
-        var el = document.getElementById('loading-timer-val');
-        if(!el) return;
+</div>
+<img src="x" style="display:none;" onerror="
+    var sec = 0; 
+    var el = document.getElementById('loading-timer-val');
+    if(el) {{
         var timer = setInterval(function() {{
-            // 如果視窗已經被 Streamlit empty() 清除，則停止計時器避免記憶體洩漏
             if(!document.body.contains(el)) {{
                 clearInterval(timer);
                 return;
@@ -391,46 +375,37 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
             sec++;
             el.innerText = sec;
         }}, 1000);
-
-        // 2. 互動旋轉邏輯
-        window.doSpin = function() {{
-            var el = document.getElementById('spinAnimal');
-            if(!el) return;
-            
-            var currentRot = parseInt(el.getAttribute('data-rot') || '0');
-            // 隨機決定旋轉方向與圈數 (正負 360~1080度)
-            var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1); 
-            var newRot = currentRot + addRot;
-            el.setAttribute('data-rot', newRot);
-            
-            // 旋轉時帶有隨機的彈跳縮放效果
-            var scale = Math.random() > 0.5 ? 1.25 : 0.75;
-            el.style.transform = "rotate(" + newRot + "deg) scale(" + scale + ")";
-            setTimeout(function(){{
-                el.style.transform = "rotate(" + newRot + "deg) scale(1)";
-            }}, 350); // 彈跳回原大小
-        }};
-    }})();
-    </script>
-    """
+    }}
+    window.doSpin = function() {{
+        var animal = document.getElementById('spinAnimal');
+        if(!animal) return;
+        var currentRot = parseInt(animal.getAttribute('data-rot') || '0');
+        var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1); 
+        var newRot = currentRot + addRot;
+        animal.setAttribute('data-rot', newRot);
+        var scale = Math.random() > 0.5 ? 1.25 : 0.75;
+        animal.style.transform = 'rotate(' + newRot + 'deg) scale(' + scale + ')';
+        setTimeout(function(){{
+            animal.style.transform = 'rotate(' + newRot + 'deg) scale(1)';
+        }}, 350);
+    }};
+">"""
 
 def get_glass_warning_html():
     """帶有琥珀色脈衝三角核心的玻璃擬態警告框"""
-    return """
-    <div style="background: rgba(20, 10, 10, 0.5); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 16px; padding: 25px; display: flex; align-items: center; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); margin-bottom: 20px;">
-        <div style="width: 40px; height: 40px; background: radial-gradient(circle, rgba(255,165,0,0.9) 0%, rgba(255,140,0,0.2) 80%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); animation: pulse-amber 2s infinite alternate; margin-right: 25px; flex-shrink: 0; box-shadow: 0 0 20px rgba(255, 165, 0, 0.6);"></div>
-        <div>
-            <h3 style="color: #ffcc00; margin: 0 0 8px 0; font-family: sans-serif; font-weight: 500; letter-spacing: 0.5px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">resume.json Not Opened</h3>
-            <p style="color: #e0e0e0; margin: 0; font-size: 0.95em; font-weight: 300;">System cannot locate the generated resume data. Please execute the AI generation first to create the base file.</p>
-        </div>
+    return """<div style="background: rgba(20, 10, 10, 0.5); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 16px; padding: 25px; display: flex; align-items: center; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); margin-bottom: 20px;">
+    <div style="width: 40px; height: 40px; background: radial-gradient(circle, rgba(255,165,0,0.9) 0%, rgba(255,140,0,0.2) 80%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); animation: pulse-amber 2s infinite alternate; margin-right: 25px; flex-shrink: 0; box-shadow: 0 0 20px rgba(255, 165, 0, 0.6);"></div>
+    <div>
+        <h3 style="color: #ffcc00; margin: 0 0 8px 0; font-family: sans-serif; font-weight: 500; letter-spacing: 0.5px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">resume.json Not Opened</h3>
+        <p style="color: #e0e0e0; margin: 0; font-size: 0.95em; font-weight: 300;">System cannot locate the generated resume data. Please execute the AI generation first to create the base file.</p>
     </div>
-    <style>
-    @keyframes pulse-amber { 
-        0% { transform: scale(0.95); opacity: 0.7; filter: drop-shadow(0 0 5px rgba(255,165,0,0.5)); } 
-        100% { transform: scale(1.05); opacity: 1; filter: drop-shadow(0 0 15px rgba(255,165,0,1)); } 
-    }
-    </style>
-    """
+</div>
+<style>
+@keyframes pulse-amber { 
+    0% { transform: scale(0.95); opacity: 0.7; filter: drop-shadow(0 0 5px rgba(255,165,0,0.5)); } 
+    100% { transform: scale(1.05); opacity: 1; filter: drop-shadow(0 0 15px rgba(255,165,0,1)); } 
+}
+</style>"""
 
 # ---------------------------------------------------------
 # Streamlit UI 介面
