@@ -115,7 +115,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         2. Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
         3. ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
 
-        ⚠️ [Output Format Limitation]: Return ONLY valid JSON, no markdown ticks like ```json.
+        ⚠️ [Output Format Limitation]: Return ONLY valid JSON, no markdown ticks like ```json. 沒有粗體字 沒有斜體字
         {{
             "changelog": "Brief explanation of modifications...",{ats_example}
             "optimized_resume": {{...Updated full resume JSON structure...}}
@@ -394,6 +394,41 @@ def get_glass_warning_html():
 # Streamlit UI 介面
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
+
+# --- 強制全站深色模式 CSS 注入 (終極鎖定) ---
+st.markdown("""
+<style>
+    /* 強制主背景與文字顏色 */
+    .stApp, .stApp > header {
+        background-color: #18191c !important;
+        color: #e0e0e0 !important;
+    }
+    /* 強制側邊欄背景 */
+    [data-testid="stSidebar"] {
+        background-color: #232529 !important;
+    }
+    /* 強制輸入框與文字區塊呈現深色 */
+    .stTextArea textarea, .stTextInput input, [data-baseweb="select"] > div {
+        background-color: #2b2d35 !important;
+        color: #ffffff !important;
+        border: 1px solid #3d404b !important;
+    }
+    /* 強制 Markdown 等內文字體為淺色 */
+    .stMarkdown, p, h1, h2, h3, h4, h5, h6, label {
+        color: #e0e0e0 !important;
+    }
+    /* 強制分頁標籤 (Tabs) 深色化 */
+    [data-baseweb="tab-list"] {
+        background-color: transparent !important;
+    }
+    [data-baseweb="tab"] p {
+        color: #888c96 !important;
+    }
+    [data-baseweb="tab"][aria-selected="true"] p {
+        color: #ffffff !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- Sidebar Settings ---
 with st.sidebar:
