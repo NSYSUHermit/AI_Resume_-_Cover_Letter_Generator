@@ -352,7 +352,6 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
         <div class="glass-dialog-box">
             <div class="animal-runner">{animal_emoji}</div>
             <h2 class="loading-text">{message}</h2>
-            <div class="timer-text">Elapsed Time: <span id="loading-timer-val">0</span>s</div>
         </div>
     </div>
     <script>
