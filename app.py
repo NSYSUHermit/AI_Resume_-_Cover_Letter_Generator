@@ -193,6 +193,7 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
         base_name = os.path.splitext(tex_filename)[0]
         expected_pdf_name = f"{base_name}.pdf"
         
+        data = data.replace('**', '')
         company = data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
         role = data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
         final_pdf_name = f"{company}_{role}_resume.pdf"
@@ -406,7 +407,7 @@ with st.sidebar:
     st.header("🏃 Loading Animation")
     animal_choice = st.selectbox(
         "Choose your runner",
-        ["🦦 Otter", "🦫 Beaver", "🥟🥟 Dumplings", "🅷🅴 Henry", "🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
+        ["🦦 Otter", "🦫 Beaver", "🥟🥟 Dumplings", "🏂 Henry", "🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
         index=0
     )
     st.session_state.animal_emoji = animal_choice.split(" ")[0]
