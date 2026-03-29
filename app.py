@@ -182,20 +182,25 @@ def generate_pdf_from_json(data, custom_tex_bytes=None):
             f.write(template_content)
 
     try:
+        # --- 清除所有的 Markdown 粗體符號 (**) ---
+        # 透過先轉為 JSON 字串，取代後再轉回 dict，避免 dict 物件沒有 replace 方法的錯誤
+        data_str = json.dumps(data, ensure_ascii=False)
+        data_str = data_str.replace('**', '')
+        clean_data = json.loads(data_str)
+
         # --- NEW LOGIC ---
         # Write the data to a temporary JSON file that the LuaLaTeX script expects.
         temp_json_filename = "ml_resume.json"
         with open(temp_json_filename, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+            json.dump(clean_data, f, ensure_ascii=False, indent=4)
 
         # The final PDF will be named after the .tex file, e.g., main.pdf
         # We will rename it later for consistency.
         base_name = os.path.splitext(tex_filename)[0]
         expected_pdf_name = f"{base_name}.pdf"
         
-        data = data.replace('**', '')
-        company = data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
-        role = data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
+        company = clean_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
+        role = clean_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
         final_pdf_name = f"{company}_{role}_resume.pdf"
             
         # 呼叫 LuaLaTeX 編譯
