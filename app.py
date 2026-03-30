@@ -4,6 +4,7 @@ import jinja2
 import subprocess
 import os
 import json
+import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
@@ -435,7 +436,18 @@ with tab1:
     st.info("This is your **Base Template**. AI will always use this as the ground truth for optimizations. Remember to click 'Save Changes' below.")
     
     json_str = json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False)
-    edited_json = st.text_area("Resume JSON Structure", value=json_str, height=500)
+    # 將 st.text_area 替換為 st_ace.st_ace，提供更豐富的編輯體驗，包含行號和語法高亮
+    edited_json = st_ace.st_ace(
+        value=json_str,
+        language="json", # 設定為 JSON 語法高亮
+        theme="dracula", # 選擇一個類似 VS Code 的深色主題，例如 "dracula" 或 "monokai"
+        height=500,
+        key="base_resume_editor", # 為編輯器設定一個唯一的 key
+        font_size=14, # 設定字體大小
+        tab_size=2, # 設定 Tab 縮排大小
+        show_gutter=True, # 啟用行號顯示
+        auto_update=True, # 自動更新編輯器內容到 Streamlit
+    )
     
     if st.button("💾 Save JSON Changes", type="primary"):
         try:
