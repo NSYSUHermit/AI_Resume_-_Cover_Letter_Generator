@@ -5,6 +5,7 @@ import subprocess
 import os
 import json
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
+from datetime import datetime
 
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
@@ -64,6 +65,11 @@ if "ai_report" not in st.session_state:
 
 if "optimized_resume_data" not in st.session_state:
     st.session_state.optimized_resume_data = None
+
+if "base_resume_saved_time" not in st.session_state:
+    st.session_state.base_resume_saved_time = None
+if "optimized_resume_saved_time" not in st.session_state:
+    st.session_state.optimized_resume_saved_time = None
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -139,6 +145,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 
         # 強制將最新的 JSON 字串寫入文字框的 session state 中，確保 UI 100% 更新
         st.session_state['opt_json_area'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
+        # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
+        st.session_state.optimized_resume_saved_time = None
         
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
@@ -428,6 +436,38 @@ with st.sidebar:
 st.title("🚀 AI-Powered Resume Builder")
 st.write("Combine Gemini AI with LaTeX to write, optimize, and export high-quality PDF resumes and cover letters effortlessly.")
 
+st.markdown("---")
+st.subheader("📝 Current Data Status")
+col1, col2 = st.columns(2)
+
+with col1:
+    with st.container(border=True):
+        st.markdown("##### 👤 Base Profile")
+        if st.session_state.get("base_resume_saved_time"):
+            st.success(f"Last saved: {st.session_state.base_resume_saved_time}")
+        else:
+            st.info("Default template loaded. No changes saved yet.")
+        
+        if st.button("👁️ Preview Base Profile"):
+            with st.dialog("Base Profile Content", width="large"):
+                st.json(st.session_state.resume_data)
+
+with col2:
+    with st.container(border=True):
+        st.markdown("##### ✨ Optimized Profile (ml_resume)")
+        if st.session_state.optimized_resume_data:
+            if st.session_state.get("optimized_resume_saved_time"):
+                st.success(f"Last saved: {st.session_state.optimized_resume_saved_time}")
+            else:
+                st.warning("Data loaded. Review and save in Tab 4.")
+            
+            if st.button("👁️ Preview Optimized Profile"):
+                with st.dialog("Optimized Profile Content", width="large"):
+                    st.json(st.session_state.optimized_resume_data)
+        else:
+            st.info("Not yet generated. Run AI in Tab 2.")
+st.markdown("---")
+
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["1️⃣ Base Profile", "2️⃣ AI Customization", "3️⃣ AI Report", "4️⃣ Edit Optimized Result", "5️⃣ Export PDF & Cover Letter"])
 
 # --- 1. Base Profile Tab ---
@@ -452,6 +492,7 @@ with tab1:
     if st.button("💾 Save JSON Changes", type="primary"):
         try:
             st.session_state.resume_data = json.loads(edited_json)
+            st.session_state.base_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.success("JSON data saved successfully!")
         except Exception as e:
             st.error(f"JSON format error, please check syntax: {e}")
@@ -505,6 +546,8 @@ with tab4:
                 refreshed_data = json.load(f)
                 st.session_state.optimized_resume_data = refreshed_data
                 st.session_state['opt_json_area'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
+                # 從檔案刷新後，重設儲存時間，因為這不是使用者在編輯器中手動儲存的
+                st.session_state.optimized_resume_saved_time = None
                 st.success("Refreshed data from `ml_resume.json`! The view will update.")
         else:
             # 使用高質感的琥珀色警告框
@@ -534,6 +577,7 @@ with tab4:
             try:
                 st.session_state.optimized_resume_data = json.loads(edited_opt_json)
                 st.session_state['opt_json_area'] = edited_opt_json # 保存後，同時更新編輯器顯示的內容，保持同步
+                st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.success("Optimized data saved successfully!")
             except Exception as e:
                 st.error(f"JSON format error, please check syntax: {e}")
