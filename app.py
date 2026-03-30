@@ -173,9 +173,9 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 # ---------------------------------------------------------
 # PDF 生成邏輯 (支援自訂 main.tex)
 # ---------------------------------------------------------
-def generate_pdf_from_json(data, custom_tex_bytes=None):
+def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"):
     # Determine which .tex file to use
-    tex_filename = "main.tex"
+    tex_filename = template_name
     if custom_tex_bytes:
         template_content = custom_tex_bytes.decode('utf-8')
         tex_filename = "custom_main.tex"
@@ -549,6 +549,9 @@ with tab5:
     
     data_to_use = st.session_state.optimized_resume_data if st.session_state.optimized_resume_data else st.session_state.resume_data
     
+    template_choice = st.radio("🎨 Select Resume Template", ["H (Henry's Template)", "E (Elsa's Template)"], horizontal=True)
+    selected_template = "main.tex" if template_choice.startswith("H") else "elsa_main.tex"
+
     uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
     
     if st.button("Compile & Generate PDF Resume", type="primary"):
@@ -556,7 +559,7 @@ with tab5:
         loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
-        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes)
+        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes, template_name=selected_template)
         
         loading_overlay.empty()
         

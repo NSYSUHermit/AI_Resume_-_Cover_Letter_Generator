@@ -1,0 +1,235 @@
+%-------------------------------------------
+% Resume in LuaLatex - Uniform Location and Time Font
+% Author: Henry Lin
+%-------------------------------------------
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext,newtxmath} % Times New Roman
+\usepackage{latexsym}
+\usepackage{graphicx}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\RequirePackage{luatex85}
+\usepackage{luacode}
+\usepackage[hidelinks]{hyperref}
+\usepackage{multirow}
+
+\pagestyle{fancy}
+\fancyhf{} 
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% 邊距設定
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1.0in}
+\addtolength{\topmargin}{-0.8in} 
+\addtolength{\textheight}{1.8in} % <-- 將原本的 1in 改為 1.8in，大幅向下擴張可用空間
+\setlength{\footskip}{5pt}       % <-- 新增這行：徹底移除底部頁腳的隱藏留白
+
+\urlstyle{same}
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% 標題格式
+\titleformat{\section}{
+  \vspace{-12pt}\upshape\bfseries\raggedright\large
+}{}{0em}{}[\titlerule \vspace{-12pt}] 
+
+% --- 修改點：將地點 (#4) 設定為與時間 (#3) 一樣的粗體正體 ---
+\newcommand{\resumeExpFixEntry}[4]{
+  \vspace{4pt} 
+  \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
+    \textbf{#1} & \textbf{#3} \\ % 公司 & 時間
+    \upshape{#2} & {\upshape #4} \\ % 職稱 & 地點
+  \end{tabular*}\vspace{4pt} % <--- 將原本的 -2pt 改成正的 4pt (或更大)
+}
+
+% 學歷指令
+\newcommand{\resumeEduEntry}[4]{
+  \vspace{8pt}
+  \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
+    \textbf{#3} & \textbf{#2} \\ 
+    \upshape{#1} & {\upshape #4} \\    
+  \end{tabular*}\vspace{4pt}
+}
+
+% 列表間距指令
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=1.5em, itemsep=2pt, topsep=1pt, parsep=0pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{0pt}}
+
+%-------------------------------------------
+% Lua code
+%-------------------------------------------
+\begin{luacode*}
+require("lualibs")
+local resume = nil
+
+local function escapeTex(str)
+  if not str then return "" end
+  str = string.gsub(str, "%%", "\\%%")
+  str = string.gsub(str, "_", "\\_")
+  str = string.gsub(str, "&", "\\&")
+  str = string.gsub(str, "#", "\\#")
+  str = string.gsub(str, "{", "\\{")
+  str = string.gsub(str, "}", "\\}")
+  return str
+end
+
+local function getResume()
+  if resume then return resume end
+  local fh, err = io.open("ml_resume.json", "r")
+  if not fh then return {} end
+  local txt = fh:read("*a")
+  fh:close()
+  resume = utilities.json.tolua(txt)
+  return resume
+end
+
+function printHeading()
+  local r = getResume()
+  local h = r.heading or {}
+  
+  -- 開始置中環境
+  tex.print("\\begin{center}")
+  
+  -- 印出姓名 (置中、放大、粗體)
+  tex.print("{\\huge\\bfseries " .. escapeTex(h.name or "") .. "} \\\\[6pt]")
+  
+  -- 收集所有存在的聯絡資訊
+  local contact_info = {}
+  
+  if h.email and h.email ~= "" then
+    table.insert(contact_info, escapeTex(h.email))
+  end
+  if h.website and h.website ~= "" then
+    table.insert(contact_info, escapeTex(h.website))
+  end
+  if h.linkedin and h.linkedin ~= "" then
+    table.insert(contact_info, escapeTex(h.linkedin))
+  end
+  if h.phone and h.phone ~= "" then
+    table.insert(contact_info, escapeTex(h.phone))
+  end
+  
+  -- 用 | 將聯絡資訊串接起來，並加上數學模式的間距設定讓直線更好看
+  local contact_str = table.concat(contact_info, " $|$ ")
+  
+  -- 印出聯絡資訊字串
+  tex.print(contact_str)
+  
+  tex.print("\\end{center}")
+  
+  -- 抵銷 center 環境預設產生的多餘垂直空白，讓下方內容更緊湊
+  tex.print("\\vspace{0pt}") 
+end
+
+function printEducation()
+  local r = getResume()
+  for _, e in ipairs(r.education or {}) do
+    tex.print("\\resumeEduEntry{" .. escapeTex(e.school) .. "}{" .. escapeTex(e.time_period) .. "}{" .. escapeTex(e.degree) .. "}{" .. escapeTex(e.school_location) .. "}")
+  end
+end
+
+function printSummary()
+  local r = getResume()
+  -- 確保 JSON 裡有 summary 且不是空字串
+  if r.summary and r.summary ~= "" then
+    -- 印出跟其他欄位一樣的 Section 標題與橫線
+    tex.print("\\section{SUMMARY}")
+    tex.print("\\vspace{8pt}") 
+    
+    -- 印出 Summary 內容
+    tex.print(escapeTex(r.summary))
+    
+    -- 在 Summary 內容跟下一個區塊之間補上一點點垂直間距，讓版面更好看
+    tex.print("\\vspace{8pt}")
+  end
+end
+
+function printExperience()
+  local r = getResume()
+  for _, exp in ipairs(r.experience or {}) do
+    tex.print("\\resumeExpFixEntry{" .. escapeTex(exp.company) .. "}{" .. escapeTex(exp.role) .. "}{" .. escapeTex(exp.time_duration) .. "}{" .. escapeTex(exp.company_location or "") .. "}")
+    tex.print("\\resumeItemListStart")
+    for _, d in ipairs(exp.details or {}) do
+      tex.print("\\item " .. escapeTex(d.description or ""))
+    end
+    tex.print("\\resumeItemListEnd")
+  end
+end
+
+function printProjects()
+  local r = getResume()
+  for _, p in ipairs(r.projects or {}) do
+    tex.print("\\vspace{4pt} \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time or "") .. "\\\\")
+    tex.print("\\resumeItemListStart")
+    tex.print("\\item " .. escapeTex(p.description or ""))
+    tex.print("\\resumeItemListEnd")
+  end
+end
+
+function printPatents()
+  local r = getResume()
+  for _, p in ipairs(r.patents or {}) do
+    tex.print("\\vspace{1pt} \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time) .. "\\\\")
+    tex.print("\\resumeItemListStart")
+    tex.print("\\item " .. escapeTex(p.description or ""))
+    tex.print("\\resumeItemListEnd")
+  end
+end
+
+function printSkills()
+  local r = getResume()
+  local s = r.skills or {}
+  
+  -- 給標題下方一點點呼吸空間
+  tex.print("\\vspace{8pt}") 
+  
+  -- 新的動態讀取函數
+  local function printDynamicCategory(key)
+    local set_data = s[key]
+    -- 確保這個 set 存在，且裡面有 title 和 items
+    if set_data and set_data.title and set_data.items and #set_data.items > 0 then
+      local title_str = escapeTex(set_data.title)
+      local items_str = escapeTex(table.concat(set_data.items, ", "))
+      
+      -- 【修改點】：移除了 \hangindent 與 \hangafter，讓第二行自然貼齊最左邊
+      tex.print("\\noindent \\textbf{" .. title_str .. "}: {\\upshape " .. items_str .. "} \\\\[4pt]")
+    end
+  end
+
+  -- 依序印出 set1, set2, set3
+  printDynamicCategory("set1")
+  printDynamicCategory("set2")
+  printDynamicCategory("set3")
+end
+
+\end{luacode*}
+
+\begin{document}
+
+\directlua{printHeading()}
+
+\directlua{printSummary()}
+
+\section{PROFESSIONAL EXPERIENCE}
+  \vspace{4pt}
+  \directlua{printExperience()}
+  \vspace{10pt}
+  
+\section{EDUCATION}
+  \directlua{printEducation()}
+  \vspace{-12pt}
+
+\section{CORE SKILLS}
+  \directlua{printSkills()}
+
+\end{document}
