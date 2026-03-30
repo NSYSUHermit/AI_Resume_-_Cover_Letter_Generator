@@ -438,6 +438,15 @@ st.write("Combine Gemini AI with LaTeX to write, optimize, and export high-quali
 
 st.markdown("---")
 st.subheader("📝 Current Data Status")
+
+@st.dialog("Base Profile Content", width="large")
+def preview_base_profile():
+    st.json(st.session_state.resume_data)
+
+@st.dialog("Optimized Profile Content", width="large")
+def preview_optimized_profile():
+    st.json(st.session_state.optimized_resume_data)
+
 col1, col2 = st.columns(2)
 
 with col1:
@@ -449,8 +458,7 @@ with col1:
             st.info("Default template loaded. No changes saved yet.")
         
         if st.button("👁️ Preview Base Profile"):
-            with st.dialog("Base Profile Content", width="large"):
-                st.json(st.session_state.resume_data)
+            preview_base_profile()
 
 with col2:
     with st.container(border=True):
@@ -462,8 +470,7 @@ with col2:
                 st.warning("Data loaded. Review and save in Tab 4.")
             
             if st.button("👁️ Preview Optimized Profile"):
-                with st.dialog("Optimized Profile Content", width="large"):
-                    st.json(st.session_state.optimized_resume_data)
+                preview_optimized_profile()
         else:
             st.info("Not yet generated. Run AI in Tab 2.")
 st.markdown("---")
