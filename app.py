@@ -600,8 +600,8 @@ with tab5:
     
     data_to_use = st.session_state.optimized_resume_data if st.session_state.optimized_resume_data else st.session_state.resume_data
     
-    template_choice = st.radio("🎨 Select Resume Template", ["H (Henry's Template)", "E (Elsa's Template)"], horizontal=True)
-    selected_template = "main.tex" if template_choice.startswith("H") else "elsa_main.tex"
+    template_choice = st.radio("🎨 Select Resume Template", ["💻", "📈"], horizontal=True)
+    selected_template = "main.tex" if template_choice.startswith("💻") else "elsa_main.tex"
 
     uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
     
