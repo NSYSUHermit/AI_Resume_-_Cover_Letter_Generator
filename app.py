@@ -512,12 +512,28 @@ with tab4:
 
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
-        opt_json_str = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
-        edited_opt_json = st.text_area("Optimized Resume JSON", value=opt_json_str, height=500, key="opt_json_area")
+        
+        # The value for the editor is managed by st.session_state['opt_json_area'],
+        # which is set by the AI function or the refresh button.
+        initial_opt_json = st.session_state.get('opt_json_area', json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False))
+
+        # 將 st.text_area 替換為 st_ace.st_ace，提供更豐富的編輯體驗
+        edited_opt_json = st_ace.st_ace(
+            value=initial_opt_json,
+            language="json",
+            theme="dracula",
+            height=500,
+            key="optimized_resume_editor", # 為編輯器設定一個唯一的 key
+            font_size=14,
+            tab_size=2,
+            show_gutter=True, # 啟用行號顯示
+            auto_update=True,
+        )
         
         if st.button("💾 Save Optimized Changes", type="primary", key="save_opt"):
             try:
                 st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+                st.session_state['opt_json_area'] = edited_opt_json # 保存後，同時更新編輯器顯示的內容，保持同步
                 st.success("Optimized data saved successfully!")
             except Exception as e:
                 st.error(f"JSON format error, please check syntax: {e}")
