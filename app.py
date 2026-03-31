@@ -143,8 +143,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             
         st.session_state.optimized_resume_data = modified_resume_data
 
-        # 強制將最新的 JSON 字串寫入文字框的 session state 中，確保 UI 100% 更新
-        st.session_state['opt_json_area'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
+        # 直接更新 Tab 4 編輯器的 session state (key='optimized_resume_editor')，確保 UI 同步
+        st.session_state['optimized_resume_editor'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
         # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
         st.session_state.optimized_resume_saved_time = None
         
@@ -552,8 +552,8 @@ with tab4:
             with open("ml_resume.json", "r", encoding="utf-8") as f:
                 refreshed_data = json.load(f)
                 st.session_state.optimized_resume_data = refreshed_data
-                st.session_state['opt_json_area'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
-                # 從檔案刷新後，重設儲存時間，因為這不是使用者在編輯器中手動儲存的
+                # 直接更新 Tab 4 編輯器的 session state，使其顯示最新內容
+                st.session_state['optimized_resume_editor'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
                 st.session_state.optimized_resume_saved_time = None
                 st.success("Refreshed data from `ml_resume.json`! The view will update.")
         else:
@@ -563,13 +563,12 @@ with tab4:
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
         
-        # The value for the editor is managed by st.session_state['opt_json_area'],
-        # which is set by the AI function or the refresh button.
-        initial_opt_json = st.session_state.get('opt_json_area', json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False))
+        # The editor's value is controlled by its key 'optimized_resume_editor' in session_state.
+        # We provide a default value from optimized_resume_data in case the editor state is not yet initialized.
+        editor_value = st.session_state.get('optimized_resume_editor', json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False))
 
-        # 將 st.text_area 替換為 st_ace.st_ace，提供更豐富的編輯體驗
         edited_opt_json = st_ace.st_ace(
-            value=initial_opt_json,
+            value=editor_value,
             language="json",
             theme="dracula",
             height=500,
@@ -583,7 +582,7 @@ with tab4:
         if st.button("💾 Save Optimized Changes", type="primary", key="save_opt"):
             try:
                 st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-                st.session_state['opt_json_area'] = edited_opt_json # 保存後，同時更新編輯器顯示的內容，保持同步
+                # The editor's content is already up-to-date via auto_update=True. We just need to save the parsed data.
                 st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.success("Optimized data saved successfully!")
             except Exception as e:
