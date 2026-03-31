@@ -143,6 +143,10 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             
         st.session_state.optimized_resume_data = modified_resume_data
 
+        # 直接將 AI 生成的結果寫入 ml_resume.json 檔案
+        with open("ml_resume.json", "w", encoding="utf-8") as f:
+            json.dump(modified_resume_data, f, indent=4, ensure_ascii=False)
+
         # 直接更新 Tab 4 編輯器的 session state (key='optimized_resume_editor')，確保 UI 同步
         st.session_state['optimized_resume_editor'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
         # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
