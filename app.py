@@ -70,6 +70,8 @@ if "base_resume_saved_time" not in st.session_state:
     st.session_state.base_resume_saved_time = None
 if "optimized_resume_saved_time" not in st.session_state:
     st.session_state.optimized_resume_saved_time = None
+if "opt_editor_key" not in st.session_state:
+    st.session_state.opt_editor_key = 0
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -147,8 +149,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         with open("ml_resume.json", "w", encoding="utf-8") as f:
             json.dump(modified_resume_data, f, indent=4, ensure_ascii=False)
 
-        # 直接更新 Tab 4 編輯器的 session state (key='optimized_resume_editor')，確保 UI 同步
-        st.session_state['optimized_resume_editor'] = json.dumps(modified_resume_data, indent=4, ensure_ascii=False)
+        # 更新動態 Key 來強制 Streamlit Ace 編輯器重新渲染並載入新資料
+        st.session_state.opt_editor_key += 1
         # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
         st.session_state.optimized_resume_saved_time = None
         
@@ -556,8 +558,8 @@ with tab4:
             with open("ml_resume.json", "r", encoding="utf-8") as f:
                 refreshed_data = json.load(f)
                 st.session_state.optimized_resume_data = refreshed_data
-                # 直接更新 Tab 4 編輯器的 session state，使其顯示最新內容
-                st.session_state['optimized_resume_editor'] = json.dumps(refreshed_data, indent=4, ensure_ascii=False)
+                # 改變 key 強制重新渲染編輯器
+                st.session_state.opt_editor_key += 1
                 st.session_state.optimized_resume_saved_time = None
                 st.success("Refreshed data from `ml_resume.json`! The view will update.")
         else:
@@ -567,16 +569,14 @@ with tab4:
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
         
-        # The editor's value is controlled by its key 'optimized_resume_editor' in session_state.
-        # We provide a default value from optimized_resume_data in case the editor state is not yet initialized.
-        editor_value = st.session_state.get('optimized_resume_editor', json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False))
+        editor_value = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
 
         edited_opt_json = st_ace.st_ace(
             value=editor_value,
             language="json",
             theme="dracula",
             height=500,
-            key="optimized_resume_editor", # 為編輯器設定一個唯一的 key
+            key=f"optimized_resume_editor_{st.session_state.opt_editor_key}", # 動態 key 強制更新
             font_size=14,
             tab_size=2,
             show_gutter=True, # 啟用行號顯示
