@@ -120,13 +120,10 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
 
 
-        Task Instructions:
-        1. Information Extraction: Accurately extract the Company Name and Job Title from the provided Job Description (JD). Populate these into the "target_company" and "target_role"  fields respectively into JSON.
-        2. Cover Letter Composition: Write a professional and compelling Cover Letter based on the JD and resume. The content must be tailored to the specific requirements and company culture mentioned. Place the full text into the "cover_letter" field of the JSON.
-        3. Signature Formatting: Ensure the Cover Letter concludes with the following specific format:
-        4. Use the closing phrase "Best regards,"
-            Followed by a new line.
-            Followed by the Applicant's First Name only.
+        1. Cover Letter:
+            - 請務必根據 JD 撰寫一份完整的 Cover Letter 並填入 JSON 的 "cover_letter" 欄位中。
+            - 最後的 Best regards, 換行 申請人first name 的結尾一定要放入
+        2. 提取資訊：從 JD 中準確提取「公司名稱」和「職位名稱」，分別放入 "target_company" 和 "target_role" 欄位。
 
         Output Format:
         Please provide the final result strictly in JSON format.
