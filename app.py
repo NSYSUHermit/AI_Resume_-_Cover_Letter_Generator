@@ -114,19 +114,15 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             "keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
 
         final_prompt = f"""
-        {custom_prompt}
-
-        [Target JD]: {jd_text}
-        [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
-
-
         1. Cover Letter:
             - 請務必根據 JD 撰寫一份完整的 Cover Letter 並填入 JSON 的 "cover_letter" 欄位中。
             - 最後的 Best regards, 換行 申請人first name 的結尾一定要放入
         2. 提取資訊：從 JD 中準確提取「公司名稱」和「職位名稱」，分別放入 "target_company" 和 "target_role" 欄位。
 
-        Output Format:
-        Please provide the final result strictly in JSON format.
+        {custom_prompt}
+
+        [Target JD]: {jd_text}
+        [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
 
         🔥 [Advanced ATS Keyword Injection Rules]:
         1. Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
