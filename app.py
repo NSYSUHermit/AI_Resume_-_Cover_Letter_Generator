@@ -72,6 +72,10 @@ if "optimized_resume_saved_time" not in st.session_state:
     st.session_state.optimized_resume_saved_time = None
 if "opt_editor_key" not in st.session_state:
     st.session_state.opt_editor_key = 0
+if "ats_metrics" not in st.session_state:
+    st.session_state.ats_metrics = None
+if "changelog" not in st.session_state:
+    st.session_state.changelog = ""
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -160,31 +164,28 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
         st.session_state.optimized_resume_saved_time = None
         
+        st.session_state.ats_metrics = None
+        st.session_state.changelog = ai_result.get('changelog', '')
+
         # 生成 Markdown 報告
         if enable_ats and "keyword_analysis" in ai_result:
             kw = ai_result["keyword_analysis"]
             tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
             orig_c = len(kw.get("original_hits", []))
             opt_c = len(kw.get("optimized_hits", []))
+            orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
             opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
             
-            report_md += f"### 🎯 ATS Keyword Match Score\n"
-            report_md += f"- **Before Optimization**: {orig_c} / {tot}\n"
-            report_md += f"- **After AI Optimization**: {opt_c} / {tot} (**{opt_pct}%**)\n\n"
-            
-            report_md += "**✅ Successfully Hit Keywords:**\n"
-            for k in kw.get("optimized_hits", []):
-                if k in kw.get("newly_added", []):
-                    report_md += f"- `{k}` 🌟 *(Forced injection via AI horizontal shift)*\n"
-                else:
-                    report_md += f"- `{k}`\n"
-            if kw.get("missing_keywords"):
-                report_md += "\n**❌ Missing Keywords:**\n"
-                for k in kw.get("missing_keywords", []):
-                    report_md += f"- `{k}`\n"
-            report_md += "\n---\n"
-            
-        report_md += f"### 📝 Changelog\n{ai_result.get('changelog', '')}"
+            st.session_state.ats_metrics = {
+                "total": tot,
+                "original_count": orig_c,
+                "optimized_count": opt_c,
+                "original_pct": orig_pct,
+                "optimized_pct": opt_pct,
+                "optimized_hits": kw.get("optimized_hits", []),
+                "newly_added": kw.get("newly_added", []),
+                "missing_keywords": kw.get("missing_keywords", [])
+            }
         
         return True, report_md
     except Exception as e:
