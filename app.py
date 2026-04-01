@@ -121,8 +121,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 
 
         Task Instructions:
-        1. Information Extraction: Accurately extract the Company Name and Job Title from the provided Job Description (JD). Populate these into the target_company and target_role fields respectively.
-        2. Cover Letter Composition: Write a professional and compelling Cover Letter based on the JD. The content must be tailored to the specific requirements and company culture mentioned. Place the full text into the cover_letter field of the JSON.
+        1. Information Extraction: Accurately extract the Company Name and Job Title from the provided Job Description (JD). Populate these into the "target_company" and "target_role"  fields respectively into JSON.
+        2. Cover Letter Composition: Write a professional and compelling Cover Letter based on the JD and resume. The content must be tailored to the specific requirements and company culture mentioned. Place the full text into the "cover_letter" field of the JSON.
         3. Signature Formatting: Ensure the Cover Letter concludes with the following specific format:
         4. Use the closing phrase "Best regards,"
             Followed by a new line.
