@@ -462,32 +462,23 @@ def preview_optimized_profile():
 col1, col2 = st.columns(2)
 
 with col1:
-    with st.container(border=True):
-        st.markdown("##### 👤 Base Profile")
-        if st.session_state.get("base_resume_saved_time"):
-            st.success(f"Last saved: {st.session_state.base_resume_saved_time}")
-        else:
-            st.info("Default template loaded. No changes saved yet.")
-        
-        if st.button("👁️ Preview Base Profile"):
-            preview_base_profile()
+    if st.button("👁️ Preview Base Profile", use_container_width=True):
+        preview_base_profile()
+    if st.session_state.get("base_resume_saved_time"):
+        st.caption(f"💾 Base Saved: {st.session_state.base_resume_saved_time}")
 
 with col2:
-    with st.container(border=True):
-        st.markdown("##### ✨ Optimized Profile (ml_resume)")
-        if st.session_state.optimized_resume_data:
-            if st.session_state.get("optimized_resume_saved_time"):
-                st.success(f"Last saved: {st.session_state.optimized_resume_saved_time}")
-            else:
-                st.warning("Data loaded. Review and save in Tab 4.")
-            
-            if st.button("👁️ Preview Optimized Profile"):
-                preview_optimized_profile()
-        else:
-            st.info("Not yet generated. Run AI in Tab 2.")
+    if st.session_state.optimized_resume_data:
+        if st.button("👁️ Preview Optimized Profile", use_container_width=True):
+            preview_optimized_profile()
+        if st.session_state.get("optimized_resume_saved_time"):
+            st.caption(f"💾 Optimized Saved: {st.session_state.optimized_resume_saved_time}")
+    else:
+        st.button("👁️ Preview Optimized Profile", disabled=True, use_container_width=True)
+        st.caption("🚫 Not generated yet")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["1️⃣ Base Profile", "2️⃣ AI Customization", "3️⃣ AI Report", "4️⃣ Edit Optimized Result", "5️⃣ Export PDF & Cover Letter"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["1️⃣ Base", "2️⃣ AI Optimize", "3️⃣ Dashboard", "4️⃣ Editor", "5️⃣ Export"])
 
 # --- 1. Base Profile Tab ---
 with tab1:
@@ -541,18 +532,56 @@ with tab2:
             loading_overlay.empty()
             
             if success:
-                st.success("Optimization completed! Please go to '4️⃣ Edit Optimized Result' to review and tweak.")
+                st.success("Optimization completed! Check the '3️⃣ Dashboard' or edit in '4️⃣ Editor'.")
             else:
                 st.error("Optimization interrupted or failed. Check the report details.")
 
-# --- 3. AI Report Tab ---
+# --- 3. Dashboard Tab ---
 with tab3:
-    st.header("📊 AI Execution Result & ATS Report")
+    st.header("📊 ATS Dashboard & AI Report")
     if st.session_state.ai_report:
-        st.markdown(st.session_state.ai_report)
-        st.info("💡 Report generated! The optimized resume has been saved to '4️⃣ Edit Optimized Result'. Your base profile remains untouched.")
-    else:
-        st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Customization' and run it.")
+        st.info(st.session_state.ai_report)
+        
+    if st.session_state.ats_metrics:
+        m = st.session_state.ats_metrics
+        
+        col1, col2, col3 = st.columns(3)
+        delta_pct = m['optimized_pct'] - m['original_pct']
+        
+        col1.metric("Original Match", f"{m['original_pct']}%", f"{m['original_count']} / {m['total']} keywords", delta_color="off")
+        col2.metric("Optimized Match", f"{m['optimized_pct']}%", f"+{delta_pct}% Improvement")
+        col3.metric("Keywords Injected", f"{len(m['newly_added'])}", "AI newly added")
+        
+        st.write("##### Match Progress")
+        st.progress(min(m['optimized_pct'] / 100.0, 1.0))
+        st.markdown("---")
+        
+        col_k1, col_k2 = st.columns(2)
+        with col_k1:
+            st.success("✅ **Successfully Hit Keywords**")
+            for k in m['optimized_hits']:
+                if k in m['newly_added']:
+                    st.markdown(f"- `{k}` 🌟 *(Forced injection)*")
+                else:
+                    st.markdown(f"- `{k}`")
+            if not m['optimized_hits']:
+                st.write("- None")
+                
+        with col_k2:
+            st.error("❌ **Missing Keywords**")
+            for k in m['missing_keywords']:
+                st.markdown(f"- `{k}`")
+            if not m['missing_keywords']:
+                st.write("- None")
+                
+        st.markdown("---")
+        
+    if st.session_state.changelog:
+        st.write("### 📝 Changelog")
+        st.info(st.session_state.changelog)
+        
+    if not st.session_state.ats_metrics and not st.session_state.changelog and not st.session_state.ai_report:
+        st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Optimize' and run it.")
 
 # --- 4. Edit Optimized Result Tab ---
 with tab4:
