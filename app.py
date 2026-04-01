@@ -119,6 +119,18 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         [Target JD]: {jd_text}
         [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
 
+
+        Task Instructions:
+        1. Information Extraction: Accurately extract the Company Name and Job Title from the provided Job Description (JD). Populate these into the target_company and target_role fields respectively.
+        2. Cover Letter Composition: Write a professional and compelling Cover Letter based on the JD. The content must be tailored to the specific requirements and company culture mentioned. Place the full text into the cover_letter field of the JSON.
+        3. Signature Formatting: Ensure the Cover Letter concludes with the following specific format:
+        4. Use the closing phrase "Best regards,"
+            Followed by a new line.
+            Followed by the Applicant's First Name only.
+
+        Output Format:
+        Please provide the final result strictly in JSON format.
+
         🔥 [Advanced ATS Keyword Injection Rules]:
         1. Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
         2. Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
