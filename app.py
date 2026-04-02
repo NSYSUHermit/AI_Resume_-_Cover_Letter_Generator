@@ -5,8 +5,28 @@ import subprocess
 import os
 import json
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
+import time
+import glob
+import hashlib
 from datetime import datetime
 
+# ---------------------------------------------------------
+# 自動清理暫存檔案機制 (Garbage Collection)
+# ---------------------------------------------------------
+def cleanup_old_temp_files(max_age_seconds=3600):
+    """自動刪除超過 1 小時的暫存檔案 (PDF, TeX 相關檔案)，避免伺服器空間被佔滿"""
+    try:
+        now = time.time()
+        # 針對可能產生的暫存檔副檔名進行清理
+        patterns = ["*_resume_build.*", "*_coverletter.*", "*_main.tex", "*_custom_main.tex"]
+        for pattern in patterns:
+            for file_path in glob.glob(pattern):
+                if os.path.isfile(file_path):
+                    if (now - os.path.getmtime(file_path)) > max_age_seconds:
+                        try: os.remove(file_path)
+                        except Exception: pass
+    except Exception: pass
+cleanup_old_temp_files()
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
 # ---------------------------------------------------------
@@ -83,7 +103,7 @@ if "changelog" not in st.session_state:
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
 # ---------------------------------------------------------
-def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
+def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa, user_hash):
     try:
         api_key = st.session_state.get("api_key", "")
         if not api_key:
@@ -158,10 +178,6 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             
         st.session_state.optimized_resume_data = modified_resume_data
 
-        # 直接將 AI 生成的結果寫入 ml_resume.json 檔案
-        with open("ml_resume.json", "w", encoding="utf-8") as f:
-            json.dump(modified_resume_data, f, indent=4, ensure_ascii=False)
-
         # 更新動態 Key 來強制 Streamlit Ace 編輯器重新渲染並載入新資料
         st.session_state.opt_editor_key += 1
         # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
@@ -197,81 +213,70 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 # ---------------------------------------------------------
 # PDF 生成邏輯 (支援自訂 main.tex)
 # ---------------------------------------------------------
-def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"):
-    # Determine which .tex file to use
-    tex_filename = template_name
+def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex", user_hash="default"):
+    # 為每個使用者創建獨立的 .tex 檔案，避免多人同時上傳模板時互相覆蓋
+    base_tex_name = "custom_main.tex" if custom_tex_bytes else template_name
+    tex_filename = f"{user_hash}_{base_tex_name}"
+
     if custom_tex_bytes:
         template_content = custom_tex_bytes.decode('utf-8')
-        tex_filename = "custom_main.tex"
         with open(tex_filename, "w", encoding="utf-8") as f:
             f.write(template_content)
+    else:
+        # 從原始模板複製一份使用者專屬的 .tex
+        with open(template_name, "r", encoding="utf-8") as f_in, open(tex_filename, "w", encoding="utf-8") as f_out:
+            f_out.write(f_in.read())
 
     try:
-        # --- 清除所有的 Markdown 粗體符號 (**) ---
-        # 透過先轉為 JSON 字串，取代後再轉回 dict，避免 dict 物件沒有 replace 方法的錯誤
         data_str = json.dumps(data, ensure_ascii=False)
         data_str = data_str.replace('**', '')
         clean_data = json.loads(data_str)
+        data_str_for_pipe = json.dumps(clean_data, ensure_ascii=False)
 
-        # --- NEW LOGIC ---
-        # Write the data to a temporary JSON file that the LuaLaTeX script expects.
-        temp_json_filename = "ml_resume.json"
-        with open(temp_json_filename, "w", encoding="utf-8") as f:
-            json.dump(clean_data, f, ensure_ascii=False, indent=4)
-
-        # The final PDF will be named after the .tex file, e.g., main.pdf
-        # We will rename it later for consistency.
-        base_name = os.path.splitext(tex_filename)[0]
-        expected_pdf_name = f"{base_name}.pdf"
+        # 使用 --jobname 來隔離所有編譯產物 (log, aux, pdf)
+        job_name = f"{user_hash}_resume_build"
+        expected_pdf_name = f"{job_name}.pdf"
         
         company = clean_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
         role = clean_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
         final_pdf_name = f"{company}_{role}_resume.pdf"
             
-        # 呼叫 LuaLaTeX 編譯
+        # 呼叫 LuaLaTeX，並透過 stdin 傳遞 JSON 資料
         process = subprocess.Popen(
-            ['lualatex', '-interaction=nonstopmode', tex_filename],
+            ['lualatex', f'--jobname={job_name}', '-interaction=nonstopmode', tex_filename],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
         )
-        stdout, stderr = process.communicate()
+        stdout, stderr = process.communicate(input=data_str_for_pipe.encode('utf-8'))
         
         if process.returncode == 0 and os.path.exists(expected_pdf_name):
-            # Rename the output file for a consistent download name
             if os.path.exists(final_pdf_name):
                 os.remove(final_pdf_name)
             os.rename(expected_pdf_name, final_pdf_name)
             return final_pdf_name
         else:
-            st.error(f"LaTeX Compilation Failed (Return Code {process.returncode}) for {tex_filename}")
+            st.error(f"LaTeX Compilation Failed (Return Code: {process.returncode})")
             with st.expander("View Full Compilation Log"):
                 st.text(stdout.decode('utf-8', errors='ignore'))
                 st.text(stderr.decode('utf-8', errors='ignore'))
             return None
-    except Exception as e:
-        st.error(f"Exception during generation: {e}")
-        return None
+    except Exception as e: return f"Exception during PDF generation: {e}"
 
 # ---------------------------------------------------------
 # Cover Letter AI and PDF Generation
 # ---------------------------------------------------------
-def generate_cover_letter_pdf(resume_data):
+def generate_cover_letter_pdf(resume_data, user_hash="default"):
     """Generates a PDF from the 'cover_letter' field using a hardcoded clean LaTeX template."""
-    # --- NEW: Unify data source by reading from ml_resume.json first ---
-    temp_json_filename = "ml_resume.json"
-    if not os.path.exists(temp_json_filename):
-        st.error(f"Error: `{temp_json_filename}` not found. Please generate a resume first.")
-        return None
-    
-    with open(temp_json_filename, "r", encoding="utf-8") as f:
-        data_from_file = json.load(f)
+    data_from_file = resume_data
 
     try:
         # 取得公司與職位名，處理檔名 (將空格與斜線替換為底線)
         company = data_from_file.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
         role = data_from_file.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
 
-        custom_filename = f"{company}_{role}_coverletter"
+        # 使用 user_hash 確保檔名唯一，避免多人同時生成時覆蓋
+        custom_filename = f"{user_hash}_{company}_{role}_coverletter"
         tex_filename = f"{custom_filename}.tex"
         pdf_filename = f"{custom_filename}.pdf"
 
@@ -529,7 +534,7 @@ with tab2:
             loading_overlay = st.empty()
             loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
-            success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
+            success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa, user_hash)
             st.session_state.ai_report = report
             
             # 執行完畢，移除載入層，解除凍結
@@ -591,19 +596,11 @@ with tab3:
 with tab4:
     st.header("📝 Review & Edit Optimized Resume")
 
-    # --- FIX: Move button to the top and handle state update before rendering ---
-    if st.button("🔄 Refresh from ml_resume.json"):
-        if os.path.exists("ml_resume.json"):
-            with open("ml_resume.json", "r", encoding="utf-8") as f:
-                refreshed_data = json.load(f)
-                st.session_state.optimized_resume_data = refreshed_data
-                # 改變 key 強制重新渲染編輯器
-                st.session_state.opt_editor_key += 1
-                st.session_state.optimized_resume_saved_time = None
-                st.success("Refreshed data from `ml_resume.json`! The view will update.")
-        else:
-            # 使用高質感的琥珀色警告框
-            st.markdown(get_glass_warning_html(), unsafe_allow_html=True)
+    if st.button("🔄 Reset editor to last AI-generated version"):
+        # 透過改變 key 來強制編輯器重新讀取 st.session_state.optimized_resume_data 的內容
+        st.session_state.opt_editor_key += 1
+        st.session_state.optimized_resume_saved_time = None # 重設後，提示使用者尚未儲存
+        st.success("Editor has been reset to the latest version generated by AI.")
 
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
@@ -652,7 +649,7 @@ with tab5:
         loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
-        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes, template_name=selected_template)
+        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes, template_name=selected_template, user_hash=user_hash)
         
         loading_overlay.empty()
         
@@ -671,7 +668,7 @@ with tab5:
             loading_overlay = st.empty()
             loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
-            cl_pdf_path = generate_cover_letter_pdf(data_to_use)
+            cl_pdf_path = generate_cover_letter_pdf(data_to_use, user_hash=user_hash)
             
             loading_overlay.empty()
             
