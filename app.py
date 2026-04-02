@@ -158,10 +158,6 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             
         st.session_state.optimized_resume_data = modified_resume_data
 
-        # 直接將 AI 生成的結果寫入 ml_resume.json 檔案
-        with open("ml_resume.json", "w", encoding="utf-8") as f:
-            json.dump(modified_resume_data, f, indent=4, ensure_ascii=False)
-
         # 更新動態 Key 來強制 Streamlit Ace 編輯器重新渲染並載入新資料
         st.session_state.opt_editor_key += 1
         # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
@@ -255,26 +251,17 @@ def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"
 # ---------------------------------------------------------
 def generate_cover_letter_pdf(resume_data):
     """Generates a PDF from the 'cover_letter' field using a hardcoded clean LaTeX template."""
-    # --- NEW: Unify data source by reading from ml_resume.json first ---
-    temp_json_filename = "ml_resume.json"
-    if not os.path.exists(temp_json_filename):
-        st.error(f"Error: `{temp_json_filename}` not found. Please generate a resume first.")
-        return None
-    
-    with open(temp_json_filename, "r", encoding="utf-8") as f:
-        data_from_file = json.load(f)
-
     try:
         # 取得公司與職位名，處理檔名 (將空格與斜線替換為底線)
-        company = data_from_file.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
-        role = data_from_file.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
+        company = resume_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
+        role = resume_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
 
         custom_filename = f"{company}_{role}_coverletter"
         tex_filename = f"{custom_filename}.tex"
         pdf_filename = f"{custom_filename}.pdf"
 
         # 取得內容並進行清理
-        cl_content = data_from_file.get('cover_letter', 'No content')
+        cl_content = resume_data.get('cover_letter', 'No content')
         clean_cl_content = cl_content.replace('**', '')
 
         # 跳脫 LaTeX 特殊字元，防止 % (註解)、$ (數學模式) 等造成編譯失敗
@@ -401,22 +388,6 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
     }}
     if(animal) setTimeout(triggerRandomAnim, 500);
 ">"""
-
-def get_glass_warning_html():
-    """帶有琥珀色脈衝三角核心的玻璃擬態警告框"""
-    return """<div style="background: rgba(20, 10, 10, 0.5); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 16px; padding: 25px; display: flex; align-items: center; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); margin-bottom: 20px;">
-    <div style="width: 40px; height: 40px; background: radial-gradient(circle, rgba(255,165,0,0.9) 0%, rgba(255,140,0,0.2) 80%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); animation: pulse-amber 2s infinite alternate; margin-right: 25px; flex-shrink: 0; box-shadow: 0 0 20px rgba(255, 165, 0, 0.6);"></div>
-    <div>
-        <h3 style="color: #ffcc00; margin: 0 0 8px 0; font-family: sans-serif; font-weight: 500; letter-spacing: 0.5px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">resume.json Not Opened</h3>
-        <p style="color: #e0e0e0; margin: 0; font-size: 0.95em; font-weight: 300;">System cannot locate the generated resume data. Please execute the AI generation first to create the base file.</p>
-    </div>
-</div>
-<style>
-@keyframes pulse-amber { 
-    0% { transform: scale(0.95); opacity: 0.7; filter: drop-shadow(0 0 5px rgba(255,165,0,0.5)); } 
-    100% { transform: scale(1.05); opacity: 1; filter: drop-shadow(0 0 15px rgba(255,165,0,1)); } 
-}
-</style>"""
 
 # ---------------------------------------------------------
 # Streamlit UI 介面
@@ -587,20 +558,6 @@ with tab3:
 # --- 4. Edit Optimized Result Tab ---
 with tab4:
     st.header("📝 Review & Edit Optimized Resume")
-
-    # --- FIX: Move button to the top and handle state update before rendering ---
-    if st.button("🔄 Refresh from ml_resume.json"):
-        if os.path.exists("ml_resume.json"):
-            with open("ml_resume.json", "r", encoding="utf-8") as f:
-                refreshed_data = json.load(f)
-                st.session_state.optimized_resume_data = refreshed_data
-                # 改變 key 強制重新渲染編輯器
-                st.session_state.opt_editor_key += 1
-                st.session_state.optimized_resume_saved_time = None
-                st.success("Refreshed data from `ml_resume.json`! The view will update.")
-        else:
-            # 使用高質感的琥珀色警告框
-            st.markdown(get_glass_warning_html(), unsafe_allow_html=True)
 
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
