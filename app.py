@@ -19,6 +19,9 @@ if "resume_data" not in st.session_state:
             "website": "github.com/johndoe",
             "linkedin": "linkedin.com/in/johndoe"
         },
+        "cover_letter":"I am writing to express my strong interest in the AI Engineer position at Google. I can rapidly master the intricacies of semiconductor equipment, contributing significantly to your team’s success.",
+        "target_company":"Google",
+        "target_role":"AI Engineer",
         "about me more": "I have independently handled end-to-end development, from low-level model optimization and backend microservice architecture to frontend user interfaces...",
         "summary": "Software Engineer with 3 years of experience specializing in scalable backend architectures and AI-driven systems...",
         "education": [
