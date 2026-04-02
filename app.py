@@ -103,7 +103,6 @@ if "changelog" not in st.session_state:
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
 # ---------------------------------------------------------
-def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa, user_hash):
     try:
         api_key = st.session_state.get("api_key", "")
@@ -574,7 +573,6 @@ with tab2:
             loading_overlay = st.empty()
             loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
-            success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa, user_hash)
             st.session_state.ai_report = report
             
@@ -703,7 +701,6 @@ with tab5:
         loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
         
         tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
-        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes, template_name=selected_template)
         pdf_path = generate_pdf_from_json(data_to_use, tex_bytes, template_name=selected_template, user_hash=user_hash)
         
         loading_overlay.empty()
@@ -723,7 +720,6 @@ with tab5:
             loading_overlay = st.empty()
             loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
-            cl_pdf_path = generate_cover_letter_pdf(data_to_use)
             cl_pdf_path = generate_cover_letter_pdf(data_to_use, user_hash=user_hash)
             
             loading_overlay.empty()

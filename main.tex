@@ -83,16 +83,10 @@ end
 
 local function getResume()
   if resume then return resume end
-  -- 從標準輸入 (stdin) 讀取 JSON 資料，而不是從檔案
-  local txt = io.stdin:read("*a")
-  if not txt or txt == "" then
-    return {} -- 如果沒有輸入，返回空表以避免錯誤
-  -- 從標準輸入 (stdin) 讀取 JSON 資料，而不是從檔案
-  local txt = io.stdin:read("*a")
-  if not txt or txt == "" then
-    return {} -- 如果沒有輸入，返回空表以避免錯誤
-  end
-  end
+  local fh, err = io.open("ml_resume.json", "r")
+  if not fh then return {} end
+  local txt = fh:read("*a")
+  fh:close()
   resume = utilities.json.tolua(txt)
   return resume
 end
