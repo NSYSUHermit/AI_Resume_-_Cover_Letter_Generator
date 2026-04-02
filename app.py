@@ -6,7 +6,7 @@ import os
 import json
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 from datetime import datetime
-from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
 
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
@@ -80,6 +80,8 @@ if "ats_metrics" not in st.session_state:
     st.session_state.ats_metrics = None
 if "changelog" not in st.session_state:
     st.session_state.changelog = ""
+if "custom_prompt" not in st.session_state:
+    st.session_state.custom_prompt = "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user_email" not in st.session_state:
@@ -407,6 +409,17 @@ with st.sidebar:
     st.header("👤 Account")
     if st.session_state.logged_in:
         st.success(f"Logged in as: {st.session_state.user_email}")
+
+        if st.button("☁️ Sync Base Profile to Cloud"):
+            if db:
+                # 從 session state 獲取 custom prompt 的當前值
+                current_prompt = st.session_state.get("custom_prompt_input", st.session_state.get("custom_prompt", ""))
+                success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt)
+                if success:
+                    st.toast(msg)
+                else:
+                    st.error(msg)
+
         if st.button("🚪 Logout"):
             st.session_state.logged_in = False
             st.session_state.user_email = ""
@@ -425,6 +438,15 @@ with st.sidebar:
                     if success:
                         st.session_state.logged_in = True
                         st.session_state.user_email = login_email
+                        
+                        # 登入成功後，從 Firebase 讀取使用者基本資料
+                        loaded_resume, loaded_prompt = load_user_profile(db, login_email)
+                        if loaded_resume:
+                            st.session_state.resume_data = loaded_resume
+                            st.toast("✅ 已從雲端載入您的基本履歷。")
+                        if loaded_prompt:
+                            st.session_state.custom_prompt = loaded_prompt
+                            st.toast("✅ 已從雲端載入您的客製化提示詞。")
                         st.rerun()
                     else:
                         st.error(msg)
@@ -539,7 +561,11 @@ with tab2:
     check_visa = col2.checkbox("Check Visa/Sponsorship Restrictions", value=True)
     
     jd_input = st.text_area("📄 Paste the Target Job Description (JD)", height=250, key="jd_input_for_cl")
-    custom_prompt = st.text_area("🗣️ Custom Prompt (Optional)", value="Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords.")
+    custom_prompt = st.text_area(
+        "🗣️ Custom Prompt (Optional)", 
+        value=st.session_state.get("custom_prompt", "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."),
+        key="custom_prompt_input" # 為了讓 sidebar 的儲存按鈕能抓到值
+    )
     
     if st.button("🚀 Start AI Optimization & Analysis", type="primary"):
         if not jd_input:

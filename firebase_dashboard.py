@@ -56,6 +56,35 @@ def authenticate_user(db, email: str, password: str):
     except Exception as e:
         return False, f"登入驗證失敗: {e}"
 
+def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str):
+    """將使用者的基礎履歷和客製化提示詞儲存至 Firestore"""
+    try:
+        doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
+        data = {
+            "base_resume": resume_data,
+            "custom_prompt": custom_prompt,
+            "last_updated": firestore.SERVER_TIMESTAMP
+        }
+        doc_ref.set(data)
+        return True, "✅ 基本資料已同步至雲端！"
+    except Exception as e:
+        st.error(f"❌ 儲存基本資料時發生錯誤: {e}")
+        return False, f"儲存基本資料時發生錯誤: {e}"
+
+def load_user_profile(db, email: str):
+    """從 Firestore 讀取使用者的基礎履歷和客製化提示詞"""
+    try:
+        doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
+        doc = doc_ref.get()
+        if doc.exists:
+            profile_data = doc.to_dict()
+            return profile_data.get("base_resume"), profile_data.get("custom_prompt")
+        else:
+            return None, None # 找不到設定檔
+    except Exception as e:
+        st.error(f"❌ 讀取基本資料時發生錯誤: {e}")
+        return None, None
+
 # ==========================================
 # 2. 儲存申請紀錄
 # ==========================================
