@@ -1,6 +1,8 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 
 # ==========================================
 # 1. 初始化與連接 Firebase
@@ -22,6 +24,37 @@ def init_firebase():
     
     # 返回 Firestore 客戶端實例
     return firestore.client()
+
+# ==========================================
+# 1.5 登入與註冊 (Authentication)
+# ==========================================
+def register_user(db, email: str, password: str):
+    """註冊新使用者，將密碼 Hash 後存入 Firestore"""
+    try:
+        doc_ref = db.collection('user_auth').document(email)
+        if doc_ref.get().exists:
+            return False, "該 Email 已經註冊過囉！"
+        
+        # 使用 werkzeug 進行密碼加密
+        hashed_pwd = generate_password_hash(password)
+        doc_ref.set({"password_hash": hashed_pwd, "created_at": firestore.SERVER_TIMESTAMP})
+        return True, "註冊成功，請登入！"
+    except Exception as e:
+        return False, f"註冊失敗: {e}"
+
+def authenticate_user(db, email: str, password: str):
+    """驗證使用者登入"""
+    try:
+        doc = db.collection('user_auth').document(email).get()
+        if not doc.exists:
+            return False, "找不到此帳號，請先註冊。"
+        
+        user_data = doc.to_dict()
+        if check_password_hash(user_data.get("password_hash", ""), password):
+            return True, "登入成功！"
+        return False, "密碼錯誤。"
+    except Exception as e:
+        return False, f"登入驗證失敗: {e}"
 
 # ==========================================
 # 2. 儲存申請紀錄
@@ -72,6 +105,79 @@ def update_application_status(db, email: str, doc_id: str, new_status: str):
     except Exception as e:
         st.error(f"❌ 更新狀態時發生錯誤: {e}")
         return False
+
+def render_interview_progress(db, email: str):
+    """
+    顯示使用者的面試進度與轉換率分析，支援時間軸切換
+    """
+    st.subheader("📈 面試進度與轉換率分析 (Interview Progress)")
+    
+    try:
+        apps_ref = db.collection('users').document(email).collection('applications')
+        docs = apps_ref.stream()
+        
+        records = []
+        for doc in docs:
+            app = doc.to_dict()
+            applied_date = app.get("applied_date")
+            if applied_date:
+                # 支援 Firestore 的 DatetimeWithNanoseconds
+                dt_date = applied_date.date() if hasattr(applied_date, 'date') else None
+                if dt_date:
+                    records.append({
+                        "Company": app.get("company_name", "Unknown"),
+                        "Status": app.get("status", "Applied"),
+                        "Date": dt_date
+                    })
+        
+        if not records:
+            st.info("目前尚無求職紀錄，開始投遞履歷來累積數據吧！🚀")
+            return
+            
+        all_dates = [r["Date"] for r in records]
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        
+        st.write("##### 📅 時間軸篩選 (Timeframe Filter)")
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            date_range = st.date_input(
+                "選擇時間範圍:", 
+                value=(min_date, max_date), 
+                min_value=min_date, 
+                max_value=max_date
+            )
+        
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            filtered_records = [r for r in records if start_date <= r["Date"] <= end_date]
+        else:
+            filtered_records = records
+        
+        total_applied = len(filtered_records)
+        interviews = sum(1 for r in filtered_records if r["Status"] == "Interviewing")
+        rejections = sum(1 for r in filtered_records if r["Status"] == "Rejected")
+        
+        conversion_rate = (interviews / total_applied * 100) if total_applied > 0 else 0.0
+        
+        st.markdown("---")
+        st.markdown("### 📊 轉換率總覽 (Overview)")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("總投遞數 (Applied)", total_applied)
+        c2.metric("面試邀約 (Interviews)", interviews)
+        c3.metric("拒絕信 (Rejections)", rejections)
+        c4.metric("面試轉換率 (Conversion Rate)", f"{conversion_rate:.1f}%")
+        
+        st.markdown("---")
+        st.markdown("### 🏢 公司列表 (Filtered Companies)")
+        if filtered_records:
+            sorted_records = sorted(filtered_records, key=lambda x: x["Date"], reverse=True)
+            st.dataframe(sorted_records, use_container_width=True, hide_index=True)
+        else:
+            st.write("該期間無紀錄。")
+            
+    except Exception as e:
+        st.error(f"❌ 讀取分析資料失敗: {e}")
 
 def render_dashboard(db, email: str):
     """

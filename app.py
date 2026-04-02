@@ -6,6 +6,7 @@ import os
 import json
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 from datetime import datetime
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress
 
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
@@ -79,6 +80,10 @@ if "ats_metrics" not in st.session_state:
     st.session_state.ats_metrics = None
 if "changelog" not in st.session_state:
     st.session_state.changelog = ""
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -394,8 +399,64 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
+# 初始化 Firebase (請確保 secrets.toml 已設定)
+db = init_firebase()
+
+# ==========================================
+# 登入機制 (Authentication Gate)
+# ==========================================
+if not st.session_state.logged_in:
+    st.title("🔒 Login to AI Resume Builder")
+    st.markdown("請先登入或註冊，以管理您的專屬求職紀錄與履歷。")
+    
+    login_tab, register_tab = st.tabs(["🔑 登入 (Login)", "📝 註冊 (Register)"])
+    
+    with login_tab:
+        with st.form("login_form"):
+            login_email = st.text_input("Email").strip()
+            login_pwd = st.text_input("Password", type="password")
+            login_submitted = st.form_submit_button("登入")
+            if login_submitted:
+                if db is None:
+                    st.error("Firebase 連線失敗，請檢查設定。")
+                else:
+                    success, msg = authenticate_user(db, login_email, login_pwd)
+                    if success:
+                        st.session_state.logged_in = True
+                        st.session_state.user_email = login_email
+                        st.rerun() # 重新刷新畫面，進入系統
+                    else:
+                        st.error(msg)
+                        
+    with register_tab:
+        with st.form("register_form"):
+            reg_email = st.text_input("Email").strip()
+            reg_pwd = st.text_input("Password", type="password")
+            reg_pwd_confirm = st.text_input("Confirm Password", type="password")
+            reg_submitted = st.form_submit_button("註冊")
+            if reg_submitted:
+                if reg_pwd != reg_pwd_confirm:
+                    st.error("兩次密碼輸入不一致！")
+                elif len(reg_pwd) < 6:
+                    st.error("密碼長度至少需要 6 個字元。")
+                else:
+                    success, msg = register_user(db, reg_email, reg_pwd)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+    
+    # 重要：停止渲染後續的 App 畫面，直到使用者成功登入
+    st.stop()
+
 # --- Sidebar Settings ---
 with st.sidebar:
+    st.success(f"👤 Logged in as: {st.session_state.user_email}")
+    if st.button("🚪 Logout"):
+        st.session_state.logged_in = False
+        st.session_state.user_email = ""
+        st.rerun()
+    st.markdown("---")
     st.header("⚙️ Settings")
     api_key_input = st.text_input("🔑 Google Gemini API Key", type="password", help="API Key is required to use AI features.")
     if api_key_input:
@@ -450,7 +511,7 @@ with col2:
         st.caption("🚫 Not generated yet")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["1️⃣ Base", "2️⃣ AI Optimize", "3️⃣ Dashboard", "4️⃣ Editor", "5️⃣ Export"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["1️⃣ Base", "2️⃣ AI Optimize", "3️⃣ Dashboard", "4️⃣ Editor", "5️⃣ Export", "6️⃣ Progress"])
 
 # --- 1. Base Profile Tab ---
 with tab1:
@@ -511,6 +572,12 @@ with tab2:
 # --- 3. Dashboard Tab ---
 with tab3:
     st.header("📊 ATS Dashboard & AI Report")
+    
+    # 整合 Firebase 求職儀表板
+    if db:
+        render_dashboard(db, st.session_state.user_email)
+        st.markdown("---")
+    
     if st.session_state.ai_report:
         st.info(st.session_state.ai_report)
         
@@ -601,6 +668,11 @@ with tab5:
 
     uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
     
+    if st.session_state.logged_in:
+        sync_to_firebase = st.checkbox("🔄 Sync this application to Firebase Dashboard (Records time and JSON)", value=True, help="這將會在您產生 PDF 時，自動把公司與修改後的履歷儲存進 Dashboard 中。")
+    else:
+        sync_to_firebase = False
+
     if st.button("Compile & Generate PDF Resume", type="primary"):
         loading_overlay = st.empty()
         loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
@@ -612,6 +684,13 @@ with tab5:
         
         if pdf_path:
             st.success("✅ PDF successfully generated!")
+            
+            # --- 自動同步到 Firebase ---
+            if sync_to_firebase and st.session_state.logged_in and db:
+                company = data_to_use.get('target_company', 'Unknown')
+                if save_application(db, st.session_state.user_email, company, data_to_use):
+                    st.toast(f"✅ Application for {company} synced to Dashboard!")
+
             with open(pdf_path, "rb") as f:
                 st.download_button(f"📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
                     
@@ -632,3 +711,13 @@ with tab5:
             if cl_pdf_path:
                 with open(cl_pdf_path, "rb") as f:
                     st.download_button("📥 Click to Download Cover Letter", f, file_name=cl_pdf_path, mime="application/pdf")
+
+# --- 6. Interview Progress Tab ---
+with tab6:
+    st.header("📈 Interview Progress & Conversion")
+    if not st.session_state.logged_in:
+        st.warning("🔒 請先登入以查看您的面試進度與轉換率分析。")
+    elif db:
+        render_interview_progress(db, st.session_state.user_email)
+    else:
+        st.error("❌ 無法連接至 Firebase 資料庫。")
