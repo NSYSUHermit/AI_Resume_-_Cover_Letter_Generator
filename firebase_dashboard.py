@@ -134,7 +134,7 @@ def render_interview_progress(db, email: str):
     """
     Render Interview Progress and Conversion Rate with timeframe filtering.
     """
-    st.subheader("📈 Interview Progress & Conversion")
+    st.subheader("📊 Conversion Metrics")
     
     try:
         apps_ref = db.collection('users').document(email).collection('applications')
@@ -206,7 +206,7 @@ def render_dashboard(db, email: str):
     """
     Fetch and render job applications on the dashboard.
     """
-    st.subheader("📊 Your Job Applications")
+    st.subheader("📝 Application Records")
     
     try:
         apps_ref = db.collection('users').document(email).collection('applications')

@@ -532,7 +532,7 @@ with col2:
         st.caption("🚫 Not generated yet")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["1️⃣ Base", "2️⃣ AI Optimize", "3️⃣ Dashboard", "4️⃣ Editor", "5️⃣ Export", "6️⃣ Progress"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " JSON Editor  ", " Export Docs. ", " Job Tracker  "])
 
 # --- 1. Base Profile Tab ---
 with tab1:
@@ -593,16 +593,8 @@ with tab2:
 
 # --- 3. Dashboard Tab ---
 with tab3:
-    st.header("📊 ATS Dashboard & AI Report")
-    
-    if st.session_state.logged_in:
-        if db:
-            render_dashboard(db, st.session_state.user_email)
-            st.markdown("---")
-        else:
-            st.error("❌ Firebase connection failed. Cannot load dashboard.")
-    else:
-        st.info("🔒 Please log in via the sidebar to view your job application dashboard.")
+    st.header("📊 ATS Analysis Report")
+        
     if st.session_state.ai_report:
         st.info(st.session_state.ai_report)
         
@@ -737,10 +729,12 @@ with tab5:
 
 # --- 6. Interview Progress Tab ---
 with tab6:
-    st.header("📈 Interview Progress & Conversion")
+    st.header("📈 Job Application Tracker")
     if not st.session_state.logged_in:
         st.warning("🔒 Please log in to view your interview progress and conversion rates.")
     elif db:
         render_interview_progress(db, st.session_state.user_email)
+        st.markdown("---")
+        render_dashboard(db, st.session_state.user_email)
     else:
         st.error("❌ Cannot connect to Firebase database.")
