@@ -9,121 +9,116 @@ from datetime import datetime
 # ==========================================
 def init_firebase():
     """
-    初始化 Firebase Admin SDK。
-    利用 firebase_admin._apps 檢查是否已初始化，避免 Streamlit 重新執行時報錯。
+    Initialize Firebase Admin SDK.
     """
     if not firebase_admin._apps:
         try:
-            # 從 Streamlit Secrets 讀取 Firebase 服務帳戶的 JSON 配置
             cert_dict = dict(st.secrets["firebase_service_account"])
             cred = credentials.Certificate(cert_dict)
             firebase_admin.initialize_app(cred)
         except Exception as e:
-            st.error(f"❌ Firebase 初始化失敗: {e}")
+            st.error(f"❌ Firebase initialization failed: {e}")
             return None
     
-    # 返回 Firestore 客戶端實例
     return firestore.client()
 
 # ==========================================
-# 1.5 登入與註冊 (Authentication)
+# 1.5 Authentication
 # ==========================================
 def register_user(db, email: str, password: str):
-    """註冊新使用者，將密碼 Hash 後存入 Firestore"""
+    """Register a new user with hashed password"""
     try:
         doc_ref = db.collection('user_auth').document(email)
         if doc_ref.get().exists:
-            return False, "該 Email 已經註冊過囉！"
+            return False, "This Email is already registered!"
         
-        # 使用 werkzeug 進行密碼加密
         hashed_pwd = generate_password_hash(password)
         doc_ref.set({"password_hash": hashed_pwd, "created_at": firestore.SERVER_TIMESTAMP})
-        return True, "註冊成功，請登入！"
+        return True, "Registration successful, please log in!"
     except Exception as e:
-        return False, f"註冊失敗: {e}"
+        return False, f"Registration failed: {e}"
 
 def authenticate_user(db, email: str, password: str):
-    """驗證使用者登入"""
+    """Authenticate user login"""
     try:
         doc = db.collection('user_auth').document(email).get()
         if not doc.exists:
-            return False, "找不到此帳號，請先註冊。"
+            return False, "Account not found, please register first."
         
         user_data = doc.to_dict()
         if check_password_hash(user_data.get("password_hash", ""), password):
-            return True, "登入成功！"
-        return False, "密碼錯誤。"
+            return True, "Login successful!"
+        return False, "Incorrect password."
     except Exception as e:
-        return False, f"登入驗證失敗: {e}"
+        return False, f"Login verification failed: {e}"
 
-def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str):
-    """將使用者的基礎履歷和客製化提示詞儲存至 Firestore"""
+def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api_key: str):
+    """Save base resume, custom prompt, and API key to Firestore"""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         data = {
             "base_resume": resume_data,
             "custom_prompt": custom_prompt,
+            "api_key": api_key,
             "last_updated": firestore.SERVER_TIMESTAMP
         }
         doc_ref.set(data)
-        return True, "✅ 基本資料已同步至雲端！"
+        return True, "✅ Profile synced to cloud successfully!"
     except Exception as e:
-        st.error(f"❌ 儲存基本資料時發生錯誤: {e}")
-        return False, f"儲存基本資料時發生錯誤: {e}"
+        st.error(f"❌ Error saving profile: {e}")
+        return False, f"Error saving profile: {e}"
 
 def load_user_profile(db, email: str):
-    """從 Firestore 讀取使用者的基礎履歷和客製化提示詞"""
+    """Load base resume, custom prompt, and API key from Firestore"""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         doc = doc_ref.get()
         if doc.exists:
             profile_data = doc.to_dict()
-            return profile_data.get("base_resume"), profile_data.get("custom_prompt")
+            return profile_data.get("base_resume"), profile_data.get("custom_prompt"), profile_data.get("api_key")
         else:
-            return None, None # 找不到設定檔
+            return None, None, None
     except Exception as e:
-        st.error(f"❌ 讀取基本資料時發生錯誤: {e}")
-        return None, None
+        st.error(f"❌ Error loading profile: {e}")
+        return None, None, None
 
 # ==========================================
-# 2. 儲存申請紀錄
+# 2. Save Application Record
 # ==========================================
 def save_application(db, email: str, company_name: str, resume_json: dict):
     """
-    將使用者的求職紀錄儲存至 Firestore。
-    路徑: users/{email}/applications/{auto_id}
+    Save application tracking record to Firestore.
     """
     try:
-        # 取得目標 Collection 的 Reference，並自動產生一個新 Document
         doc_ref = db.collection('users').document(email).collection('applications').document()
         
         data = {
             "company_name": company_name,
-            "applied_date": firestore.SERVER_TIMESTAMP, # 使用伺服器時間，確保時區一致
+            "applied_date": firestore.SERVER_TIMESTAMP,
             "status": "Applied",
             "resume_json": resume_json,
             "interview_date": None,
-            "rejected_date": None
+            "rejected_date": None,
+            "notes": ""
         }
         
         doc_ref.set(data)
         return True
     except Exception as e:
-        st.error(f"❌ 儲存申請紀錄時發生錯誤: {e}")
+        st.error(f"❌ Error saving application record: {e}")
         return False
 
 # ==========================================
-# 3. & 4. 讀取、更新與顯示 Dashboard 邏輯
+# 3. & 4. Dashboard Logic
 # ==========================================
-def update_application_status(db, email: str, doc_id: str, new_status: str):
+def update_application_status(db, email: str, doc_id: str, new_status: str, notes: str):
     """
-    根據傳入的新狀態更新 Document，並自動填寫對應的時間戳記。
+    Update status and notes, recording timestamps automatically.
     """
     try:
         doc_ref = db.collection('users').document(email).collection('applications').document(doc_id)
-        update_data = {"status": new_status}
+        update_data = {"status": new_status, "notes": notes}
         
-        # 狀態控制：自動寫入當下時間
         if new_status == "Interviewing":
             update_data["interview_date"] = firestore.SERVER_TIMESTAMP
         elif new_status == "Rejected":
@@ -132,14 +127,14 @@ def update_application_status(db, email: str, doc_id: str, new_status: str):
         doc_ref.update(update_data)
         return True
     except Exception as e:
-        st.error(f"❌ 更新狀態時發生錯誤: {e}")
+        st.error(f"❌ Error updating application: {e}")
         return False
 
 def render_interview_progress(db, email: str):
     """
-    顯示使用者的面試進度與轉換率分析，支援時間軸切換
+    Render Interview Progress and Conversion Rate with timeframe filtering.
     """
-    st.subheader("📈 面試進度與轉換率分析 (Interview Progress)")
+    st.subheader("📈 Interview Progress & Conversion")
     
     try:
         apps_ref = db.collection('users').document(email).collection('applications')
@@ -150,7 +145,6 @@ def render_interview_progress(db, email: str):
             app = doc.to_dict()
             applied_date = app.get("applied_date")
             if applied_date:
-                # 支援 Firestore 的 DatetimeWithNanoseconds
                 dt_date = applied_date.date() if hasattr(applied_date, 'date') else None
                 if dt_date:
                     records.append({
@@ -160,18 +154,18 @@ def render_interview_progress(db, email: str):
                     })
         
         if not records:
-            st.info("目前尚無求職紀錄，開始投遞履歷來累積數據吧！🚀")
+            st.info("No application records yet. Start applying to build your data! 🚀")
             return
             
         all_dates = [r["Date"] for r in records]
         min_date = min(all_dates)
         max_date = max(all_dates)
         
-        st.write("##### 📅 時間軸篩選 (Timeframe Filter)")
+        st.write("##### 📅 Timeframe Filter")
         col1, col2 = st.columns([1, 2])
         with col1:
             date_range = st.date_input(
-                "選擇時間範圍:", 
+                "Select Date Range:", 
                 value=(min_date, max_date), 
                 min_value=min_date, 
                 max_value=max_date
@@ -190,32 +184,31 @@ def render_interview_progress(db, email: str):
         conversion_rate = (interviews / total_applied * 100) if total_applied > 0 else 0.0
         
         st.markdown("---")
-        st.markdown("### 📊 轉換率總覽 (Overview)")
+        st.markdown("### 📊 Conversion Overview")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("總投遞數 (Applied)", total_applied)
-        c2.metric("面試邀約 (Interviews)", interviews)
-        c3.metric("拒絕信 (Rejections)", rejections)
-        c4.metric("面試轉換率 (Conversion Rate)", f"{conversion_rate:.1f}%")
+        c1.metric("Total Applied", total_applied)
+        c2.metric("Interviews", interviews)
+        c3.metric("Rejections", rejections)
+        c4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
         
         st.markdown("---")
-        st.markdown("### 🏢 公司列表 (Filtered Companies)")
+        st.markdown("### 🏢 Filtered Companies")
         if filtered_records:
             sorted_records = sorted(filtered_records, key=lambda x: x["Date"], reverse=True)
             st.dataframe(sorted_records, use_container_width=True, hide_index=True)
         else:
-            st.write("該期間無紀錄。")
+            st.write("No records found for this period.")
             
     except Exception as e:
-        st.error(f"❌ 讀取分析資料失敗: {e}")
+        st.error(f"❌ Failed to load analysis data: {e}")
 
 def render_dashboard(db, email: str):
     """
-    讀取該 email 下的所有申請紀錄，並以時間倒序渲染 Streamlit Dashboard。
+    Fetch and render job applications on the dashboard.
     """
-    st.subheader("📊 你的求職申請紀錄 (Job Applications)")
+    st.subheader("📊 Your Job Applications")
     
     try:
-        # 抓取紀錄並以 applied_date 倒序排列 (最新的在最上面)
         apps_ref = db.collection('users').document(email).collection('applications')
         query = apps_ref.order_by('applied_date', direction=firestore.Query.DESCENDING)
         docs = query.stream()
@@ -229,44 +222,40 @@ def render_dashboard(db, email: str):
             company = app_data.get("company_name", "Unknown")
             status = app_data.get("status", "Applied")
             
-            # 處理時間顯示格式
             applied_date = app_data.get("applied_date")
             date_str = applied_date.strftime("%Y-%m-%d %H:%M") if applied_date else "N/A"
             
-            # 狀態對應的 Emoji (UI 優化)
             status_emoji = {"Applied": "📤", "Interviewing": "💬", "Rejected": "💔"}.get(status, "📄")
             
-            # 使用 Expander 展示每一筆申請紀錄
             with st.expander(f"{status_emoji} {company} - {status} ({date_str})"):
-                st.write(f"**投遞時間:** {date_str}")
+                st.write(f"**Applied Date:** {date_str}")
                 
-                # 顯示面試/拒絕時間 (若有)
                 if app_data.get("interview_date"):
-                    st.write(f"**面試時間:** {app_data['interview_date'].strftime('%Y-%m-%d %H:%M')}")
+                    st.write(f"**Interview Date:** {app_data['interview_date'].strftime('%Y-%m-%d %H:%M')}")
                 if app_data.get("rejected_date"):
-                    st.write(f"**拒絕時間:** {app_data['rejected_date'].strftime('%Y-%m-%d %H:%M')}")
+                    st.write(f"**Rejected Date:** {app_data['rejected_date'].strftime('%Y-%m-%d %H:%M')}")
+                
+                current_notes = app_data.get("notes", "")
+                new_notes = st.text_area("Notes:", value=current_notes, key=f"notes_{doc_id}", height=68)
                 
                 st.divider()
                 
-                # 狀態更新 UI
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    # 下拉選單供使用者選擇新狀態
                     options = ["Applied", "Interviewing", "Rejected"]
                     current_idx = options.index(status) if status in options else 0
-                    new_status = st.selectbox("更新狀態:", options, index=current_idx, key=f"select_{doc_id}")
+                    new_status = st.selectbox("Update Status:", options, index=current_idx, key=f"select_{doc_id}")
                 
                 with col2:
-                    st.write("") # 排版對齊用
                     st.write("")
-                    # 只有當狀態改變時才觸發更新
                     if st.button("更新", key=f"btn_{doc_id}", use_container_width=True):
-                        if new_status != status:
-                            if update_application_status(db, email, doc_id, new_status):
-                                st.success("✅ 狀態已更新！")
-                                st.rerun() # 重新刷新畫面以顯示最新資料
+                    if st.button("Update", key=f"btn_{doc_id}", use_container_width=True):
+                        if new_status != status or new_notes != current_notes:
+                            if update_application_status(db, email, doc_id, new_status, new_notes):
+                                st.success("✅ Application updated!")
+                                st.rerun()
         if not has_records:
-            st.info("目前還沒有任何求職紀錄哦，趕快去投遞你的第一份履歷吧！🚀")
+            st.info("No job applications yet. Go apply for your first job! 🚀")
             
     except Exception as e:
-        st.error(f"❌ 讀取 Dashboard 失敗: {e}")
+        st.error(f"❌ Failed to load dashboard: {e}")

@@ -82,6 +82,8 @@ if "changelog" not in st.session_state:
     st.session_state.changelog = ""
 if "custom_prompt" not in st.session_state:
     st.session_state.custom_prompt = "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user_email" not in st.session_state:
@@ -133,11 +135,11 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         [Target JD]: {jd_text}
         [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
 
-        🔥 下面是你千萬一定一定一定要做的事情 沒做到等於白做了
+        🔥 STRICT RULES - MUST FOLLOW OR FAIL:
         1. Cover Letter:
-            - 請務必根據 JD 撰寫一份完整的 Cover Letter 並填入 JSON 的 "cover_letter" 欄位中
-            - 最後的 Best regards, 換行 申請人first name 的結尾一定要放入
-        2. 提取資訊：從 JD 中準確提取「公司名稱」和「職位名稱」，分別放入 "target_company" 和 "target_role" 欄位
+            - Write a complete cover letter based on the JD and place it in the "cover_letter" field.
+            - ALWAYS end with "Best regards," followed by a newline and the applicant's first name.
+        2. Extraction: Extract the target company and role from the JD and put them into "target_company" and "target_role" fields.
 
         🔥 [Advanced ATS Keyword Injection Rules]:
         1. Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
@@ -157,7 +159,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         try:
             ai_result = json.loads(raw_text)
         except json.JSONDecodeError as json_err:
-            return False, f"⚠️ AI 輸出了格式錯誤的 JSON (JSON 語法錯誤)。建議您再點擊執行一次！\n\n**系統錯誤訊息:** {json_err}\n\n**AI 原始輸出片段 (供除錯):**\n```json\n{raw_text[:800]}\n```"
+            return False, f"⚠️ AI output malformed JSON. Please try again!\n\n**System Error:** {json_err}\n\n**Raw Output Fragment:**\n```json\n{raw_text[:800]}\n```"
 
         modified_resume_data = ai_result.get("optimized_resume", {})
         if not modified_resume_data:
@@ -165,9 +167,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             
         st.session_state.optimized_resume_data = modified_resume_data
 
-        # 更新動態 Key 來強制 Streamlit Ace 編輯器重新渲染並載入新資料
         st.session_state.opt_editor_key += 1
-        # AI 剛跑完，重設儲存時間，提示使用者去手動儲存
         st.session_state.optimized_resume_saved_time = None
         
         st.session_state.ats_metrics = None
@@ -210,8 +210,6 @@ def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"
             f.write(template_content)
 
     try:
-        # --- 清除所有的 Markdown 粗體符號 (**) ---
-        # 透過先轉為 JSON 字串，取代後再轉回 dict，避免 dict 物件沒有 replace 方法的錯誤
         data_str = json.dumps(data, ensure_ascii=False)
         data_str = data_str.replace('**', '')
         clean_data = json.loads(data_str)
@@ -231,7 +229,6 @@ def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"
         role = clean_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
         final_pdf_name = f"{company}_{role}_resume.pdf"
             
-        # 呼叫 LuaLaTeX 編譯
         process = subprocess.run(
             ['lualatex', '-interaction=nonstopmode', tex_filename],
             capture_output=True
@@ -259,7 +256,6 @@ def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"
 def generate_cover_letter_pdf(resume_data):
     """Generates a PDF from the 'cover_letter' field using a hardcoded clean LaTeX template."""
     try:
-        # 取得公司與職位名，處理檔名 (將空格與斜線替換為底線)
         company = resume_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
         role = resume_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
 
@@ -267,13 +263,10 @@ def generate_cover_letter_pdf(resume_data):
         tex_filename = f"{custom_filename}.tex"
         pdf_filename = f"{custom_filename}.pdf"
 
-        # 取得內容並進行清理
         cl_content = resume_data.get('cover_letter', 'No content')
         clean_cl_content = cl_content.replace('**', '')
 
-        # 跳脫 LaTeX 特殊字元，防止 % (註解)、$ (數學模式) 等造成編譯失敗
         def escape_tex(text):
-            # 替換順序很重要，先處理反斜線
             text = text.replace('\\', '\\textbackslash{}')
             chars_to_escape = ['&', '%', '$', '#', '_', '{', '}']
             for c in chars_to_escape:
@@ -284,20 +277,18 @@ def generate_cover_letter_pdf(resume_data):
             
         escaped_content = escape_tex(clean_cl_content)
 
-        # --- 乾淨的 LaTeX 模板 ---
         latex_template = r"""
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{fontspec}
 \usepackage{setspace}
-\usepackage{parskip} % ✨ 魔法在這裡：這行會強制取消所有縮排，讓文字完美靠左！
+\usepackage{parskip}
 \onehalfspacing
 \begin{document}
 """ + escaped_content.replace("\n", "\n\n") + r"""
 \end{document}
 """
         
-        # 寫入 .tex
         with open(tex_filename, "w", encoding="utf-8") as f:
             f.write(latex_template)
 
@@ -311,8 +302,8 @@ def generate_cover_letter_pdf(resume_data):
         if process.returncode == 0 and os.path.exists(pdf_filename):
             return pdf_filename
         else:
-            st.error("❌ Cover Letter PDF 生成失敗。")
-            with st.expander("View Full Compilation Log (查看錯誤日誌)"):
+            st.error("❌ Cover Letter PDF generation failed.")
+            with st.expander("View Full Compilation Log"):
                 st.text(process.stdout)
                 st.text(process.stderr)
             return None
@@ -325,7 +316,6 @@ def generate_cover_letter_pdf(resume_data):
 # Custom Premium UI Components (Glassmorphism & Overlays)
 # ---------------------------------------------------------
 def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕", theme_color="#8a2be2"):
-    """全螢幕的玻璃擬態載入層，利用 fixed 與 high z-index 凍結所有底部按鈕操作"""
     return f"""<style>
 .glass-overlay-bg {{
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
@@ -379,9 +369,9 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
     function triggerRandomAnim() {{
         if(!animal || !document.body.contains(animal)) return;
         
-        var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1); 
+        var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1);
         currentRot += addRot;
-        var scale = Math.random() * 0.5 + 0.8; // 隨機縮放 0.8 到 1.3
+        var scale = Math.random() * 0.5 + 0.8;
         
         animal.style.transform = 'rotate(' + newRot + 'deg) scale(' + scale + ')';
         setTimeout(function(){{
@@ -389,7 +379,6 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
                 animal.style.transform = 'rotate(' + currentRot + 'deg) scale(1)';
         }}, 350);
         
-        // 隨機安排下一次動作的時間 (600毫秒 ~ 1800毫秒之間)
         var nextTime = Math.random() * 1200 + 600;
         setTimeout(triggerRandomAnim, nextTime);
     }}
@@ -401,7 +390,6 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
-# 初始化 Firebase (請確保 secrets.toml 已設定)
 db = init_firebase()
 
 # --- Sidebar Settings ---
@@ -412,13 +400,27 @@ with st.sidebar:
 
         if st.button("☁️ Sync Base Profile to Cloud"):
             if db:
-                # 從 session state 獲取 custom prompt 的當前值
                 current_prompt = st.session_state.get("custom_prompt_input", st.session_state.get("custom_prompt", ""))
-                success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt)
+                current_api_key = st.session_state.get("api_key", "")
+                success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt, current_api_key)
                 if success:
                     st.toast(msg)
                 else:
                     st.error(msg)
+                    
+        if st.button("⬇️ Pull Data from Cloud"):
+            if db:
+                loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, st.session_state.user_email)
+                if loaded_resume:
+                    st.session_state.resume_data = loaded_resume
+                    st.toast("✅ Base resume loaded from cloud.")
+                if loaded_prompt:
+                    st.session_state.custom_prompt = loaded_prompt
+                    st.toast("✅ Custom prompt loaded from cloud.")
+                if loaded_key:
+                    st.session_state.api_key = loaded_key
+                    st.toast("✅ API Key loaded from cloud.")
+                st.rerun()
 
         if st.button("🚪 Logout"):
             st.session_state.logged_in = False
@@ -439,14 +441,16 @@ with st.sidebar:
                         st.session_state.logged_in = True
                         st.session_state.user_email = login_email
                         
-                        # 登入成功後，從 Firebase 讀取使用者基本資料
-                        loaded_resume, loaded_prompt = load_user_profile(db, login_email)
+                        loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, login_email)
                         if loaded_resume:
                             st.session_state.resume_data = loaded_resume
-                            st.toast("✅ 已從雲端載入您的基本履歷。")
+                            st.toast("✅ Base resume loaded from cloud.")
                         if loaded_prompt:
                             st.session_state.custom_prompt = loaded_prompt
-                            st.toast("✅ 已從雲端載入您的客製化提示詞。")
+                            st.toast("✅ Custom prompt loaded from cloud.")
+                        if loaded_key:
+                            st.session_state.api_key = loaded_key
+                            st.toast("✅ API Key loaded from cloud.")
                         st.rerun()
                     else:
                         st.error(msg)
@@ -471,9 +475,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("⚙️ Settings")
-    api_key_input = st.text_input("🔑 Google Gemini API Key", type="password", help="API Key is required to use AI features.")
-    if api_key_input:
-        st.session_state.api_key = api_key_input
+    st.text_input("🔑 Google Gemini API Key", type="password", key="api_key", help="API Key is required to use AI features.")
     st.markdown("---")
     
     st.header("🏃 Loading Animation")
@@ -532,17 +534,16 @@ with tab1:
     st.info("This is your **Base Template**. AI will always use this as the ground truth for optimizations. Remember to click 'Save Changes' below.")
     
     json_str = json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False)
-    # 將 st.text_area 替換為 st_ace.st_ace，提供更豐富的編輯體驗，包含行號和語法高亮
     edited_json = st_ace.st_ace(
         value=json_str,
-        language="json", # 設定為 JSON 語法高亮
-        theme="dracula", # 選擇一個類似 VS Code 的深色主題，例如 "dracula" 或 "monokai"
+        language="json",
+        theme="dracula",
         height=500,
-        key="base_resume_editor", # 為編輯器設定一個唯一的 key
-        font_size=14, # 設定字體大小
-        tab_size=2, # 設定 Tab 縮排大小
-        show_gutter=True, # 啟用行號顯示
-        auto_update=True, # 自動更新編輯器內容到 Streamlit
+        key="base_resume_editor",
+        font_size=14,
+        tab_size=2,
+        show_gutter=True,
+        auto_update=True,
     )
     
     if st.button("💾 Save JSON Changes", type="primary"):
@@ -564,21 +565,19 @@ with tab2:
     custom_prompt = st.text_area(
         "🗣️ Custom Prompt (Optional)", 
         value=st.session_state.get("custom_prompt", "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."),
-        key="custom_prompt_input" # 為了讓 sidebar 的儲存按鈕能抓到值
+        key="custom_prompt_input"
     )
     
     if st.button("🚀 Start AI Optimization & Analysis", type="primary"):
         if not jd_input:
             st.warning("Please paste the JD content first!")
         else:
-            # 呼叫全螢幕動態凍結載入層
             loading_overlay = st.empty()
             loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
             
             success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
             st.session_state.ai_report = report
             
-            # 執行完畢，移除載入層，解除凍結
             loading_overlay.empty()
             
             if success:
@@ -590,7 +589,6 @@ with tab2:
 with tab3:
     st.header("📊 ATS Dashboard & AI Report")
     
-    # 整合 Firebase 求職儀表板
     if st.session_state.logged_in:
         if db:
             render_dashboard(db, st.session_state.user_email)
@@ -657,17 +655,16 @@ with tab4:
             language="json",
             theme="dracula",
             height=500,
-            key=f"optimized_resume_editor_{st.session_state.opt_editor_key}", # 動態 key 強制更新
+            key=f"optimized_resume_editor_{st.session_state.opt_editor_key}",
             font_size=14,
             tab_size=2,
-            show_gutter=True, # 啟用行號顯示
+            show_gutter=True,
             auto_update=True,
         )
         
         if st.button("💾 Save Optimized Changes", type="primary", key="save_opt"):
             try:
                 st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-                # The editor's content is already up-to-date via auto_update=True. We just need to save the parsed data.
                 st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.success("Optimized data saved successfully!")
             except Exception as e:
@@ -690,7 +687,7 @@ with tab5:
     uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
     
     if st.session_state.logged_in:
-        sync_to_firebase = st.checkbox("🔄 Sync this application to Firebase Dashboard (Records time and JSON)", value=True, help="這將會在您產生 PDF 時，自動把公司與修改後的履歷儲存進 Dashboard 中。")
+        sync_to_firebase = st.checkbox("🔄 Sync this application to Firebase Dashboard (Records time and JSON)", value=True, help="This will automatically save the company and modified resume into your Dashboard when generating the PDF.")
     else:
         sync_to_firebase = False
 
@@ -706,7 +703,6 @@ with tab5:
         if pdf_path:
             st.success("✅ PDF successfully generated!")
             
-            # --- 自動同步到 Firebase ---
             if sync_to_firebase and st.session_state.logged_in and db:
                 company = data_to_use.get('target_company', 'Unknown')
                 if save_application(db, st.session_state.user_email, company, data_to_use):
@@ -737,8 +733,8 @@ with tab5:
 with tab6:
     st.header("📈 Interview Progress & Conversion")
     if not st.session_state.logged_in:
-        st.warning("🔒 請先登入以查看您的面試進度與轉換率分析。")
+        st.warning("🔒 Please log in to view your interview progress and conversion rates.")
     elif db:
         render_interview_progress(db, st.session_state.user_email)
     else:
-        st.error("❌ 無法連接至 Firebase 資料庫。")
+        st.error("❌ Cannot connect to Firebase database.")
