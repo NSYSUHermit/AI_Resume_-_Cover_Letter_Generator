@@ -248,7 +248,6 @@ def render_dashboard(db, email: str):
                 
                 with col2:
                     st.write("")
-                    if st.button("更新", key=f"btn_{doc_id}", use_container_width=True):
                     if st.button("Update", key=f"btn_{doc_id}", use_container_width=True):
                         if new_status != status or new_notes != current_notes:
                             if update_application_status(db, email, doc_id, new_status, new_notes):
