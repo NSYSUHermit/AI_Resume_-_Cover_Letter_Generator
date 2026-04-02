@@ -2,3 +2,5 @@ streamlit
 google-generativeai
 Jinja2
 streamlit-ace
+firebase-admin
+Werkzeug
