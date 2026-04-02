@@ -74,6 +74,8 @@ if "base_resume_saved_time" not in st.session_state:
     st.session_state.base_resume_saved_time = None
 if "optimized_resume_saved_time" not in st.session_state:
     st.session_state.optimized_resume_saved_time = None
+if "base_editor_key" not in st.session_state:
+    st.session_state.base_editor_key = 0
 if "opt_editor_key" not in st.session_state:
     st.session_state.opt_editor_key = 0
 if "ats_metrics" not in st.session_state:
@@ -413,9 +415,11 @@ with st.sidebar:
                 loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, st.session_state.user_email)
                 if loaded_resume:
                     st.session_state.resume_data = loaded_resume
+                    st.session_state.base_editor_key += 1
                     st.toast("✅ Base resume loaded from cloud.")
                 if loaded_prompt:
                     st.session_state.custom_prompt = loaded_prompt
+                    st.session_state.custom_prompt_input = loaded_prompt
                     st.toast("✅ Custom prompt loaded from cloud.")
                 if loaded_key:
                     st.session_state.api_key = loaded_key
@@ -444,9 +448,11 @@ with st.sidebar:
                         loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, login_email)
                         if loaded_resume:
                             st.session_state.resume_data = loaded_resume
+                            st.session_state.base_editor_key += 1
                             st.toast("✅ Base resume loaded from cloud.")
                         if loaded_prompt:
                             st.session_state.custom_prompt = loaded_prompt
+                            st.session_state.custom_prompt_input = loaded_prompt
                             st.toast("✅ Custom prompt loaded from cloud.")
                         if loaded_key:
                             st.session_state.api_key = loaded_key
@@ -539,7 +545,7 @@ with tab1:
         language="json",
         theme="dracula",
         height=500,
-        key="base_resume_editor",
+        key=f"base_resume_editor_{st.session_state.base_editor_key}",
         font_size=14,
         tab_size=2,
         show_gutter=True,
