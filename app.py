@@ -589,7 +589,8 @@ with tab2:
             if success:
                 st.success("Optimization completed! Check the '3️⃣ Dashboard' or edit in '4️⃣ Editor'.")
             else:
-                st.error("Optimization interrupted or failed. Check the report details.")
+                st.error("Optimization interrupted or failed. Check the details below:")
+                st.warning(st.session_state.ai_report)
 
 # --- 3. Dashboard Tab ---
 with tab3:
