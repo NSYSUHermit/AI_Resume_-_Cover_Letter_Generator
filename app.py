@@ -96,6 +96,16 @@ if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 if "preview_pdf_bytes" not in st.session_state:
     st.session_state.preview_pdf_bytes = None
+if "resume_preview_bytes" not in st.session_state:
+    st.session_state.resume_preview_bytes = None
+if "cover_letter_preview_bytes" not in st.session_state:
+    st.session_state.cover_letter_preview_bytes = None
+if "cover_letter_filename" not in st.session_state:
+    st.session_state.cover_letter_filename = "cover_letter.pdf"
+if 'resume_dl_data' not in st.session_state:
+    st.session_state.resume_dl_data = None
+if 'cl_dl_data' not in st.session_state:
+    st.session_state.cl_dl_data = None
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -562,7 +572,7 @@ with col2:
         st.caption("🚫 Not generated yet")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " JSON Editor  ", " Export Docs. ", " Job Tracker  "])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " Editor & Export ", " Job Tracker "])
 
 # --- 1. Base Profile Tab ---
 with tab1:
@@ -670,176 +680,120 @@ with tab3:
     if not st.session_state.ats_metrics and not st.session_state.changelog and not st.session_state.ai_report:
         st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Optimize' and run it.")
 
-# --- 4. Edit Optimized Result Tab ---
+# --- 4. Editor & Export Tab ---
 with tab4:
-    st.header("📝 Review & Edit Optimized Resume")
+    st.header("📝 Editor & Export")
 
     if st.session_state.optimized_resume_data:
-        st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
-        
-        # 建立左右分欄：左邊編輯器，右邊預覽窗
-        col_edit, col_preview = st.columns([1, 1])
-        
-        trigger_preview = False
-        
+        # Main layout: Editor on the left, Preview/Export on the right
+        col_edit, col_export = st.columns([6, 4])
+        data_to_use = st.session_state.optimized_resume_data
+
         with col_edit:
-            editor_value = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
-    
+            st.subheader("JSON Editor")
+            st.info("Make final tweaks to the AI-generated JSON here. Click 'Save & Refresh' to update the previews on the right.")
+            editor_value = json.dumps(data_to_use, indent=4, ensure_ascii=False)
             edited_opt_json = st_ace.st_ace(
                 value=editor_value,
                 language="json",
                 theme="dracula",
-                height=600,
+                height=800,
                 key=f"optimized_resume_editor_{st.session_state.opt_editor_key}",
-                font_size=14,
-                tab_size=2,
-                show_gutter=True,
-                auto_update=True,
+                font_size=14, tab_size=2, show_gutter=True, auto_update=True,
             )
-            
-            if st.button("💾 Save & Generate Preview", type="primary", key="save_opt", use_container_width=True):
+
+        with col_export:
+            st.subheader("📄 Live Preview")
+
+            if st.button("💾 Save JSON & Refresh Previews", type="primary", use_container_width=True):
                 try:
                     st.session_state.optimized_resume_data = json.loads(edited_opt_json)
                     st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    st.success("Optimized data saved successfully!")
-                    trigger_preview = True
+                    st.toast("✅ JSON saved!")
+
+                    loading_overlay = st.empty()
+                    loading_overlay.markdown(get_glass_overlay_html("Generating Previews...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+
+                    resume_bytes, r_err = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, "main.tex")
+                    if resume_bytes: st.session_state.resume_preview_bytes = resume_bytes
+                    
+                    cl_bytes, cl_name, cl_err = generate_cover_letter_pdf_bytes(st.session_state.optimized_resume_data)
+                    if cl_bytes:
+                        st.session_state.cover_letter_preview_bytes = cl_bytes
+                        st.session_state.cover_letter_filename = cl_name
+
+                    loading_overlay.empty()
+                    st.toast("✅ Previews refreshed!")
                 except Exception as e:
                     st.error(f"JSON format error, please check syntax: {e}")
-                    
-        with col_preview:
-            st.subheader("📄 Live PDF Preview")
-            template_choice_preview = st.radio("🎨 Preview Template", ["💻", "📈"], horizontal=True, key="preview_template")
-            selected_template_preview = "main.tex" if template_choice_preview.startswith("💻") else "elsa_main.tex"
-            
-            if trigger_preview or st.button("🔄 Refresh Preview", use_container_width=True):
-                loading_overlay = st.empty()
-                loading_overlay.markdown(get_glass_overlay_html("Generating Preview...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-                
-                pdf_bytes, err_msg = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, selected_template_preview)
-                
-                if pdf_bytes:
-                    st.session_state.preview_pdf_bytes = pdf_bytes
-                else:
-                    st.error("❌ Preview Generation Failed")
-                    with st.expander("View Logs"):
-                        st.text(err_msg)
-                        
-                loading_overlay.empty()
-            
-            if st.session_state.get("preview_pdf_bytes"):
-                base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
-                
-                # 使用 PDF.js 將 PDF 渲染為 HTML5 Canvas，完美繞過 Streamlit Cloud 的沙箱外掛限制
-                pdf_js_html = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-                    <style>
-                        body {{ margin: 0; padding: 0; background-color: transparent; display: flex; flex-direction: column; align-items: center; }}
-                        canvas {{ margin-bottom: 10px; box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15); width: 100%; border-radius: 4px; }}
-                    </style>
-                </head>
-                <body>
-                    <div id="pdf-container" style="width: 100%;"></div>
-                    <script>
-                        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                        
-                        // 安全解碼 Base64
-                        var binaryString = window.atob('{base64_pdf}');
-                        var binaryLen = binaryString.length;
-                        var bytes = new Uint8Array(binaryLen);
-                        for (var i = 0; i < binaryLen; i++) {{
-                            bytes[i] = binaryString.charCodeAt(i);
-                        }}
-                        
-                        var loadingTask = pdfjsLib.getDocument({{data: bytes}});
-                        loadingTask.promise.then(function(pdf) {{
-                            var container = document.getElementById('pdf-container');
-                            
-                            for (var pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
-                                pdf.getPage(pageNum).then(function(page) {{
-                                    var scale = 1.5; // 提高解析度
-                                    var viewport = page.getViewport({{scale: scale}});
-                                    var canvas = document.createElement('canvas');
-                                    var context = canvas.getContext('2d');
-                                    canvas.height = viewport.height;
-                                    canvas.width = viewport.width;
-                                    container.appendChild(canvas);
-                                    var renderContext = {{ canvasContext: context, viewport: viewport }};
-                                    page.render(renderContext);
-                                }});
-                            }}
-                        }});
-                    </script>
-                </body>
-                </html>
-                """
-                components.html(pdf_js_html, height=650, scrolling=True)
+
+            preview_choice = st.radio("Preview Target:", ["Resume", "Cover Letter"], horizontal=True, key="preview_choice")
+            if preview_choice == "Resume":
+                if st.session_state.resume_preview_bytes: render_pdf_js(st.session_state.resume_preview_bytes, height=400)
+                else: st.info("Click 'Save & Refresh Previews' to generate resume preview.")
             else:
-                st.info("👈 Click 'Save & Generate Preview' to see your resume here.")
-    else:
-        st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Customization' or proceed directly to '5️⃣ Export' to use your base profile.")
+                if st.session_state.cover_letter_preview_bytes: render_pdf_js(st.session_state.cover_letter_preview_bytes, height=400)
+                else: st.info("Click 'Save & Refresh Previews' to generate cover letter preview.")
 
-# --- 5. Export Tab ---
+            st.divider()
+            st.subheader("🖨️ Download Documents")
+
+            with st.container(border=True):
+                st.write("**Resume**")
+                template_choice = st.radio("Template", ["💻 Tech", "📈 Consulting"], horizontal=True, key="dl_template")
+                selected_template = "main.tex" if template_choice.startswith("💻") else "elsa_main.tex"
+                
+                if st.session_state.logged_in:
+                    sync_to_firebase = st.checkbox("🔄 Sync application to Job Tracker", value=True)
+                else:
+                    sync_to_firebase = False
+
+                if st.button("Generate Resume PDF", use_container_width=True, key="gen_resume_dl"):
+                    loading_overlay = st.empty()
+                    loading_overlay.markdown(get_glass_overlay_html("Compiling Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+                    pdf_bytes, err = generate_preview_pdf_bytes(data_to_use, selected_template)
+                    loading_overlay.empty()
+
+                    if pdf_bytes:
+                        st.toast("✅ Resume ready for download!")
+                        if sync_to_firebase and st.session_state.logged_in and db:
+                            company = data_to_use.get('target_company', 'Unknown')
+                            if save_application(db, st.session_state.user_email, company, data_to_use):
+                                st.toast(f"✅ Synced application for {company}!")
+                        
+                        company_name = data_to_use.get('target_company', 'Resume').replace(' ', '_')
+                        role_name = data_to_use.get('target_role', 'Role').replace(' ', '_')
+                        st.session_state.resume_dl_data = {"bytes": pdf_bytes, "name": f"{company_name}_{role_name}_Resume.pdf"}
+                    else:
+                        st.error("Resume generation failed."); st.session_state.resume_dl_data = None
+
+                if st.session_state.resume_dl_data:
+                    st.download_button("📥 Download Resume", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
+
+            with st.container(border=True):
+                st.write("**Cover Letter**")
+                if st.button("Generate Cover Letter PDF", use_container_width=True, key="gen_cl_dl"):
+                    if 'cover_letter' not in data_to_use or not data_to_use['cover_letter']:
+                        st.warning("No 'cover_letter' content found in JSON."); st.session_state.cl_dl_data = None
+                    else:
+                        loading_overlay = st.empty()
+                        loading_overlay.markdown(get_glass_overlay_html("Compiling Cover Letter...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+                        pdf_bytes, pdf_name, err = generate_cover_letter_pdf_bytes(data_to_use)
+                        loading_overlay.empty()
+
+                        if pdf_bytes:
+                            st.toast("✅ Cover Letter ready for download!")
+                            st.session_state.cl_dl_data = {"bytes": pdf_bytes, "name": pdf_name}
+                        else:
+                            st.error(f"Cover Letter generation failed: {err}"); st.session_state.cl_dl_data = None
+
+                if st.session_state.cl_dl_data:
+                    st.download_button("📥 Download Cover Letter", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
+    else:
+        st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Optimizer' first.")
+
+# --- 5. Job Tracker Tab ---
 with tab5:
-    st.header("🖨️ Generate & Export PDF Resume / Cover Letter")
-    
-    st.subheader("📄 Export PDF Resume")
-    st.write("The system defaults to using the data from '4️⃣ Edit Optimized Result'. If no optimized data exists, it will use your '1️⃣ Base Profile'.")
-    
-    data_to_use = st.session_state.optimized_resume_data if st.session_state.optimized_resume_data else st.session_state.resume_data
-    
-    template_choice = st.radio("🎨 Select Resume Template", ["💻", "📈"], horizontal=True)
-    selected_template = "main.tex" if template_choice.startswith("💻") else "elsa_main.tex"
-
-    uploaded_tex = st.file_uploader("Upload custom resume main.tex (Optional)", type=["tex"], key="resume_tex")
-    
-    if st.session_state.logged_in:
-        sync_to_firebase = st.checkbox("🔄 Sync this application to Firebase Dashboard (Records time and JSON)", value=True, help="This will automatically save the company and modified resume into your Dashboard when generating the PDF.")
-    else:
-        sync_to_firebase = False
-
-    if st.button("Compile & Generate PDF Resume", type="primary"):
-        loading_overlay = st.empty()
-        loading_overlay.markdown(get_glass_overlay_html("Calling LaTeX engine in the cloud...<br>Compiling your Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-        
-        tex_bytes = uploaded_tex.getvalue() if uploaded_tex else None
-        pdf_path = generate_pdf_from_json(data_to_use, tex_bytes, template_name=selected_template)
-        
-        loading_overlay.empty()
-        
-        if pdf_path:
-            st.success("✅ PDF successfully generated!")
-            
-            if sync_to_firebase and st.session_state.logged_in and db:
-                company = data_to_use.get('target_company', 'Unknown')
-                if save_application(db, st.session_state.user_email, company, data_to_use):
-                    st.toast(f"✅ Application for {company} synced to Dashboard!")
-
-            with open(pdf_path, "rb") as f:
-                st.download_button(f"📥 Click to Download Resume", f, file_name=pdf_path, mime="application/pdf")
-                    
-    st.markdown("---")
-    st.subheader("✉️ Export Cover Letter")
-    
-    if st.button("✨ Generate & Download Cover Letter PDF", type="primary", key="gen_cl"):
-        if 'cover_letter' not in data_to_use or not data_to_use['cover_letter']:
-            st.warning("No 'cover_letter' field found in the current resume data. Please run AI optimization first if it's supposed to generate it.")
-        else:
-            loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("Compiling the Cover Letter PDF...<br>Almost done.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-            
-            cl_pdf_path = generate_cover_letter_pdf(data_to_use)
-            
-            loading_overlay.empty()
-            
-            if cl_pdf_path:
-                with open(cl_pdf_path, "rb") as f:
-                    st.download_button("📥 Click to Download Cover Letter", f, file_name=cl_pdf_path, mime="application/pdf")
-
-# --- 6. Interview Progress Tab ---
-with tab6:
     st.header("📈 Job Application Tracker")
     if not st.session_state.logged_in:
         st.warning("🔒 Please log in to view your interview progress and conversion rates.")
