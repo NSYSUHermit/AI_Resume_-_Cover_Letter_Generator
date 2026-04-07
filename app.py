@@ -736,9 +736,54 @@ with tab4:
             
             if st.session_state.get("preview_pdf_bytes"):
                 base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
-                # Use st.components.v1.html to correctly render the iframe in Streamlit's sandboxed environment
-                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
-                components.html(pdf_display, height=620)
+                
+                # 使用 PDF.js 將 PDF 渲染為 HTML5 Canvas，完美繞過 Streamlit Cloud 的沙箱外掛限制
+                pdf_js_html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+                    <style>
+                        body {{ margin: 0; padding: 0; background-color: transparent; display: flex; flex-direction: column; align-items: center; }}
+                        canvas {{ margin-bottom: 10px; box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15); width: 100%; border-radius: 4px; }}
+                    </style>
+                </head>
+                <body>
+                    <div id="pdf-container" style="width: 100%;"></div>
+                    <script>
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                        
+                        // 安全解碼 Base64
+                        var binaryString = window.atob('{base64_pdf}');
+                        var binaryLen = binaryString.length;
+                        var bytes = new Uint8Array(binaryLen);
+                        for (var i = 0; i < binaryLen; i++) {{
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }}
+                        
+                        var loadingTask = pdfjsLib.getDocument({{data: bytes}});
+                        loadingTask.promise.then(function(pdf) {{
+                            var container = document.getElementById('pdf-container');
+                            
+                            for (var pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
+                                pdf.getPage(pageNum).then(function(page) {{
+                                    var scale = 1.5; // 提高解析度
+                                    var viewport = page.getViewport({{scale: scale}});
+                                    var canvas = document.createElement('canvas');
+                                    var context = canvas.getContext('2d');
+                                    canvas.height = viewport.height;
+                                    canvas.width = viewport.width;
+                                    container.appendChild(canvas);
+                                    var renderContext = {{ canvasContext: context, viewport: viewport }};
+                                    page.render(renderContext);
+                                }});
+                            }}
+                        }});
+                    </script>
+                </body>
+                </html>
+                """
+                components.html(pdf_js_html, height=650, scrolling=True)
             else:
                 st.info("👈 Click 'Save & Generate Preview' to see your resume here.")
     else:
