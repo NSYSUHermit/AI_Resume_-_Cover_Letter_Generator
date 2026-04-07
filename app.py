@@ -110,6 +110,47 @@ if 'cl_dl_data' not in st.session_state:
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
 # ---------------------------------------------------------
+def parse_pdf_resume_to_json(pdf_bytes, api_key):
+    if not api_key:
+        return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first.", None
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        prompt = """
+        You are an expert resume parser. I will provide you with a resume in PDF format.
+        Extract all the relevant information and structure it STRICTLY in the following JSON format.
+        Do not make up information. If a field is missing in the resume, leave it empty or omit it gracefully.
+        Return ONLY valid JSON, without any markdown formatting like ```json.
+
+        Expected JSON Structure:
+        {
+            "heading": { "name": "", "email": "", "phone": "", "website": "", "linkedin": "" },
+            "cover_letter": "",
+            "target_company": "",
+            "target_role": "",
+            "about me more": "",
+            "summary": "",
+            "education": [ { "degree": "", "time_period": "", "school": "", "school_location": "" } ],
+            "experience": [ { "role": "", "team": "", "company": "", "company_location": "", "time_duration": "", "details": [ { "title": "", "description": "" } ] } ],
+            "projects": [ { "name": "", "time": "", "description": "" } ],
+            "patents": [ { "name": "", "time": "", "description": "" } ],
+            "skills": { "set1": { "title": "", "items": [] }, "set2": { "title": "", "items": [] } }
+        }
+        """
+
+        pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
+        response = model.generate_content([prompt, pdf_part])
+        raw_text = response.text.replace('```json', '').replace('```', '').strip()
+
+        parsed_json = json.loads(raw_text)
+        return True, "✅ PDF successfully parsed into JSON!", parsed_json
+    except json.JSONDecodeError as e:
+        return False, f"⚠️ Failed to parse AI response into JSON. Raw output might be malformed: {e}", None
+    except Exception as e:
+        return False, f"⚠️ Error during PDF parsing: {e}", None
+
 def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
     try:
         api_key = st.session_state.get("api_key", "")
@@ -579,6 +620,28 @@ with tab1:
     st.header("👤 Edit Your Base Profile")
     st.info("This is your **Base Template**. AI will always use this as the ground truth for optimizations. Remember to click 'Save Changes' below.")
     
+    with st.container(border=True):
+        st.subheader("📥 Auto-Fill from PDF")
+        st.write("Upload your existing PDF resume, and let Gemini AI automatically extract and fill the JSON for you!")
+        uploaded_pdf = st.file_uploader("Upload your current PDF resume", type=["pdf"])
+        if st.button("✨ Auto-Fill JSON from PDF", type="primary", use_container_width=True):
+            if uploaded_pdf is None:
+                st.warning("Please upload a PDF file first.")
+            else:
+                loading_overlay = st.empty()
+                loading_overlay.markdown(get_glass_overlay_html("Extracting data from PDF...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+
+                success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
+
+                loading_overlay.empty()
+                if success and parsed_json:
+                    st.session_state.resume_data = parsed_json
+                    st.session_state.base_editor_key += 1
+                    st.toast(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
     json_str = json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False)
     edited_json = st_ace.st_ace(
         value=json_str,
