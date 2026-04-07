@@ -7,6 +7,7 @@ import json
 import tempfile
 import shutil
 import base64
+import streamlit.components.v1 as components
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 from datetime import datetime
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
@@ -735,8 +736,9 @@ with tab4:
             
             if st.session_state.get("preview_pdf_bytes"):
                 base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
-                pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf" style="border-radius: 8px; border: 1px solid #ddd;">'
-                st.markdown(pdf_display, unsafe_allow_html=True)
+                # Use st.components.v1.html to correctly render the iframe in Streamlit's sandboxed environment
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                components.html(pdf_display, height=620)
             else:
                 st.info("👈 Click 'Save & Generate Preview' to see your resume here.")
     else:
