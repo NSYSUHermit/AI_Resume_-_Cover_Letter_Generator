@@ -4,6 +4,9 @@ import jinja2
 import subprocess
 import os
 import json
+import tempfile
+import shutil
+import base64
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 from datetime import datetime
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
@@ -90,6 +93,8 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
+if "preview_pdf_bytes" not in st.session_state:
+    st.session_state.preview_pdf_bytes = None
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (ATS 關鍵字分析與履歷優化)
@@ -251,6 +256,38 @@ def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"
     except Exception as e:
         st.error(f"Exception during generation: {e}")
         return None
+
+# ---------------------------------------------------------
+# PDF 預覽生成邏輯 (使用獨立的暫存目錄避免名稱衝突)
+# ---------------------------------------------------------
+def generate_preview_pdf_bytes(data, template_name="main.tex"):
+    try:
+        data_str = json.dumps(data, ensure_ascii=False)
+        data_str = data_str.replace('**', '')
+        clean_data = json.loads(data_str)
+
+        # 使用亂碼建立一個自動銷毀的暫存資料夾
+        with tempfile.TemporaryDirectory() as temp_dir:
+            shutil.copy(template_name, temp_dir)
+            
+            temp_json_path = os.path.join(temp_dir, "ml_resume.json")
+            with open(temp_json_path, "w", encoding="utf-8") as f:
+                json.dump(clean_data, f, ensure_ascii=False, indent=4)
+                
+            process = subprocess.run(
+                ['lualatex', '-interaction=nonstopmode', template_name],
+                cwd=temp_dir,
+                capture_output=True
+            )
+            
+            pdf_path = os.path.join(temp_dir, template_name.replace('.tex', '.pdf'))
+            if process.returncode == 0 and os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as f:
+                    return f.read(), None
+            else:
+                return None, process.stdout.decode('utf-8', errors='ignore')
+    except Exception as e:
+        return None, str(e)
 
 # ---------------------------------------------------------
 # Cover Letter AI and PDF Generation
@@ -647,27 +684,61 @@ with tab4:
     if st.session_state.optimized_resume_data:
         st.info("This is the new version tailored by AI based on the JD! You can make final tweaks here before exporting.")
         
-        editor_value = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
-
-        edited_opt_json = st_ace.st_ace(
-            value=editor_value,
-            language="json",
-            theme="dracula",
-            height=500,
-            key=f"optimized_resume_editor_{st.session_state.opt_editor_key}",
-            font_size=14,
-            tab_size=2,
-            show_gutter=True,
-            auto_update=True,
-        )
+        # 建立左右分欄：左邊編輯器，右邊預覽窗
+        col_edit, col_preview = st.columns([1, 1])
         
-        if st.button("💾 Save Optimized Changes", type="primary", key="save_opt"):
-            try:
-                st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-                st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.success("Optimized data saved successfully!")
-            except Exception as e:
-                st.error(f"JSON format error, please check syntax: {e}")
+        trigger_preview = False
+        
+        with col_edit:
+            editor_value = json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False)
+    
+            edited_opt_json = st_ace.st_ace(
+                value=editor_value,
+                language="json",
+                theme="dracula",
+                height=600,
+                key=f"optimized_resume_editor_{st.session_state.opt_editor_key}",
+                font_size=14,
+                tab_size=2,
+                show_gutter=True,
+                auto_update=True,
+            )
+            
+            if st.button("💾 Save & Generate Preview", type="primary", key="save_opt", use_container_width=True):
+                try:
+                    st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+                    st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    st.success("Optimized data saved successfully!")
+                    trigger_preview = True
+                except Exception as e:
+                    st.error(f"JSON format error, please check syntax: {e}")
+                    
+        with col_preview:
+            st.subheader("📄 Live PDF Preview")
+            template_choice_preview = st.radio("🎨 Preview Template", ["💻", "📈"], horizontal=True, key="preview_template")
+            selected_template_preview = "main.tex" if template_choice_preview.startswith("💻") else "elsa_main.tex"
+            
+            if trigger_preview or st.button("🔄 Refresh Preview", use_container_width=True):
+                loading_overlay = st.empty()
+                loading_overlay.markdown(get_glass_overlay_html("Generating Preview...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+                
+                pdf_bytes, err_msg = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, selected_template_preview)
+                
+                if pdf_bytes:
+                    st.session_state.preview_pdf_bytes = pdf_bytes
+                else:
+                    st.error("❌ Preview Generation Failed")
+                    with st.expander("View Logs"):
+                        st.text(err_msg)
+                        
+                loading_overlay.empty()
+            
+            if st.session_state.get("preview_pdf_bytes"):
+                base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf" style="border-radius: 8px; border: 1px solid #ddd;"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+            else:
+                st.info("👈 Click 'Save & Generate Preview' to see your resume here.")
     else:
         st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Customization' or proceed directly to '5️⃣ Export' to use your base profile.")
 
