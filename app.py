@@ -206,70 +206,21 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         return False, f"⚠️ AI execution error: {e}"
 
 # ---------------------------------------------------------
-# PDF 生成邏輯 (支援自訂 main.tex)
+# PDF 生成與預覽邏輯 (全部使用獨立的暫存目錄避免名稱衝突)
 # ---------------------------------------------------------
-def generate_pdf_from_json(data, custom_tex_bytes=None, template_name="main.tex"):
-    # Determine which .tex file to use
-    tex_filename = template_name
-    if custom_tex_bytes:
-        template_content = custom_tex_bytes.decode('utf-8')
-        tex_filename = "custom_main.tex"
-        with open(tex_filename, "w", encoding="utf-8") as f:
-            f.write(template_content)
-
+def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=None):
     try:
         data_str = json.dumps(data, ensure_ascii=False)
         data_str = data_str.replace('**', '')
         clean_data = json.loads(data_str)
 
-        # --- NEW LOGIC ---
-        # Write the data to a temporary JSON file that the LuaLaTeX script expects.
-        temp_json_filename = "ml_resume.json"
-        with open(temp_json_filename, "w", encoding="utf-8") as f:
-            json.dump(clean_data, f, ensure_ascii=False, indent=4)
-
-        # The final PDF will be named after the .tex file, e.g., main.pdf
-        # We will rename it later for consistency.
-        base_name = os.path.splitext(tex_filename)[0]
-        expected_pdf_name = f"{base_name}.pdf"
-        
-        company = clean_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
-        role = clean_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
-        final_pdf_name = f"{company}_{role}_resume.pdf"
-            
-        process = subprocess.run(
-            ['lualatex', '-interaction=nonstopmode', tex_filename],
-            capture_output=True
-        )
-        
-        if process.returncode == 0 and os.path.exists(expected_pdf_name):
-            # Rename the output file for a consistent download name
-            if os.path.exists(final_pdf_name):
-                os.remove(final_pdf_name)
-            os.rename(expected_pdf_name, final_pdf_name)
-            return final_pdf_name
-        else:
-            st.error(f"LaTeX Compilation Failed (Return Code {process.returncode}) for {tex_filename}")
-            with st.expander("View Full Compilation Log"):
-                st.text(process.stdout.decode('utf-8', errors='ignore'))
-                st.text(process.stderr.decode('utf-8', errors='ignore'))
-            return None
-    except Exception as e:
-        st.error(f"Exception during generation: {e}")
-        return None
-
-# ---------------------------------------------------------
-# PDF 預覽生成邏輯 (使用獨立的暫存目錄避免名稱衝突)
-# ---------------------------------------------------------
-def generate_preview_pdf_bytes(data, template_name="main.tex"):
-    try:
-        data_str = json.dumps(data, ensure_ascii=False)
-        data_str = data_str.replace('**', '')
-        clean_data = json.loads(data_str)
-
-        # 使用亂碼建立一個自動銷毀的暫存資料夾
         with tempfile.TemporaryDirectory() as temp_dir:
-            shutil.copy(template_name, temp_dir)
+            if custom_tex_bytes:
+                template_name = "custom_main.tex"
+                with open(os.path.join(temp_dir, template_name), "wb") as f:
+                    f.write(custom_tex_bytes)
+            else:
+                shutil.copy(template_name, temp_dir)
             
             temp_json_path = os.path.join(temp_dir, "ml_resume.json")
             with open(temp_json_path, "w", encoding="utf-8") as f:
@@ -290,20 +241,16 @@ def generate_preview_pdf_bytes(data, template_name="main.tex"):
     except Exception as e:
         return None, str(e)
 
-# ---------------------------------------------------------
-# Cover Letter AI and PDF Generation
-# ---------------------------------------------------------
-def generate_cover_letter_pdf(resume_data):
-    """Generates a PDF from the 'cover_letter' field using a hardcoded clean LaTeX template."""
+def generate_cover_letter_pdf_bytes(resume_data):
     try:
         company = resume_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
         role = resume_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
+        pdf_filename = f"{company}_{role}_coverletter.pdf"
 
-        custom_filename = f"{company}_{role}_coverletter"
-        tex_filename = f"{custom_filename}.tex"
-        pdf_filename = f"{custom_filename}.pdf"
-
-        cl_content = resume_data.get('cover_letter', 'No content')
+        cl_content = resume_data.get('cover_letter', '')
+        if not cl_content:
+            return None, None, "No cover letter content found."
+            
         clean_cl_content = cl_content.replace('**', '')
 
         def escape_tex(text):
@@ -328,29 +275,74 @@ def generate_cover_letter_pdf(resume_data):
 """ + escaped_content.replace("\n", "\n\n") + r"""
 \end{document}
 """
-        
-        with open(tex_filename, "w", encoding="utf-8") as f:
-            f.write(latex_template)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tex_filename = "cover_letter.tex"
+            tex_path = os.path.join(temp_dir, tex_filename)
+            with open(tex_path, "w", encoding="utf-8") as f:
+                f.write(latex_template)
 
-        # Compile with lualatex
-        process = subprocess.run(
-            ['lualatex', '-interaction=nonstopmode', tex_filename],
-            capture_output=True,
-            text=True
-        )
-        
-        if process.returncode == 0 and os.path.exists(pdf_filename):
-            return pdf_filename
-        else:
-            st.error("❌ Cover Letter PDF generation failed.")
-            with st.expander("View Full Compilation Log"):
-                st.text(process.stdout)
-                st.text(process.stderr)
-            return None
-
+            process = subprocess.run(
+                ['lualatex', '-interaction=nonstopmode', tex_filename],
+                cwd=temp_dir,
+                capture_output=True,
+                text=True
+            )
+            
+            gen_pdf_path = os.path.join(temp_dir, tex_filename.replace('.tex', '.pdf'))
+            if process.returncode == 0 and os.path.exists(gen_pdf_path):
+                with open(gen_pdf_path, "rb") as f:
+                    return f.read(), pdf_filename, None
+            else:
+                return None, None, process.stdout + "\n" + process.stderr
     except Exception as e:
-        st.error(f"Cover Letter PDF generation failed: {e}")
-        return None
+        return None, None, str(e)
+
+def render_pdf_js(pdf_bytes, height=650):
+    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    pdf_js_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+        <style>
+            body {{ margin: 0; padding: 0; background-color: transparent; display: flex; flex-direction: column; align-items: center; }}
+            canvas {{ margin-bottom: 10px; box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15); width: 100%; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <div id="pdf-container" style="width: 100%;"></div>
+        <script>
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            
+            var binaryString = window.atob('{base64_pdf}');
+            var binaryLen = binaryString.length;
+            var bytes = new Uint8Array(binaryLen);
+            for (var i = 0; i < binaryLen; i++) {{
+                bytes[i] = binaryString.charCodeAt(i);
+            }}
+            
+            var loadingTask = pdfjsLib.getDocument({{data: bytes}});
+            loadingTask.promise.then(function(pdf) {{
+                var container = document.getElementById('pdf-container');
+                for (var pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
+                    pdf.getPage(pageNum).then(function(page) {{
+                        var scale = 1.5;
+                        var viewport = page.getViewport({{scale: scale}});
+                        var canvas = document.createElement('canvas');
+                        var context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        container.appendChild(canvas);
+                        var renderContext = {{ canvasContext: context, viewport: viewport }};
+                        page.render(renderContext);
+                    }});
+                }}
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    components.html(pdf_js_html, height=height, scrolling=True)
 
 # ---------------------------------------------------------
 # Custom Premium UI Components (Glassmorphism & Overlays)
