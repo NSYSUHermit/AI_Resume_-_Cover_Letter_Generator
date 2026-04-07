@@ -735,7 +735,7 @@ with tab4:
             
             if st.session_state.get("preview_pdf_bytes"):
                 base64_pdf = base64.b64encode(st.session_state.preview_pdf_bytes).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf" style="border-radius: 8px; border: 1px solid #ddd;"></iframe>'
+                pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf" style="border-radius: 8px; border: 1px solid #ddd;">'
                 st.markdown(pdf_display, unsafe_allow_html=True)
             else:
                 st.info("👈 Click 'Save & Generate Preview' to see your resume here.")
