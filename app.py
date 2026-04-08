@@ -719,50 +719,106 @@ with tab2:
 # --- 3. Dashboard Tab ---
 with tab3:
     st.header("📊 ATS Analysis Report")
-        
-    if st.session_state.ai_report:
-        st.info(st.session_state.ai_report)
-        
-    if st.session_state.ats_metrics:
-        m = st.session_state.ats_metrics
-        
-        col1, col2, col3 = st.columns(3)
-        delta_pct = m['optimized_pct'] - m['original_pct']
-        
-        col1.metric("Original Match", f"{m['original_pct']}%", f"{m['original_count']} / {m['total']} keywords", delta_color="off")
-        col2.metric("Optimized Match", f"{m['optimized_pct']}%", f"+{delta_pct}% Improvement")
-        col3.metric("Keywords Injected", f"{len(m['newly_added'])}", "AI newly added")
-        
-        st.write("##### Match Progress")
-        st.progress(min(m['optimized_pct'] / 100.0, 1.0))
-        st.markdown("---")
-        
-        col_k1, col_k2 = st.columns(2)
-        with col_k1:
-            st.success("✅ **Successfully Hit Keywords**")
-            for k in m['optimized_hits']:
-                if k in m['newly_added']:
-                    st.markdown(f"- `{k}` 🌟 *(Forced injection)*")
+    
+    col_main, col_side = st.columns([7, 3])
+    
+    with col_side:
+        with st.container(border=True):
+            st.subheader("📥 Import External JSON")
+            st.write("Used ChatGPT or Claude? Paste the full JSON response here to update the ATS metrics and Editor.")
+            external_json_str = st.text_area("Paste JSON here", height=400, key="external_json_input")
+            
+            if st.button("Apply External JSON", type="primary", use_container_width=True):
+                if not external_json_str.strip():
+                    st.warning("Please paste some JSON first.")
                 else:
+                    try:
+                        # Clean potential markdown backticks (e.g. ```json ... ```)
+                        clean_str = external_json_str.replace('```json', '').replace('```', '').strip()
+                        external_data = json.loads(clean_str)
+                        
+                        # Very robust extraction (fallback to full JSON if missing the wrapper structure)
+                        modified_resume_data = external_data.get("optimized_resume", external_data)
+                        st.session_state.optimized_resume_data = modified_resume_data
+                        st.session_state.opt_editor_key += 1
+                        st.session_state.optimized_resume_saved_time = None
+                        st.session_state.changelog = external_data.get('changelog', 'Imported from external AI.')
+                        st.session_state.ai_report = "✅ **External JSON loaded successfully!**\n\n---\n"
+                        
+                        # Calculate ATS metrics if provided
+                        if "keyword_analysis" in external_data:
+                            kw = external_data["keyword_analysis"]
+                            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
+                            orig_c = len(kw.get("original_hits", []))
+                            opt_c = len(kw.get("optimized_hits", []))
+                            orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
+                            opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
+
+                            st.session_state.ats_metrics = {
+                                "total": tot,
+                                "original_count": orig_c,
+                                "optimized_count": opt_c,
+                                "original_pct": orig_pct,
+                                "optimized_pct": opt_pct,
+                                "optimized_hits": kw.get("optimized_hits", []),
+                                "newly_added": kw.get("newly_added", []),
+                                "missing_keywords": kw.get("missing_keywords", [])
+                            }
+                        else:
+                            st.session_state.ats_metrics = None
+                            
+                        st.toast("✅ External JSON successfully applied!")
+                        st.rerun()
+                        
+                    except json.JSONDecodeError as json_err:
+                        st.error(f"⚠️ Malformed JSON. Please check syntax!\n\nError: {json_err}")
+                    except Exception as e:
+                        st.error(f"⚠️ Error: {e}")
+
+    with col_main:
+        if st.session_state.ai_report:
+            st.info(st.session_state.ai_report)
+            
+        if st.session_state.ats_metrics:
+            m = st.session_state.ats_metrics
+            
+            col1, col2, col3 = st.columns(3)
+            delta_pct = m['optimized_pct'] - m['original_pct']
+            
+            col1.metric("Original Match", f"{m['original_pct']}%", f"{m['original_count']} / {m['total']} keywords", delta_color="off")
+            col2.metric("Optimized Match", f"{m['optimized_pct']}%", f"+{delta_pct}% Improvement")
+            col3.metric("Keywords Injected", f"{len(m['newly_added'])}", "AI newly added")
+            
+            st.write("##### Match Progress")
+            st.progress(min(m['optimized_pct'] / 100.0, 1.0))
+            st.markdown("---")
+            
+            col_k1, col_k2 = st.columns(2)
+            with col_k1:
+                st.success("✅ **Successfully Hit Keywords**")
+                for k in m['optimized_hits']:
+                    if k in m['newly_added']:
+                        st.markdown(f"- `{k}` 🌟 *(Forced injection)*")
+                    else:
+                        st.markdown(f"- `{k}`")
+                if not m['optimized_hits']:
+                    st.write("- None")
+                    
+            with col_k2:
+                st.error("❌ **Missing Keywords**")
+                for k in m['missing_keywords']:
                     st.markdown(f"- `{k}`")
-            if not m['optimized_hits']:
-                st.write("- None")
-                
-        with col_k2:
-            st.error("❌ **Missing Keywords**")
-            for k in m['missing_keywords']:
-                st.markdown(f"- `{k}`")
-            if not m['missing_keywords']:
-                st.write("- None")
-                
-        st.markdown("---")
-        
-    if st.session_state.changelog:
-        st.write("### 📝 Changelog")
-        st.info(st.session_state.changelog)
-        
-    if not st.session_state.ats_metrics and not st.session_state.changelog and not st.session_state.ai_report:
-        st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Optimize' and run it.")
+                if not m['missing_keywords']:
+                    st.write("- None")
+                    
+            st.markdown("---")
+            
+        if st.session_state.changelog:
+            st.write("### 📝 Changelog")
+            st.info(st.session_state.changelog)
+            
+        if not st.session_state.ats_metrics and not st.session_state.changelog and not st.session_state.ai_report:
+            st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Optimize' and run it, or import JSON from the right panel.")
 
 # --- 4. Editor & Export Tab ---
 with tab4:
