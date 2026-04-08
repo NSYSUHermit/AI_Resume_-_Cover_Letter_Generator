@@ -151,6 +151,55 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
     except Exception as e:
         return False, f"⚠️ Error during PDF parsing: {e}", None
 
+def build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, resume_data):
+    """Helper function to build the full prompt text"""
+    visa_check_instruction = ""
+    if check_visa:
+        visa_check_instruction = """
+    - Step 1 (Visa Check): First, analyze the [Target JD] for visa sponsorship restrictions (e.g., "U.S. Citizen only", "no sponsorship"). If you find any, you MUST STOP and return ONLY this JSON: `{"visa_blocked": true, "reason": "Your reason here"}`.
+    - Step 2 (Optimization): If the visa check passes, proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
+    """
+    else:
+        visa_check_instruction = """
+    - Step 1 (Visa Check): This step is disabled. Proceed directly to Step 2.
+    - Step 2 (Optimization): Proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
+    """
+
+    ats_example = ""
+    if enable_ats:
+        ats_example = """"keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
+
+    final_prompt = f"""
+You are an expert resume optimizer. Follow these steps and rules precisely.
+
+{custom_prompt}
+
+{visa_check_instruction}
+
+[Target JD]: {jd_text}
+[Original Resume JSON]: {json.dumps(resume_data, ensure_ascii=False)}
+
+🔥 STRICT RULES for Step 2 (if you get here):
+1. Cover Letter:
+    - Write a complete cover letter based on the JD and place it in the "cover_letter" field.
+    - ALWAYS end with "Best regards," followed by a newline and the applicant's first name.
+2. Extraction: Extract the target company and role from the JD and put them into "target_company" and "target_role" fields.
+3. ATS Keyword Injection:
+    - Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
+    - Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
+    - ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
+
+⚠️ [Output Format Limitation]: Your entire response MUST be a single, valid JSON object. Do not use markdown ticks like ```json.
+The final JSON structure for a successful optimization (Step 2) should be:
+{{
+    "visa_blocked": false,
+    "changelog": "Brief explanation of modifications...",
+    {ats_example}
+    "optimized_resume": {{...Updated full resume JSON structure...}}
+}}
+"""
+    return final_prompt
+
 def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
     try:
         api_key = st.session_state.get("api_key", "")
@@ -161,52 +210,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         model = genai.GenerativeModel('gemini-2.5-flash')
         report_md = ""
         
-        # Build a single, powerful prompt to reduce API calls from 2 to 1.
-        visa_check_instruction = ""
-        if check_visa:
-            visa_check_instruction = """
-        - Step 1 (Visa Check): First, analyze the [Target JD] for visa sponsorship restrictions (e.g., "U.S. Citizen only", "no sponsorship"). If you find any, you MUST STOP and return ONLY this JSON: `{"visa_blocked": true, "reason": "Your reason here"}`.
-        - Step 2 (Optimization): If the visa check passes, proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
-        """
-        else:
-            visa_check_instruction = """
-        - Step 1 (Visa Check): This step is disabled. Proceed directly to Step 2.
-        - Step 2 (Optimization): Proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
-        """
-
-        ats_example = ""
-        if enable_ats:
-            ats_example = """"keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
-
-        final_prompt = f"""
-        You are an expert resume optimizer. Follow these steps and rules precisely.
-
-        {custom_prompt}
-        
-        {visa_check_instruction}
-
-        [Target JD]: {jd_text}
-        [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
-
-        🔥 STRICT RULES for Step 2 (if you get here):
-        1. Cover Letter:
-            - Write a complete cover letter based on the JD and place it in the "cover_letter" field.
-            - ALWAYS end with "Best regards," followed by a newline and the applicant's first name.
-        2. Extraction: Extract the target company and role from the JD and put them into "target_company" and "target_role" fields.
-        3. ATS Keyword Injection:
-            - Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
-            - Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
-            - ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
-
-        ⚠️ [Output Format Limitation]: Your entire response MUST be a single, valid JSON object. Do not use markdown ticks like ```json.
-        The final JSON structure for a successful optimization (Step 2) should be:
-        {{
-            "visa_blocked": false,
-            "changelog": "Brief explanation of modifications...",
-            {ats_example}
-            "optimized_resume": {{...Updated full resume JSON structure...}}
-        }}
-        """
+        final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         
         # Single API call
         response = model.generate_content(final_prompt)
@@ -680,7 +684,21 @@ with tab2:
         key="custom_prompt_input"
     )
     
-    if st.button("🚀 Start AI Optimization & Analysis", type="primary"):
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        run_ai = st.button("🚀 Start AI Optimization", type="primary", use_container_width=True)
+    with col_btn2:
+        show_prompt = st.button("📋 Copy Prompt for Other AIs", use_container_width=True)
+        
+    if show_prompt:
+        if not jd_input:
+            st.warning("Please paste the JD content first!")
+        else:
+            prompt_text = build_optimization_prompt(jd_input, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
+            st.info("👇 Click the **copy icon in the top right corner** of the box below. You can paste this to ChatGPT or Claude, and bring their JSON response back to the Editor tab!")
+            st.code(prompt_text, language="markdown")
+    
+    if run_ai:
         if not jd_input:
             st.warning("Please paste the JD content first!")
         else:
