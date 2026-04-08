@@ -160,58 +160,55 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
         report_md = ""
-
-        # 🛑 Phase 1: Visa Sponsorship Check
+        
+        # Build a single, powerful prompt to reduce API calls from 2 to 1.
+        visa_check_instruction = ""
         if check_visa:
-            visa_prompt = f"""
-            Strictly review the following Job Description (JD). Check for either of these conditions:
-            1. Explicitly requires "U.S. Citizen" or "Green Card / Permanent Resident".
-            2. Explicitly states "No visa sponsorship" or "Unable to sponsor".
-            Return ONLY valid JSON: {{"blocked": true/false, "reason": "..."}}
-            [JD]: {jd_text}
-            """
-            visa_res = model.generate_content(visa_prompt)
-            visa_json = json.loads(visa_res.text.replace('```json', '').replace('```', '').strip())
-            
-            if visa_json.get("blocked"):
-                report_md += f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {visa_json.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization. Save your time for the next company!"
-                return False, report_md
-            else:
-                report_md += "✅ **Visa check passed! No explicit sponsorship barriers found.**\n\n---\n"
+            visa_check_instruction = """
+        - Step 1 (Visa Check): First, analyze the [Target JD] for visa sponsorship restrictions (e.g., "U.S. Citizen only", "no sponsorship"). If you find any, you MUST STOP and return ONLY this JSON: `{"visa_blocked": true, "reason": "Your reason here"}`.
+        - Step 2 (Optimization): If the visa check passes, proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
+        """
+        else:
+            visa_check_instruction = """
+        - Step 1 (Visa Check): This step is disabled. Proceed directly to Step 2.
+        - Step 2 (Optimization): Proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
+        """
 
-        # 🚀 Phase 2: ATS Keyword & Resume Optimization
-        ats_instruction = ""
         ats_example = ""
         if enable_ats:
-            ats_instruction = """
-            - "keyword_analysis": Contains "jd_keywords", "original_hits", "optimized_hits", "newly_added", "missing_keywords" (all array of strings)."""
-            ats_example = """
-            "keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
+            ats_example = """"keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
 
         final_prompt = f"""
+        You are an expert resume optimizer. Follow these steps and rules precisely.
+
         {custom_prompt}
+        
+        {visa_check_instruction}
 
         [Target JD]: {jd_text}
         [Original Resume JSON]: {json.dumps(st.session_state.resume_data, ensure_ascii=False)}
 
-        🔥 STRICT RULES - MUST FOLLOW OR FAIL:
+        🔥 STRICT RULES for Step 2 (if you get here):
         1. Cover Letter:
             - Write a complete cover letter based on the JD and place it in the "cover_letter" field.
             - ALWAYS end with "Best regards," followed by a newline and the applicant's first name.
         2. Extraction: Extract the target company and role from the JD and put them into "target_company" and "target_role" fields.
+        3. ATS Keyword Injection:
+            - Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
+            - Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
+            - ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
 
-        🔥 [Advanced ATS Keyword Injection Rules]:
-        1. Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
-        2. Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
-        3. ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
-
-        ⚠️ [Output Format Limitation]: Return ONLY valid JSON, no markdown ticks like ```json.
+        ⚠️ [Output Format Limitation]: Your entire response MUST be a single, valid JSON object. Do not use markdown ticks like ```json.
+        The final JSON structure for a successful optimization (Step 2) should be:
         {{
-            "changelog": "Brief explanation of modifications...",{ats_example}
+            "visa_blocked": false,
+            "changelog": "Brief explanation of modifications...",
+            {ats_example}
             "optimized_resume": {{...Updated full resume JSON structure...}}
         }}
         """
         
+        # Single API call
         response = model.generate_content(final_prompt)
         raw_text = response.text.replace('```json', '').replace('```', '').strip()
         
@@ -220,19 +217,25 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         except json.JSONDecodeError as json_err:
             return False, f"⚠️ AI output malformed JSON. Please try again!\n\n**System Error:** {json_err}\n\n**Raw Output Fragment:**\n```json\n{raw_text[:800]}\n```"
 
+        # Handle response based on visa_blocked flag
+        if ai_result.get("visa_blocked"):
+            report_md = f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {ai_result.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization. Save your time for the next company!"
+            return False, report_md
+        
+        # If not blocked, proceed with processing the successful result
+        report_md += "✅ **Visa check passed! No explicit sponsorship barriers found.**\n\n---\n" if check_visa else ""
+
         modified_resume_data = ai_result.get("optimized_resume", {})
         if not modified_resume_data:
-            return False, "⚠️ Parsing Error: Could not find the optimized resume data."
+            return False, "⚠️ Parsing Error: Could not find the optimized resume data in AI response."
             
         st.session_state.optimized_resume_data = modified_resume_data
-
         st.session_state.opt_editor_key += 1
         st.session_state.optimized_resume_saved_time = None
-        
         st.session_state.ats_metrics = None
         st.session_state.changelog = ai_result.get('changelog', '')
 
-        # 生成 Markdown 報告
+        # Generate Markdown report
         if enable_ats and "keyword_analysis" in ai_result:
             kw = ai_result["keyword_analysis"]
             tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
@@ -240,7 +243,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             opt_c = len(kw.get("optimized_hits", []))
             orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
             opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
-            
+
             st.session_state.ats_metrics = {
                 "total": tot,
                 "original_count": orig_c,
@@ -251,7 +254,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
                 "newly_added": kw.get("newly_added", []),
                 "missing_keywords": kw.get("missing_keywords", [])
             }
-        
+
         return True, report_md
     except Exception as e:
         return False, f"⚠️ AI execution error: {e}"
