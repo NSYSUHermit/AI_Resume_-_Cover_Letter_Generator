@@ -116,7 +116,8 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model_name = st.session_state.get("ai_model", "gemini-2.0-flash")
+        model = genai.GenerativeModel(model_name)
 
         prompt = """
         You are an expert resume parser. I will provide you with a resume in PDF format.
@@ -207,7 +208,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
             
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model_name = st.session_state.get("ai_model", "gemini-2.0-flash")
+        model = genai.GenerativeModel(model_name)
         report_md = ""
         
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
@@ -570,6 +572,14 @@ with st.sidebar:
     st.markdown("---")
     st.header("⚙️ Settings")
     st.text_input("🔑 Google Gemini API Key", type="password", key="api_key", help="API Key is required to use AI features.")
+    
+    ai_model_choice = st.selectbox(
+        "🧠 AI Model (Fallback)",
+        ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"],
+        index=0,
+        help="Google heavily restricts newer models (like 2.5-flash) to 5 requests/min. Switch to 1.5-flash (15 req/min) if you hit quota limits!"
+    )
+    st.session_state.ai_model = ai_model_choice
     st.markdown("---")
     
     st.header("🏃 Loading Animation")
@@ -822,11 +832,16 @@ with tab3:
 
 # --- 4. Editor & Export Tab ---
 with tab4:
-    st.header("📝 Editor & Export")
-
     if st.session_state.optimized_resume_data:
-        # Main layout: Editor on the left, Preview/Export on the right
-        col_edit, col_export = st.columns([6, 4])
+        col_title, col_slider = st.columns([6, 4])
+        with col_title:
+            st.header("📝 Editor & Export")
+        with col_slider:
+            # 使用 Slider 動態控制左右欄位的寬度比例
+            editor_width = st.slider("📐 Adjust Layout (Editor Width %)", min_value=30, max_value=80, value=60, step=5, format="%d%%", help="Slide to resize the Editor and Preview panels")
+        
+        # Main layout dynamically controlled by the slider
+        col_edit, col_export = st.columns([editor_width, 100 - editor_width])
         data_to_use = st.session_state.optimized_resume_data
 
         with col_edit:
@@ -930,6 +945,7 @@ with tab4:
                 if st.session_state.cl_dl_data:
                     st.download_button("📥 Download Cover Letter", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
     else:
+        st.header("📝 Editor & Export")
         st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Optimizer' first.")
 
 # --- 5. Job Tracker Tab ---
