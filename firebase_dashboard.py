@@ -2,7 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================================
 # 1. 初始化與連接 Firebase
@@ -192,14 +192,6 @@ def render_interview_progress(db, email: str):
         c3.metric("Rejections", rejections)
         c4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
         
-        st.markdown("---")
-        st.markdown("### 🏢 Filtered Companies")
-        if filtered_records:
-            sorted_records = sorted(filtered_records, key=lambda x: x["Date"], reverse=True)
-            st.dataframe(sorted_records, use_container_width=True, hide_index=True)
-        else:
-            st.write("No records found for this period.")
-            
     except Exception as e:
         st.error(f"❌ Failed to load analysis data: {e}")
 
@@ -209,6 +201,16 @@ def render_dashboard(db, email: str):
     """
     st.subheader("📝 Application Records")
     
+    # Timezone offset selector
+    col_tz, _ = st.columns([1, 2])
+    with col_tz:
+        tz_offset = st.number_input("🌍 Timezone Offset (Hours from UTC)", min_value=-12.0, max_value=14.0, value=8.0, step=0.5, help="e.g., +8 for Asia/Taipei, -7 for PDT")
+
+    def get_local_time_str(dt_utc):
+        if not dt_utc: return "N/A"
+        local_dt = dt_utc + timedelta(hours=tz_offset)
+        return local_dt.strftime("%Y-%m-%d %H:%M")
+
     try:
         apps_ref = db.collection('users').document(email).collection('applications')
         query = apps_ref.order_by('applied_date', direction=firestore.Query.DESCENDING)
@@ -224,17 +226,17 @@ def render_dashboard(db, email: str):
             status = app_data.get("status", "Applied")
             
             applied_date = app_data.get("applied_date")
-            date_str = applied_date.strftime("%Y-%m-%d %H:%M") if applied_date else "N/A"
+            date_str = get_local_time_str(applied_date)
             
             status_emoji = {"Applied": "📤", "Interviewing": "💬", "Rejected": "💔"}.get(status, "📄")
             
-            with st.expander(f"{status_emoji} {company} - {status} ({date_str})"):
+            with st.expander(f"{status_emoji} {company} | Status: {status} | Applied: {date_str}"):
                 st.write(f"**Applied Date:** {date_str}")
                 
                 if app_data.get("interview_date"):
-                    st.write(f"**Interview Date:** {app_data['interview_date'].strftime('%Y-%m-%d %H:%M')}")
+                    st.write(f"**Interview Date:** {get_local_time_str(app_data['interview_date'])}")
                 if app_data.get("rejected_date"):
-                    st.write(f"**Rejected Date:** {app_data['rejected_date'].strftime('%Y-%m-%d %H:%M')}")
+                    st.write(f"**Rejected Date:** {get_local_time_str(app_data['rejected_date'])}")
                 
                 with st.popover("📄 View Saved JD & Resume JSON", use_container_width=True):
                     st.markdown("**📝 Job Description:**")
