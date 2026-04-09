@@ -85,7 +85,7 @@ def load_user_profile(db, email: str):
 # ==========================================
 # 2. Save Application Record
 # ==========================================
-def save_application(db, email: str, company_name: str, resume_json: dict):
+def save_application(db, email: str, company_name: str, resume_json: dict, jd_text: str = ""):
     """
     Save application tracking record to Firestore.
     """
@@ -97,6 +97,7 @@ def save_application(db, email: str, company_name: str, resume_json: dict):
             "applied_date": firestore.SERVER_TIMESTAMP,
             "status": "Applied",
             "resume_json": resume_json,
+            "jd_text": jd_text,
             "interview_date": None,
             "rejected_date": None,
             "notes": ""
@@ -234,6 +235,12 @@ def render_dashboard(db, email: str):
                     st.write(f"**Interview Date:** {app_data['interview_date'].strftime('%Y-%m-%d %H:%M')}")
                 if app_data.get("rejected_date"):
                     st.write(f"**Rejected Date:** {app_data['rejected_date'].strftime('%Y-%m-%d %H:%M')}")
+                
+                with st.popover("📄 View Saved JD & Resume JSON", use_container_width=True):
+                    st.markdown("**📝 Job Description:**")
+                    st.info(app_data.get("jd_text", "No JD saved for this application."))
+                    st.markdown("**📋 Saved Resume JSON:**")
+                    st.json(app_data.get("resume_json", {}))
                 
                 current_notes = app_data.get("notes", "")
                 new_notes = st.text_area("Notes:", value=current_notes, key=f"notes_{doc_id}", height=68)

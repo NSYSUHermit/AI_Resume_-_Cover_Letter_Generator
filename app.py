@@ -965,7 +965,8 @@ with tab4:
                         st.toast("✅ Resume ready for download!")
                         if sync_to_firebase and st.session_state.logged_in and db:
                             company = data_to_use.get('target_company', 'Unknown')
-                            if save_application(db, st.session_state.user_email, company, data_to_use):
+                            jd_text = st.session_state.get('jd_input_for_cl', '')
+                            if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
                                 st.toast(f"✅ Synced application for {company}!")
                         
                         company_name = data_to_use.get('target_company', 'Resume').replace(' ', '_')
