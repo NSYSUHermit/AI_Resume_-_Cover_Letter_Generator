@@ -860,6 +860,13 @@ with tab4:
         with col_export:
             st.subheader("📄 Live Preview")
 
+            col_target, col_tmpl = st.columns(2)
+            with col_target:
+                preview_choice = st.radio("Target:", ["Resume", "Cover Letter"], horizontal=True, key="preview_choice")
+            with col_tmpl:
+                preview_template = st.radio("Template:", ["💻 Tech", "📈 Consulting"], horizontal=True, key="preview_template")
+                selected_preview_template = "main.tex" if preview_template.startswith("💻") else "elsa_main.tex"
+
             if st.button("💾 Save JSON & Refresh Previews", type="primary", use_container_width=True):
                 try:
                     st.session_state.optimized_resume_data = json.loads(edited_opt_json)
@@ -869,7 +876,7 @@ with tab4:
                     loading_overlay = st.empty()
                     loading_overlay.markdown(get_glass_overlay_html("Generating Previews...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
 
-                    resume_bytes, r_err = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, "main.tex")
+                    resume_bytes, r_err = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, selected_preview_template)
                     if resume_bytes: st.session_state.resume_preview_bytes = resume_bytes
                     
                     cl_bytes, cl_name, cl_err = generate_cover_letter_pdf_bytes(st.session_state.optimized_resume_data)
@@ -882,7 +889,6 @@ with tab4:
                 except Exception as e:
                     st.error(f"JSON format error, please check syntax: {e}")
 
-            preview_choice = st.radio("Preview Target:", ["Resume", "Cover Letter"], horizontal=True, key="preview_choice")
             if preview_choice == "Resume":
                 if st.session_state.resume_preview_bytes: render_pdf_js(st.session_state.resume_preview_bytes, height=400)
                 else: st.info("Click 'Save & Refresh Previews' to generate resume preview.")
