@@ -698,15 +698,61 @@ with tab2:
     with col_btn1:
         run_ai = st.button("🚀 Start AI Optimization", type="primary", use_container_width=True)
     with col_btn2:
-        show_prompt = st.button("📋 Copy Prompt for Other AIs", use_container_width=True)
-        
-    if show_prompt:
         if not jd_input:
-            st.warning("Please paste the JD content first!")
+            show_prompt = st.button("📋 Copy Prompt for Other AIs", use_container_width=True)
+            if show_prompt:
+                st.warning("Please paste the JD content first!")
         else:
             prompt_text = build_optimization_prompt(jd_input, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
-            st.info("👇 Click the **copy icon in the top right corner** of the box below. You can paste this to ChatGPT or Claude, and bring their JSON response back to the Editor tab!")
-            st.code(prompt_text, language="markdown")
+            # 將 Prompt 轉換成 Base64，確保換行與特殊字元在傳入 JS 時不會發生語法錯誤
+            b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
+            
+            html_code = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+            body {{ margin: 0; padding: 0; background-color: transparent; font-family: "Source Sans Pro", sans-serif; }}
+            .copy-btn {{
+                display: flex; align-items: center; justify-content: center;
+                font-weight: 400; padding: 0.25rem 0.75rem; border-radius: 0.5rem;
+                min-height: 38px; margin: 0; line-height: 1.6;
+                color: rgb(250, 250, 250); width: 100%; user-select: none;
+                background-color: transparent; border: 1px solid rgba(250, 250, 250, 0.2);
+                cursor: pointer; font-size: 16px; box-sizing: border-box;
+                transition: all 0.2s ease;
+            }}
+            .copy-btn:hover {{ border-color: #ff4b4b; color: #ff4b4b; }}
+            .copy-btn:active {{ background-color: #ff4b4b; color: white; }}
+            </style>
+            </head>
+            <body>
+                <button class="copy-btn" id="copyBtn" onclick="copyToClipboard()">📋 Copy Prompt for Other AIs</button>
+                <script>
+                function copyToClipboard() {{
+                    const b64 = "{b64_text}";
+                    const text = decodeURIComponent(escape(window.atob(b64)));
+                    navigator.clipboard.writeText(text).then(function() {{
+                        const btn = document.getElementById('copyBtn');
+                        btn.innerText = '✅ Copied to Clipboard!';
+                        btn.style.borderColor = '#00cc66';
+                        btn.style.color = '#00cc66';
+                        setTimeout(() => {{
+                            btn.innerText = '📋 Copy Prompt for Other AIs';
+                            btn.style.borderColor = 'rgba(250, 250, 250, 0.2)';
+                            btn.style.color = 'rgb(250, 250, 250)';
+                        }}, 2000);
+                    }}).catch(function(err) {{
+                        console.error('Copy failed', err);
+                        const btn = document.getElementById('copyBtn');
+                        btn.innerText = '❌ Copy Failed';
+                    }});
+                }}
+                </script>
+            </body>
+            </html>
+            """
+            components.html(html_code, height=45)
     
     if run_ai:
         if not jd_input:
