@@ -333,7 +333,7 @@ def generate_cover_letter_pdf_bytes(resume_data):
         website = escape_tex(heading.get('website', ''))
 
         header_tex = "\\begin{flushright}\n"
-        if name: header_tex += f"{{\\Huge\\bfseries {name}}} \\\\[1em]\n"
+        if name: header_tex += f"{{\\Large\\bfseries {name}}} \\\\[1em]\n"
         if email: header_tex += f"{email} \\\\\n"
         if phone: header_tex += f"{phone} \\\\\n"
         if linkedin: header_tex += f"{linkedin} \\\\\n"
