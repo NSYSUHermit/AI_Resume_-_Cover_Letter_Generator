@@ -324,6 +324,22 @@ def generate_cover_letter_pdf_bytes(resume_data):
             
         escaped_content = escape_tex(clean_cl_content)
 
+        # Extract and format heading info for Cover Letter
+        heading = resume_data.get('heading', {})
+        name = escape_tex(heading.get('name', ''))
+        email = escape_tex(heading.get('email', ''))
+        phone = escape_tex(heading.get('phone', ''))
+        linkedin = escape_tex(heading.get('linkedin', ''))
+        website = escape_tex(heading.get('website', ''))
+
+        header_tex = "\\begin{flushright}\n"
+        if name: header_tex += f"{{\\Huge\\bfseries {name}}} \\\\[1em]\n"
+        if email: header_tex += f"{email} \\\\\n"
+        if phone: header_tex += f"{phone} \\\\\n"
+        if linkedin: header_tex += f"{linkedin} \\\\\n"
+        if website: header_tex += f"{website} \\\\\n"
+        header_tex += "\\end{flushright}\n\\vspace{1em}\n\\today\n\\vspace{2em}\n\n"
+
         latex_template = r"""
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
@@ -332,7 +348,7 @@ def generate_cover_letter_pdf_bytes(resume_data):
 \usepackage{parskip}
 \onehalfspacing
 \begin{document}
-""" + escaped_content.replace("\n", "\n\n") + r"""
+""" + header_tex + escaped_content.replace("\n", "\n\n") + r"""
 \end{document}
 """
         with tempfile.TemporaryDirectory() as temp_dir:
