@@ -116,7 +116,7 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
 
     try:
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.0-flash")
+        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
         model = genai.GenerativeModel(model_name)
 
         prompt = """
@@ -208,7 +208,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
             
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.0-flash")
+        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
         model = genai.GenerativeModel(model_name)
         report_md = ""
         
@@ -574,10 +574,10 @@ with st.sidebar:
     st.text_input("🔑 Google Gemini API Key", type="password", key="api_key", help="API Key is required to use AI features.")
     
     ai_model_choice = st.selectbox(
-        "🧠 AI Model (Fallback)",
-        ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"],
+        "🧠 AI Model",
+        ["gemini-2.5-flash", "gemini-2.5-pro"],
         index=0,
-        help="Google heavily restricts newer models (like 2.5-flash) to 5 requests/min. Switch to 1.5-flash (15 req/min) if you hit quota limits!"
+        help="Select the Gemini model to use for generation."
     )
     st.session_state.ai_model = ai_model_choice
     st.markdown("---")
