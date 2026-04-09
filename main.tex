@@ -122,29 +122,37 @@ function printExperience()
   end
 end
 
-function printProjects()
+function printProjectsAndPatents()
   local r = getResume()
-  for _, p in ipairs(r.projects or {}) do
-    -- 1. 移除了結尾的 \\ 
-    tex.print("\\noindent \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time or ""))
-    -- 2. 直接在這裡用 \vspace 微調它跟下方 description 的距離
-    tex.print("\\vspace{0pt}") 
-    tex.print("\\resumeItemListStart")
-    tex.print("\\item " .. escapeTex(p.description or ""))
-    tex.print("\\resumeItemListEnd")
-  end
-end
-
-function printPatents()
-  local r = getResume()
-  for _, p in ipairs(r.patents or {}) do
-    -- 1. 移除了結尾的 \\
-    tex.print("\\noindent \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time))
-    -- 2. 直接在這裡用 \vspace 微調它跟下方 description 的距離
-    tex.print("\\vspace{0pt}")
-    tex.print("\\resumeItemListStart")
-    tex.print("\\item " .. escapeTex(p.description or ""))
-    tex.print("\\resumeItemListEnd")
+  local has_projects = r.projects and #r.projects > 0
+  local has_patents = r.patents and #r.patents > 0
+  
+  if has_projects or has_patents then
+    local title = ""
+    if has_projects and has_patents then
+        title = "SELECTIVE PROJECTS \\& PATENTS"
+    elseif has_projects then
+        title = "SELECTIVE PROJECTS"
+    elseif has_patents then
+        title = "SELECTIVE PATENTS"
+    end
+    
+    tex.print("\\vspace{-8pt}")
+    tex.print("\\section{" .. title .. "}")
+    tex.print("\\vspace{6pt}")
+    
+    local function printItems(items)
+      for _, item in ipairs(items) do
+        tex.print("\\noindent \\textbf{" .. escapeTex(item.name) .. "} \\hfill " .. escapeTex(item.time or ""))
+        tex.print("\\vspace{0pt}")
+        tex.print("\\resumeItemListStart")
+        tex.print("\\item " .. escapeTex(item.description or ""))
+        tex.print("\\resumeItemListEnd")
+      end
+    end
+    
+    if has_projects then printItems(r.projects) end
+    if has_patents then printItems(r.patents) end
   end
 end
 
@@ -182,12 +190,7 @@ end
 \section{EDUCATION}
   \directlua{printEducation()}
   
-\vspace{-8pt} %
-
-\section{SELECTIVE PROJECTS \& PATENTS}
-  \vspace{6pt} %
-  \directlua{printProjects()}
-  \directlua{printPatents()}
+\directlua{printProjectsAndPatents()}
   
 \section{SKILLS}
   \directlua{printSkills()}
