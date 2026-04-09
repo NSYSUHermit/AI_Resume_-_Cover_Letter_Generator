@@ -923,6 +923,7 @@ with tab4:
                         st.error("Resume generation failed."); st.session_state.resume_dl_data = None
 
                 if st.session_state.resume_dl_data:
+                    st.caption(f"📄 **File:** `{st.session_state.resume_dl_data['name']}`")
                     st.download_button("📥 Download Resume", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
 
             with st.container(border=True):
@@ -943,6 +944,7 @@ with tab4:
                             st.error(f"Cover Letter generation failed: {err}"); st.session_state.cl_dl_data = None
 
                 if st.session_state.cl_dl_data:
+                    st.caption(f"📄 **File:** `{st.session_state.cl_dl_data['name']}`")
                     st.download_button("📥 Download Cover Letter", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
     else:
         st.header("📝 Editor & Export")
