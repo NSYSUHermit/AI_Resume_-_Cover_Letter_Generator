@@ -166,23 +166,38 @@ function printExperience()
   end
 end
 
-function printProjects()
+function printProjectsAndPatents()
   local r = getResume()
-  for _, p in ipairs(r.projects or {}) do
-    tex.print("\\vspace{4pt} \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time or "") .. "\\\\")
-    tex.print("\\resumeItemListStart")
-    tex.print("\\item " .. escapeTex(p.description or ""))
-    tex.print("\\resumeItemListEnd")
-  end
-end
-
-function printPatents()
-  local r = getResume()
-  for _, p in ipairs(r.patents or {}) do
-    tex.print("\\vspace{1pt} \\textbf{" .. escapeTex(p.name) .. "} \\hfill " .. escapeTex(p.time) .. "\\\\")
-    tex.print("\\resumeItemListStart")
-    tex.print("\\item " .. escapeTex(p.description or ""))
-    tex.print("\\resumeItemListEnd")
+  local has_projects = r.projects and #r.projects > 0
+  local has_patents = r.patents and #r.patents > 0
+  
+  if has_projects or has_patents then
+    local title = ""
+    if has_projects and has_patents then
+        title = "PROJECTS \\& PATENTS"
+    elseif has_projects then
+        title = "PROJECTS"
+    elseif has_patents then
+        title = "PATENTS"
+    end
+    
+    tex.print("\\section{" .. title .. "}")
+    tex.print("\\vspace{4pt}")
+    
+    local function printItems(items)
+      for _, item in ipairs(items) do
+        tex.print("\\noindent \\textbf{" .. escapeTex(item.name) .. "} \\hfill " .. escapeTex(item.time or "") .. "")
+        tex.print("\\vspace{0pt}")
+        tex.print("\\resumeItemListStart")
+        tex.print("\\item " .. escapeTex(item.description or ""))
+        tex.print("\\resumeItemListEnd")
+      end
+    end
+    
+    if has_projects then printItems(r.projects) end
+    if has_patents then printItems(r.patents) end
+    
+    tex.print("\\vspace{8pt}")
   end
 end
 
@@ -228,6 +243,8 @@ end
 \section{EDUCATION}
   \directlua{printEducation()}
   \vspace{-12pt}
+
+\directlua{printProjectsAndPatents()}
 
 \section{CORE SKILLS}
   \directlua{printSkills()}
