@@ -7,6 +7,9 @@ import json
 import tempfile
 import shutil
 import base64
+import io
+from docx import Document
+from docx.shared import Pt, Inches
 import streamlit.components.v1 as components
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 from datetime import datetime
@@ -300,6 +303,80 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=
                 return None, process.stdout.decode('utf-8', errors='ignore')
     except Exception as e:
         return None, str(e)
+
+def generate_word_from_json(resume_data):
+    """Generate a simple, editable Word document from the JSON data."""
+    doc = Document()
+    
+    # Adjust margins to fit more content like a resume
+    for section in doc.sections:
+        section.top_margin = Inches(0.5)
+        section.bottom_margin = Inches(0.5)
+        section.left_margin = Inches(0.5)
+        section.right_margin = Inches(0.5)
+        
+    # Heading
+    heading = resume_data.get("heading", {})
+    p_name = doc.add_paragraph()
+    p_name.alignment = 1  # Center
+    run_name = p_name.add_run(heading.get("name", "Name"))
+    run_name.bold = True
+    run_name.font.size = Pt(20)
+    
+    contact_info = [heading.get("email", ""), heading.get("phone", ""), heading.get("linkedin", ""), heading.get("website", "")]
+    contact_str = " | ".join([c for c in contact_info if c])
+    p_contact = doc.add_paragraph(contact_str)
+    p_contact.alignment = 1
+    
+    if resume_data.get("summary"):
+        doc.add_heading("SUMMARY", level=1)
+        doc.add_paragraph(resume_data.get("summary", ""))
+        
+    if resume_data.get("experience"):
+        doc.add_heading("WORK EXPERIENCE", level=1)
+        for exp in resume_data.get("experience", []):
+            p = doc.add_paragraph()
+            p.add_run(exp.get("company", "")).bold = True
+            p.add_run(f" - {exp.get('role', '')}").italic = True
+            loc_time = " | ".join([x for x in [exp.get("company_location", ""), exp.get("time_duration", "")] if x])
+            if loc_time:
+                p.add_run(f" ({loc_time})")
+            for d in exp.get("details", []):
+                doc.add_paragraph(d.get("description", ""), style="List Bullet")
+                
+    if resume_data.get("education"):
+        doc.add_heading("EDUCATION", level=1)
+        for edu in resume_data.get("education", []):
+            p = doc.add_paragraph()
+            p.add_run(edu.get("school", "")).bold = True
+            p.add_run(f" - {edu.get('degree', '')}")
+            loc_time = " | ".join([x for x in [edu.get("school_location", ""), edu.get("time_period", "")] if x])
+            if loc_time:
+                p.add_run(f" ({loc_time})")
+                
+    projects_patents = resume_data.get("projects", []) + resume_data.get("patents", [])
+    if projects_patents:
+        doc.add_heading("PROJECTS & PATENTS", level=1)
+        for item in projects_patents:
+            p = doc.add_paragraph()
+            p.add_run(item.get("name", "")).bold = True
+            if item.get("time"):
+                p.add_run(f" ({item.get('time', '')})")
+            if item.get("description"):
+                doc.add_paragraph(item.get("description", ""), style="List Bullet")
+                
+    if resume_data.get("skills"):
+        doc.add_heading("SKILLS", level=1)
+        for key in ["set1", "set2", "set3"]:
+            s = resume_data["skills"].get(key, {})
+            if s.get("title") and s.get("items"):
+                p = doc.add_paragraph()
+                p.add_run(s.get("title", "") + ": ").bold = True
+                p.add_run(", ".join(s.get("items", [])))
+                
+    file_stream = io.BytesIO()
+    doc.save(file_stream)
+    return file_stream.getvalue()
 
 def generate_cover_letter_pdf_bytes(resume_data):
     try:
@@ -993,7 +1070,13 @@ with tab4:
 
                 if st.session_state.resume_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.resume_dl_data['name']}`")
-                    st.download_button("📥 Download Resume", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
+                    dl_col_pdf, dl_col_word = st.columns([7, 3])
+                    with dl_col_pdf:
+                        st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
+                    with dl_col_word:
+                        word_bytes = generate_word_from_json(data_to_use)
+                        word_name = st.session_state.resume_dl_data['name'].replace('.pdf', '.docx')
+                        st.download_button("📝 Word (.docx)", word_bytes, word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
 
             with st.container(border=True):
                 st.write("**Cover Letter**")

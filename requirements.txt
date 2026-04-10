@@ -4,3 +4,4 @@ Jinja2
 streamlit-ace
 firebase-admin
 Werkzeug
+python-docx
