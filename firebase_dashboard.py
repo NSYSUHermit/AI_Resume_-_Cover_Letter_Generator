@@ -112,6 +112,15 @@ def save_application(db, email: str, company_name: str, resume_json: dict, jd_te
 # ==========================================
 # 3. & 4. Dashboard Logic
 # ==========================================
+def delete_application(db, email: str, doc_id: str):
+    """Delete an application tracking record from Firestore."""
+    try:
+        db.collection('users').document(email).collection('applications').document(doc_id).delete()
+        return True
+    except Exception as e:
+        st.error(f"❌ Error deleting application: {e}")
+        return False
+
 def update_application_status(db, email: str, doc_id: str, new_status: str, notes: str):
     """
     Update status and notes, recording timestamps automatically.
@@ -249,7 +258,7 @@ def render_dashboard(db, email: str):
                 
                 st.divider()
                 
-                col1, col2 = st.columns([3, 1])
+                col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
                     options = ["Applied", "Interviewing", "Rejected"]
                     current_idx = options.index(status) if status in options else 0
@@ -262,6 +271,13 @@ def render_dashboard(db, email: str):
                             if update_application_status(db, email, doc_id, new_status, new_notes):
                                 st.success("✅ Application updated!")
                                 st.rerun()
+                                
+                with col3:
+                    st.write("")
+                    if st.button("🗑️ Delete", key=f"del_{doc_id}", use_container_width=True):
+                        if delete_application(db, email, doc_id):
+                            st.success("🗑️ Record deleted!")
+                            st.rerun()
         if not has_records:
             st.info("No job applications yet. Go apply for your first job! 🚀")
             
