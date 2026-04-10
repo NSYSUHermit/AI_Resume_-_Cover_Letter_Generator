@@ -450,6 +450,41 @@ def generate_cover_letter_pdf_bytes(resume_data):
     except Exception as e:
         return None, None, str(e)
 
+def generate_cover_letter_word_bytes(resume_data):
+    """Generate a simple, editable Word document for the Cover Letter."""
+    doc = Document()
+    
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+        
+    heading = resume_data.get('heading', {})
+    p_head = doc.add_paragraph()
+    p_head.alignment = 2  # Right aligned (matches flushright in LaTeX)
+    
+    run_name = p_head.add_run(heading.get('name', '') + "\n")
+    run_name.bold = True
+    run_name.font.size = Pt(16)
+    
+    contact_info = [heading.get('email', ''), heading.get('phone', ''), heading.get('linkedin', ''), heading.get('website', '')]
+    contact_str = "\n".join([c for c in contact_info if c])
+    if contact_str:
+        p_head.add_run(contact_str)
+        
+    p_date = doc.add_paragraph()
+    p_date.add_run("\n" + datetime.today().strftime('%B %d, %Y') + "\n")
+    
+    cl_content = resume_data.get('cover_letter', '').replace('**', '')
+    for para in cl_content.split('\n'):
+        if para.strip():
+            doc.add_paragraph(para.strip())
+            
+    file_stream = io.BytesIO()
+    doc.save(file_stream)
+    return file_stream.getvalue()
+
 def render_pdf_js(pdf_bytes, height=650):
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
     pdf_js_html = f"""
@@ -1097,7 +1132,13 @@ with tab4:
 
                 if st.session_state.cl_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.cl_dl_data['name']}`")
-                    st.download_button("📥 Download Cover Letter", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
+                    dl_col_pdf_cl, dl_col_word_cl = st.columns([7, 3])
+                    with dl_col_pdf_cl:
+                        st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
+                    with dl_col_word_cl:
+                        cl_word_bytes = generate_cover_letter_word_bytes(data_to_use)
+                        cl_word_name = st.session_state.cl_dl_data['name'].replace('.pdf', '.docx')
+                        st.download_button("📝 Word (.docx)", cl_word_bytes, cl_word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
     else:
         st.header("📝 Editor & Export")
         st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Optimizer' first.")
