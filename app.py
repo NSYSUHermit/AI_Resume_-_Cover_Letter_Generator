@@ -8,6 +8,7 @@ import tempfile
 import shutil
 import base64
 import io
+import difflib
 from docx import Document
 from docx.shared import Pt, Inches
 import streamlit.components.v1 as components
@@ -605,6 +606,34 @@ def get_glass_overlay_html(message="AI is processing your request...", animal_em
     if(animal) setTimeout(triggerRandomAnim, 500);
 ">"""
 
+@st.dialog("🔍 AI Optimization Diff (Base vs Optimized)", width="large")
+def show_diff_dialog(base_json, opt_json):
+    base_lines = json.dumps(base_json, indent=4, ensure_ascii=False).splitlines()
+    opt_lines = json.dumps(opt_json, indent=4, ensure_ascii=False).splitlines()
+    
+    html_diff = difflib.HtmlDiff().make_file(
+        base_lines, opt_lines, 
+        fromdesc="Base Profile (Original)", todesc="Optimized Profile (AI Generated)",
+        context=True, numlines=5
+    )
+    
+    # Inject custom CSS for Dark Mode and better formatting
+    custom_css = """
+    <style>
+        body { font-family: 'Courier New', Courier, monospace; font-size: 13px; background-color: #0e1117; color: #fafafa; margin: 0; padding: 10px;}
+        table.diff { width: 100%; border-collapse: collapse; }
+        table.diff th { background-color: #262730; border: 1px solid #444; padding: 4px; text-align: left; }
+        table.diff td { padding: 4px; border: 1px solid #333; word-wrap: break-word; max-width: 300px; }
+        .diff_header { background-color: #262730; color: #888; text-align: center; width: 1%; }
+        .diff_add { background-color: rgba(46, 160, 67, 0.4); }
+        .diff_chg { background-color: rgba(227, 179, 65, 0.4); }
+        .diff_sub { background-color: rgba(255, 75, 75, 0.4); }
+        .diff_next { display: none; }
+    </style>
+    """
+    html_diff = html_diff.replace("</head>", custom_css + "</head>")
+    components.html(html_diff, height=650, scrolling=True)
+
 # ---------------------------------------------------------
 # Streamlit UI 介面
 # ---------------------------------------------------------
@@ -1019,7 +1048,13 @@ with tab4:
         data_to_use = st.session_state.optimized_resume_data
 
         with col_edit:
-            st.subheader("JSON Editor")
+            col_ed_title, col_ed_btn = st.columns([6, 4])
+            with col_ed_title:
+                st.subheader("JSON Editor")
+            with col_ed_btn:
+                if st.button("🔍 Compare Changes", use_container_width=True, help="See what the AI modified compared to your Base Profile"):
+                    show_diff_dialog(st.session_state.resume_data, data_to_use)
+                    
             st.info("Make final tweaks to the AI-generated JSON here. Click 'Save & Refresh' to update the previews on the right.")
             editor_value = json.dumps(data_to_use, indent=4, ensure_ascii=False)
             edited_opt_json = st_ace.st_ace(
