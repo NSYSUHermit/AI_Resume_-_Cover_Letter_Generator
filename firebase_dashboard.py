@@ -104,6 +104,7 @@ def save_application(db, email: str, company_name: str, resume_json: dict, jd_te
         }
         
         doc_ref.set(data)
+        st.session_state.force_refresh_apps = True
         return True
     except Exception as e:
         st.error(f"❌ Error saving application record: {e}")
@@ -116,6 +117,7 @@ def delete_application(db, email: str, doc_id: str):
     """Delete an application tracking record from Firestore."""
     try:
         db.collection('users').document(email).collection('applications').document(doc_id).delete()
+        st.session_state.force_refresh_apps = True
         return True
     except Exception as e:
         st.error(f"❌ Error deleting application: {e}")
@@ -135,10 +137,32 @@ def update_application_status(db, email: str, doc_id: str, new_status: str, note
             update_data["rejected_date"] = firestore.SERVER_TIMESTAMP
             
         doc_ref.update(update_data)
+        st.session_state.force_refresh_apps = True
         return True
     except Exception as e:
         st.error(f"❌ Error updating application: {e}")
         return False
+
+def fetch_applications(db, email):
+    """Fetch applications once and cache them in session_state to prevent 429 Quota Exceeded."""
+    if "app_records" not in st.session_state or st.session_state.get("force_refresh_apps", True):
+        try:
+            apps_ref = db.collection('users').document(email).collection('applications')
+            query = apps_ref.order_by('applied_date', direction=firestore.Query.DESCENDING)
+            docs = query.stream()
+            
+            records = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                records.append(data)
+            
+            st.session_state.app_records = records
+            st.session_state.force_refresh_apps = False
+        except Exception as e:
+            st.error(f"❌ Error fetching applications: {e}")
+            return []
+    return st.session_state.app_records
 
 def render_interview_progress(db, email: str):
     """
@@ -147,12 +171,10 @@ def render_interview_progress(db, email: str):
     st.subheader("📊 Conversion Metrics")
     
     try:
-        apps_ref = db.collection('users').document(email).collection('applications')
-        docs = apps_ref.stream()
+        app_records = fetch_applications(db, email)
         
         records = []
-        for doc in docs:
-            app = doc.to_dict()
+        for app in app_records:
             applied_date = app.get("applied_date")
             if applied_date:
                 dt_date = applied_date.date() if hasattr(applied_date, 'date') else None
@@ -221,15 +243,12 @@ def render_dashboard(db, email: str):
         return local_dt.strftime("%Y-%m-%d %H:%M")
 
     try:
-        apps_ref = db.collection('users').document(email).collection('applications')
-        query = apps_ref.order_by('applied_date', direction=firestore.Query.DESCENDING)
-        docs = query.stream()
+        app_records = fetch_applications(db, email)
         
         has_records = False
-        for doc in docs:
+        for app_data in app_records:
             has_records = True
-            app_data = doc.to_dict()
-            doc_id = doc.id
+            doc_id = app_data['id']
             
             company = app_data.get("company_name", "Unknown")
             status = app_data.get("status", "Applied")
