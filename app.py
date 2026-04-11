@@ -1111,11 +1111,6 @@ with tab4:
             with col_tmpl:
                 preview_template = st.selectbox("Template:", ["💻 Tech", "📈 Consulting"], key="preview_template")
                 selected_preview_template = "main.tex" if preview_template.startswith("💻") else "elsa_main.tex"
-                
-                if st.session_state.logged_in:
-                    sync_to_firebase = st.checkbox("🔄 Sync to Job Tracker", value=True)
-                else:
-                    sync_to_firebase = False
 
             with col_order:
                 default_order = ["Experience", "Education", "Projects & Patents", "Skills"]
@@ -1145,11 +1140,6 @@ with tab4:
                             "word_bytes": generate_word_from_json(data_to_use, block_order)
                         }
                         
-                        if sync_to_firebase and st.session_state.logged_in and db:
-                            company = data_to_use.get('target_company', 'Unknown')
-                            jd_text = st.session_state.get('jd_input_for_cl', '')
-                            if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
-                                st.toast(f"✅ Synced application for {company}!")
                     else:
                         st.error(f"Resume generation failed: {r_err}")
                         st.session_state.resume_preview_bytes = None
@@ -1180,12 +1170,24 @@ with tab4:
             if preview_choice == "Resume":
                 if st.session_state.resume_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.resume_dl_data['name']}`")
-                    dl_col_pdf, dl_col_word = st.columns([7, 3])
+                    dl_col_pdf, dl_col_word, dl_col_sync = st.columns([5, 2, 3])
                     with dl_col_pdf:
                         st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
                     with dl_col_word:
                         word_name = st.session_state.resume_dl_data['name'].replace('.pdf', '.docx')
                         st.download_button("📝 Word (.docx)", st.session_state.resume_dl_data["word_bytes"], word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
+                    with dl_col_sync:
+                        if st.session_state.logged_in:
+                            if st.button("🔄 Sync to Tracker", use_container_width=True):
+                                if db:
+                                    company = data_to_use.get('target_company', 'Unknown')
+                                    jd_text = st.session_state.get('jd_input_for_cl', '')
+                                    if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
+                                        st.toast(f"✅ Synced application for {company}!")
+                                else:
+                                    st.error("DB connection failed.")
+                        else:
+                            st.button("🔄 Sync to Tracker", use_container_width=True, disabled=True, help="Log in to sync applications.")
                     render_pdf_js(st.session_state.resume_preview_bytes, height=500)
                 else:
                     st.info("Click '🔄 Generate & Update' to see your resume here.")
