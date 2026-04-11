@@ -298,12 +298,12 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=
                         blocks_latex += "\\directlua{printSummary()}\n"
                     elif block == "Experience":
                         if "elsa" in template_name:
-                            blocks_latex += "\\section{PROFESSIONAL EXPERIENCE}\n  \\vspace{4pt}\n  \\directlua{printExperience()}\n  \\vspace{10pt}\n"
+                            blocks_latex += "\\section{PROFESSIONAL EXPERIENCE}\n  \\vspace{4pt}\n  \\directlua{printExperience()}\n"
                         else:
                             blocks_latex += "\\section{WORK EXPERIENCE}\n  \\directlua{printExperience()}\n"
                     elif block == "Education":
                         if "elsa" in template_name:
-                            blocks_latex += "\\section{EDUCATION}\n  \\directlua{printEducation()}\n  \\vspace{-12pt}\n"
+                            blocks_latex += "\\section{EDUCATION}\n  \\directlua{printEducation()}\n"
                         else:
                             blocks_latex += "\\section{EDUCATION}\n  \\directlua{printEducation()}\n"
                     elif block == "Projects & Patents":
