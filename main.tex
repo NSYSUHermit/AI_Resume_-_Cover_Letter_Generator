@@ -103,6 +103,16 @@ function printHeading()
   tex.print("\\vspace{-5pt}") 
 end
 
+function printSummary()
+  local r = getResume()
+  if r.summary and r.summary ~= "" then
+    tex.print("\\section{SUMMARY}")
+    tex.print("\\vspace{4pt}")
+    tex.print(escapeTex(r.summary))
+    tex.print("\\vspace{8pt}")
+  end
+end
+
 function printEducation()
   local r = getResume()
   for _, e in ipairs(r.education or {}) do
@@ -184,15 +194,6 @@ end
 
 \directlua{printHeading()}
 
-\section{WORK EXPERIENCE}
-  \directlua{printExperience()}
-
-\section{EDUCATION}
-  \directlua{printEducation()}
-  
-\directlua{printProjectsAndPatents()}
-  
-\section{SKILLS}
-  \directlua{printSkills()}
+BLOCKS_PLACEHOLDER
 
 \end{document}

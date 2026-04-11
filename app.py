@@ -272,7 +272,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 # ---------------------------------------------------------
 # PDF 生成與預覽邏輯 (全部使用獨立的暫存目錄避免名稱衝突)
 # ---------------------------------------------------------
-def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=None):
+def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=None, block_order=None):
     try:
         data_str = json.dumps(data, ensure_ascii=False)
         data_str = data_str.replace('**', '')
@@ -286,6 +286,39 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=
             else:
                 shutil.copy(template_name, temp_dir)
             
+            # --- Dynamic Block Injection ---
+            tex_path = os.path.join(temp_dir, template_name)
+            with open(tex_path, "r", encoding="utf-8") as f:
+                template_content = f.read()
+
+            if block_order and "BLOCKS_PLACEHOLDER" in template_content:
+                blocks_latex = ""
+                for block in block_order:
+                    if block == "Summary":
+                        blocks_latex += "\\directlua{printSummary()}\n"
+                    elif block == "Experience":
+                        if "elsa" in template_name:
+                            blocks_latex += "\\section{PROFESSIONAL EXPERIENCE}\n  \\vspace{4pt}\n  \\directlua{printExperience()}\n  \\vspace{10pt}\n"
+                        else:
+                            blocks_latex += "\\section{WORK EXPERIENCE}\n  \\directlua{printExperience()}\n"
+                    elif block == "Education":
+                        if "elsa" in template_name:
+                            blocks_latex += "\\section{EDUCATION}\n  \\directlua{printEducation()}\n  \\vspace{-12pt}\n"
+                        else:
+                            blocks_latex += "\\section{EDUCATION}\n  \\directlua{printEducation()}\n"
+                    elif block == "Projects & Patents":
+                        blocks_latex += "\\directlua{printProjectsAndPatents()}\n"
+                    elif block == "Skills":
+                        if "elsa" in template_name:
+                            blocks_latex += "\\section{CORE SKILLS}\n  \\directlua{printSkills()}\n"
+                        else:
+                            blocks_latex += "\\section{SKILLS}\n  \\directlua{printSkills()}\n"
+                
+                template_content = template_content.replace("BLOCKS_PLACEHOLDER", blocks_latex)
+                with open(tex_path, "w", encoding="utf-8") as f:
+                    f.write(template_content)
+            # -------------------------------
+
             temp_json_path = os.path.join(temp_dir, "ml_resume.json")
             with open(temp_json_path, "w", encoding="utf-8") as f:
                 json.dump(clean_data, f, ensure_ascii=False, indent=4)
@@ -305,7 +338,7 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=
     except Exception as e:
         return None, str(e)
 
-def generate_word_from_json(resume_data):
+def generate_word_from_json(resume_data, block_order=None):
     """Generate a simple, editable Word document from the JSON data."""
     doc = Document()
     
@@ -329,51 +362,56 @@ def generate_word_from_json(resume_data):
     p_contact = doc.add_paragraph(contact_str)
     p_contact.alignment = 1
     
-    if resume_data.get("summary"):
-        doc.add_heading("SUMMARY", level=1)
-        doc.add_paragraph(resume_data.get("summary", ""))
+    if not block_order:
+        block_order = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
         
-    if resume_data.get("experience"):
-        doc.add_heading("WORK EXPERIENCE", level=1)
-        for exp in resume_data.get("experience", []):
-            p = doc.add_paragraph()
-            p.add_run(exp.get("company", "")).bold = True
-            p.add_run(f" - {exp.get('role', '')}").italic = True
-            loc_time = " | ".join([x for x in [exp.get("company_location", ""), exp.get("time_duration", "")] if x])
-            if loc_time:
-                p.add_run(f" ({loc_time})")
-            for d in exp.get("details", []):
-                doc.add_paragraph(d.get("description", ""), style="List Bullet")
-                
-    if resume_data.get("education"):
-        doc.add_heading("EDUCATION", level=1)
-        for edu in resume_data.get("education", []):
-            p = doc.add_paragraph()
-            p.add_run(edu.get("school", "")).bold = True
-            p.add_run(f" - {edu.get('degree', '')}")
-            loc_time = " | ".join([x for x in [edu.get("school_location", ""), edu.get("time_period", "")] if x])
-            if loc_time:
-                p.add_run(f" ({loc_time})")
-                
-    projects_patents = resume_data.get("projects", []) + resume_data.get("patents", [])
-    if projects_patents:
-        doc.add_heading("PROJECTS & PATENTS", level=1)
-        for item in projects_patents:
-            p = doc.add_paragraph()
-            p.add_run(item.get("name", "")).bold = True
-            if item.get("time"):
-                p.add_run(f" ({item.get('time', '')})")
-            if item.get("description"):
-                doc.add_paragraph(item.get("description", ""), style="List Bullet")
-                
-    if resume_data.get("skills"):
-        doc.add_heading("SKILLS", level=1)
-        for key in ["set1", "set2", "set3"]:
-            s = resume_data["skills"].get(key, {})
-            if s.get("title") and s.get("items"):
+    for block in block_order:
+        if block == "Summary" and resume_data.get("summary"):
+            doc.add_heading("SUMMARY", level=1)
+            doc.add_paragraph(resume_data.get("summary", ""))
+            
+        elif block == "Experience" and resume_data.get("experience"):
+            doc.add_heading("WORK EXPERIENCE", level=1)
+            for exp in resume_data.get("experience", []):
                 p = doc.add_paragraph()
-                p.add_run(s.get("title", "") + ": ").bold = True
-                p.add_run(", ".join(s.get("items", [])))
+                p.add_run(exp.get("company", "")).bold = True
+                p.add_run(f" - {exp.get('role', '')}").italic = True
+                loc_time = " | ".join([x for x in [exp.get("company_location", ""), exp.get("time_duration", "")] if x])
+                if loc_time:
+                    p.add_run(f" ({loc_time})")
+                for d in exp.get("details", []):
+                    doc.add_paragraph(d.get("description", ""), style="List Bullet")
+                    
+        elif block == "Education" and resume_data.get("education"):
+            doc.add_heading("EDUCATION", level=1)
+            for edu in resume_data.get("education", []):
+                p = doc.add_paragraph()
+                p.add_run(edu.get("school", "")).bold = True
+                p.add_run(f" - {edu.get('degree', '')}")
+                loc_time = " | ".join([x for x in [edu.get("school_location", ""), edu.get("time_period", "")] if x])
+                if loc_time:
+                    p.add_run(f" ({loc_time})")
+                    
+        elif block == "Projects & Patents":
+            projects_patents = resume_data.get("projects", []) + resume_data.get("patents", [])
+            if projects_patents:
+                doc.add_heading("PROJECTS & PATENTS", level=1)
+                for item in projects_patents:
+                    p = doc.add_paragraph()
+                    p.add_run(item.get("name", "")).bold = True
+                    if item.get("time"):
+                        p.add_run(f" ({item.get('time', '')})")
+                    if item.get("description"):
+                        doc.add_paragraph(item.get("description", ""), style="List Bullet")
+                        
+        elif block == "Skills" and resume_data.get("skills"):
+            doc.add_heading("SKILLS", level=1)
+            for key in ["set1", "set2", "set3"]:
+                s = resume_data["skills"].get(key, {})
+                if s.get("title") and s.get("items"):
+                    p = doc.add_paragraph()
+                    p.add_run(s.get("title", "") + ": ").bold = True
+                    p.add_run(", ".join(s.get("items", [])))
                 
     file_stream = io.BytesIO()
     doc.save(file_stream)
@@ -1067,113 +1105,102 @@ with tab4:
             )
 
         with col_export:
-            st.subheader("📄 Live Preview")
-
-            col_target, col_tmpl = st.columns(2)
-            with col_target:
-                preview_choice = st.radio("Target:", ["Resume", "Cover Letter"], horizontal=True, key="preview_choice")
+            st.subheader("⚙️ Resume Settings")
+            
+            col_tmpl, col_order = st.columns(2)
             with col_tmpl:
-                preview_template = st.radio("Template:", ["💻 Tech", "📈 Consulting"], horizontal=True, key="preview_template")
+                preview_template = st.selectbox("Template:", ["💻 Tech", "📈 Consulting"], key="preview_template")
                 selected_preview_template = "main.tex" if preview_template.startswith("💻") else "elsa_main.tex"
-
-            if st.button("💾 Save JSON & Refresh Previews", type="primary", use_container_width=True):
-                try:
-                    st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-                    st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    st.toast("✅ JSON saved!")
-
-                    loading_overlay = st.empty()
-                    loading_overlay.markdown(get_glass_overlay_html("Generating Previews...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-
-                    resume_bytes, r_err = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, selected_preview_template)
-                    if resume_bytes: st.session_state.resume_preview_bytes = resume_bytes
-                    
-                    cl_bytes, cl_name, cl_err = generate_cover_letter_pdf_bytes(st.session_state.optimized_resume_data)
-                    if cl_bytes:
-                        st.session_state.cover_letter_preview_bytes = cl_bytes
-                        st.session_state.cover_letter_filename = cl_name
-
-                    loading_overlay.empty()
-                    st.toast("✅ Previews refreshed!")
-                except Exception as e:
-                    st.error(f"JSON format error, please check syntax: {e}")
-
-            if preview_choice == "Resume":
-                if st.session_state.resume_preview_bytes: render_pdf_js(st.session_state.resume_preview_bytes, height=400)
-                else: st.info("Click 'Save & Refresh Previews' to generate resume preview.")
-            else:
-                if st.session_state.cover_letter_preview_bytes: render_pdf_js(st.session_state.cover_letter_preview_bytes, height=400)
-                else: st.info("Click 'Save & Refresh Previews' to generate cover letter preview.")
-
-            st.divider()
-            st.subheader("🖨️ Download Documents")
-
-            with st.container(border=True):
-                st.write("**Resume**")
-                template_choice = st.radio("Template", ["💻 Tech", "📈 Consulting"], horizontal=True, key="dl_template")
-                selected_template = "main.tex" if template_choice.startswith("💻") else "elsa_main.tex"
                 
                 if st.session_state.logged_in:
-                    sync_to_firebase = st.checkbox("🔄 Sync application to Job Tracker", value=True)
+                    sync_to_firebase = st.checkbox("🔄 Sync to Job Tracker", value=True)
                 else:
                     sync_to_firebase = False
 
-                if st.button("Generate Resume PDF", use_container_width=True, key="gen_resume_dl"):
-                    loading_overlay = st.empty()
-                    loading_overlay.markdown(get_glass_overlay_html("Compiling Resume...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-                    pdf_bytes, err = generate_preview_pdf_bytes(data_to_use, selected_template)
-                    loading_overlay.empty()
+            with col_order:
+                default_order = ["Experience", "Education", "Projects & Patents", "Skills"]
+                if data_to_use.get("summary"):
+                    default_order.insert(0, "Summary")
+                block_order = st.multiselect("Block Order:", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=default_order)
 
-                    if pdf_bytes:
-                        st.toast("✅ Resume ready for download!")
+            if st.button("🔄 Generate & Update", type="primary", use_container_width=True):
+                try:
+                    st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+                    st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    data_to_use = st.session_state.optimized_resume_data
+                    
+                    st.toast("✅ JSON saved!")
+
+                    loading_overlay = st.empty()
+                    loading_overlay.markdown(get_glass_overlay_html("Compiling Documents...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+
+                    resume_bytes, r_err = generate_preview_pdf_bytes(data_to_use, selected_preview_template, block_order=block_order)
+                    if resume_bytes:
+                        st.session_state.resume_preview_bytes = resume_bytes
+                        company_name = data_to_use.get('target_company', 'Resume').replace(' ', '_')
+                        role_name = data_to_use.get('target_role', 'Role').replace(' ', '_')
+                        st.session_state.resume_dl_data = {
+                            "bytes": resume_bytes, 
+                            "name": f"{company_name}_{role_name}_Resume.pdf",
+                            "word_bytes": generate_word_from_json(data_to_use, block_order)
+                        }
+                        
                         if sync_to_firebase and st.session_state.logged_in and db:
                             company = data_to_use.get('target_company', 'Unknown')
                             jd_text = st.session_state.get('jd_input_for_cl', '')
                             if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
                                 st.toast(f"✅ Synced application for {company}!")
-                        
-                        company_name = data_to_use.get('target_company', 'Resume').replace(' ', '_')
-                        role_name = data_to_use.get('target_role', 'Role').replace(' ', '_')
-                        st.session_state.resume_dl_data = {"bytes": pdf_bytes, "name": f"{company_name}_{role_name}_Resume.pdf"}
                     else:
-                        st.error("Resume generation failed."); st.session_state.resume_dl_data = None
+                        st.error(f"Resume generation failed: {r_err}")
+                        st.session_state.resume_preview_bytes = None
+                        st.session_state.resume_dl_data = None
+                    
+                    cl_bytes, cl_name, cl_err = generate_cover_letter_pdf_bytes(data_to_use)
+                    if cl_bytes:
+                        st.session_state.cover_letter_preview_bytes = cl_bytes
+                        st.session_state.cl_dl_data = {
+                            "bytes": cl_bytes,
+                            "name": cl_name,
+                            "word_bytes": generate_cover_letter_word_bytes(data_to_use)
+                        }
+                    else:
+                        st.session_state.cover_letter_preview_bytes = None
+                        st.session_state.cl_dl_data = None
 
+                    loading_overlay.empty()
+                    if resume_bytes:
+                        st.toast("✅ Documents successfully generated!")
+                except Exception as e:
+                    st.error(f"JSON format error, please check syntax: {e}")
+
+            st.divider()
+            st.subheader(" Document Preview & Download")
+            preview_choice = st.radio("Target:", ["Resume", "Cover Letter"], horizontal=True, key="preview_choice", label_visibility="collapsed")
+
+            if preview_choice == "Resume":
                 if st.session_state.resume_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.resume_dl_data['name']}`")
                     dl_col_pdf, dl_col_word = st.columns([7, 3])
                     with dl_col_pdf:
                         st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
                     with dl_col_word:
-                        word_bytes = generate_word_from_json(data_to_use)
                         word_name = st.session_state.resume_dl_data['name'].replace('.pdf', '.docx')
-                        st.download_button("📝 Word (.docx)", word_bytes, word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
-
-            with st.container(border=True):
-                st.write("**Cover Letter**")
-                if st.button("Generate Cover Letter PDF", use_container_width=True, key="gen_cl_dl"):
-                    if 'cover_letter' not in data_to_use or not data_to_use['cover_letter']:
-                        st.warning("No 'cover_letter' content found in JSON."); st.session_state.cl_dl_data = None
-                    else:
-                        loading_overlay = st.empty()
-                        loading_overlay.markdown(get_glass_overlay_html("Compiling Cover Letter...", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-                        pdf_bytes, pdf_name, err = generate_cover_letter_pdf_bytes(data_to_use)
-                        loading_overlay.empty()
-
-                        if pdf_bytes:
-                            st.toast("✅ Cover Letter ready for download!")
-                            st.session_state.cl_dl_data = {"bytes": pdf_bytes, "name": pdf_name}
-                        else:
-                            st.error(f"Cover Letter generation failed: {err}"); st.session_state.cl_dl_data = None
-
+                        st.download_button("📝 Word (.docx)", st.session_state.resume_dl_data["word_bytes"], word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
+                    render_pdf_js(st.session_state.resume_preview_bytes, height=500)
+                else:
+                    st.info("Click '🔄 Generate & Update' to see your resume here.")
+            else:
                 if st.session_state.cl_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.cl_dl_data['name']}`")
                     dl_col_pdf_cl, dl_col_word_cl = st.columns([7, 3])
                     with dl_col_pdf_cl:
                         st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
                     with dl_col_word_cl:
-                        cl_word_bytes = generate_cover_letter_word_bytes(data_to_use)
                         cl_word_name = st.session_state.cl_dl_data['name'].replace('.pdf', '.docx')
-                        st.download_button("📝 Word (.docx)", cl_word_bytes, cl_word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
+                        st.download_button("📝 Word (.docx)", st.session_state.cl_dl_data["word_bytes"], cl_word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
+                    render_pdf_js(st.session_state.cover_letter_preview_bytes, height=500)
+                else:
+                    st.info("Click '🔄 Generate & Update' to see your cover letter here.")
     else:
         st.header("📝 Editor & Export")
         st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Optimizer' first.")
