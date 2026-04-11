@@ -1170,36 +1170,52 @@ with tab4:
             if preview_choice == "Resume":
                 if st.session_state.resume_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.resume_dl_data['name']}`")
-                    dl_col_pdf, dl_col_word, dl_col_sync = st.columns([5, 2, 3])
+                    
+                    if st.session_state.logged_in:
+                        do_sync = st.checkbox("🔄 Sync this application to Job Tracker upon download", value=True, key="sync_resume")
+                    else:
+                        do_sync = False
+                        
+                    def on_resume_dl():
+                        if do_sync and st.session_state.logged_in and db:
+                            company = data_to_use.get('target_company', 'Unknown')
+                            jd_text = st.session_state.get('jd_input_for_cl', '')
+                            if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
+                                st.toast(f"✅ Synced application for {company} to Job Tracker!")
+                                
+                    dl_col_pdf, dl_col_word = st.columns([7, 3])
                     with dl_col_pdf:
-                        st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True)
+                        st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True, on_click=on_resume_dl)
                     with dl_col_word:
                         word_name = st.session_state.resume_dl_data['name'].replace('.pdf', '.docx')
-                        st.download_button("📝 Word (.docx)", st.session_state.resume_dl_data["word_bytes"], word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
-                    with dl_col_sync:
-                        if st.session_state.logged_in:
-                            if st.button("🔄 Sync to Tracker", use_container_width=True):
-                                if db:
-                                    company = data_to_use.get('target_company', 'Unknown')
-                                    jd_text = st.session_state.get('jd_input_for_cl', '')
-                                    if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
-                                        st.toast(f"✅ Synced application for {company}!")
-                                else:
-                                    st.error("DB connection failed.")
-                        else:
-                            st.button("🔄 Sync to Tracker", use_container_width=True, disabled=True, help="Log in to sync applications.")
+                        st.download_button("📝 Word (.docx)", st.session_state.resume_dl_data["word_bytes"], word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.", on_click=on_resume_dl)
+                    
                     render_pdf_js(st.session_state.resume_preview_bytes, height=500)
                 else:
                     st.info("Click '🔄 Generate & Update' to see your resume here.")
             else:
                 if st.session_state.cl_dl_data:
                     st.caption(f"📄 **File:** `{st.session_state.cl_dl_data['name']}`")
+                    
+                    if st.session_state.logged_in:
+                        do_sync_cl = st.checkbox("🔄 Sync this application to Job Tracker upon download", value=False, key="sync_cl", help="Unchecked by default to prevent duplicate entries if you already synced the Resume.")
+                    else:
+                        do_sync_cl = False
+                        
+                    def on_cl_dl():
+                        if do_sync_cl and st.session_state.logged_in and db:
+                            company = data_to_use.get('target_company', 'Unknown')
+                            jd_text = st.session_state.get('jd_input_for_cl', '')
+                            if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
+                                st.toast(f"✅ Synced application for {company} to Job Tracker!")
+
                     dl_col_pdf_cl, dl_col_word_cl = st.columns([7, 3])
                     with dl_col_pdf_cl:
-                        st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True)
+                        st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True, on_click=on_cl_dl)
                     with dl_col_word_cl:
                         cl_word_name = st.session_state.cl_dl_data['name'].replace('.pdf', '.docx')
-                        st.download_button("📝 Word (.docx)", st.session_state.cl_dl_data["word_bytes"], cl_word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.")
+                        st.download_button("📝 Word (.docx)", st.session_state.cl_dl_data["word_bytes"], cl_word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.", on_click=on_cl_dl)
+                    
                     render_pdf_js(st.session_state.cover_letter_preview_bytes, height=500)
                 else:
                     st.info("Click '🔄 Generate & Update' to see your cover letter here.")
