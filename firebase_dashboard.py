@@ -203,7 +203,8 @@ def render_interview_progress(db, email: str):
                 "Select Date Range:", 
                 value=(default_start, max_date), 
                 min_value=min_date, 
-                max_value=max_date
+                max_value=max_date,
+                key="dashboard_date_range"
             )
         
         if len(date_range) == 2:
@@ -248,12 +249,23 @@ def render_dashboard(db, email: str):
     try:
         app_records = fetch_applications(db, email)
         
+        date_range = st.session_state.get("dashboard_date_range")
+        start_date, end_date = None, None
+        if date_range and len(date_range) == 2:
+            start_date, end_date = date_range
+            
         has_records = False
         for app_data in app_records:
+            applied_date = app_data.get("applied_date")
+            
+            if start_date and end_date and applied_date:
+                dt_date = applied_date.date() if hasattr(applied_date, 'date') else None
+                if dt_date and not (start_date <= dt_date <= end_date):
+                    continue  # Skip records outside the selected date range
+                    
             has_records = True
             doc_id = app_data['id']
             
-            company = app_data.get("company_name", "Unknown")
             status = app_data.get("status", "Applied")
             
             applied_date = app_data.get("applied_date")
