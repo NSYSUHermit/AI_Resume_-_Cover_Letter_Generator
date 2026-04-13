@@ -261,11 +261,12 @@ def render_dashboard(db, email: str):
             if start_date and end_date and applied_date:
                 dt_date = applied_date.date() if hasattr(applied_date, 'date') else None
                 if dt_date and not (start_date <= dt_date <= end_date):
-                    continue  # Skip records outside the selected date range
+                    continue
                     
             has_records = True
             doc_id = app_data['id']
             
+            company = app_data.get("company_name", "Unknown")
             status = app_data.get("status", "Applied")
             
             applied_date = app_data.get("applied_date")
