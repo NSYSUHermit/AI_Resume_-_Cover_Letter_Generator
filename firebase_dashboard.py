@@ -193,12 +193,15 @@ def render_interview_progress(db, email: str):
         min_date = min(all_dates)
         max_date = max(all_dates)
         
+        # 預設只顯示最近 1 天的區間 (避免跨越 min_date)
+        default_start = max(min_date, max_date - timedelta(days=1))
+        
         st.write("##### 📅 Timeframe Filter")
         col1, col2 = st.columns([1, 2])
         with col1:
             date_range = st.date_input(
                 "Select Date Range:", 
-                value=(min_date, max_date), 
+                value=(default_start, max_date), 
                 min_value=min_date, 
                 max_value=max_date
             )

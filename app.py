@@ -219,8 +219,13 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         
         # Single API call
-        response = model.generate_content(final_prompt)
-        raw_text = response.text.replace('```json', '').replace('```', '').strip()
+        response = model.generate_content(
+            final_prompt,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+            )
+        )
+        raw_text = response.text.strip()
         
         try:
             ai_result = json.loads(raw_text)
