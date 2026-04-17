@@ -168,8 +168,6 @@ def render_interview_progress(db, email: str):
     """
     Render Interview Progress and Conversion Rate with timeframe filtering.
     """
-    st.subheader("📊 Conversion Metrics")
-    
     try:
         app_records = fetch_applications(db, email)
         
@@ -186,7 +184,7 @@ def render_interview_progress(db, email: str):
                     })
         
         if not records:
-            st.info("No application records yet. Start applying to build your data! 🚀")
+            st.info(" No application records yet. Start applying to build your data! 🚀")
             return
             
         all_dates = [r["Date"] for r in records]
@@ -194,56 +192,64 @@ def render_interview_progress(db, email: str):
         max_date = max(all_dates)
         today = datetime.now().date()
         
-        st.write("##### 📅 Timeframe Filter")
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            time_filter = st.selectbox(
-                "Quick Filter:",
-                ["Within 1 Day", "Within 3 Days", "Within 1 Week", "Within 1 Month", "All Time", "Custom Date Range"],
-                index=4
-            )
+        with st.container(border=True):
+            st.markdown("#### 🎯 Performance Dashboard")
+            col_filter, col_metrics = st.columns([1, 3])
             
-            if time_filter == "Within 1 Day":
-                start_date, end_date = today - timedelta(days=1), today
-            elif time_filter == "Within 3 Days":
-                start_date, end_date = today - timedelta(days=3), today
-            elif time_filter == "Within 1 Week":
-                start_date, end_date = today - timedelta(days=7), today
-            elif time_filter == "Within 1 Month":
-                start_date, end_date = today - timedelta(days=30), today
-            elif time_filter == "All Time":
-                start_date, end_date = min_date, max(max_date, today)
-            else:
-                default_start = max(min_date, max_date - timedelta(days=1))
-                date_range = st.date_input(
-                    "Select Date Range:", 
-                    value=(default_start, max_date), 
-                    min_value=min_date, 
-                    max_value=max(max_date, today),
-                    key="dashboard_date_range"
+            with col_filter:
+                st.caption("📅 Timeframe Filter")
+                time_filter = st.selectbox(
+                    "Quick Filter:",
+                    ["Within 1 Day", "Within 3 Days", "Within 1 Week", "Within 1 Month", "All Time", "Custom Date Range"],
+                    index=0,  # 預設為 1 Day
+                    label_visibility="collapsed"
                 )
-                if len(date_range) == 2:
-                    start_date, end_date = date_range
+                
+                if time_filter == "Within 1 Day":
+                    start_date, end_date = today - timedelta(days=1), today
+                elif time_filter == "Within 3 Days":
+                    start_date, end_date = today - timedelta(days=3), today
+                elif time_filter == "Within 1 Week":
+                    start_date, end_date = today - timedelta(days=7), today
+                elif time_filter == "Within 1 Month":
+                    start_date, end_date = today - timedelta(days=30), today
+                elif time_filter == "All Time":
+                    start_date, end_date = min_date, max(max_date, today)
                 else:
-                    start_date, end_date = min_date, max_date
+                    default_start = max(min_date, max_date - timedelta(days=1))
+                    date_range = st.date_input(
+                        "Select Date Range:", 
+                        value=(default_start, max_date), 
+                        min_value=min_date, 
+                        max_value=max(max_date, today),
+                        key="dashboard_date_range",
+                        label_visibility="collapsed"
+                    )
+                    if len(date_range) == 2:
+                        start_date, end_date = date_range
+                    else:
+                        start_date, end_date = min_date, max_date
+                
+                st.session_state.dashboard_active_date_range = (start_date, end_date)
             
-            st.session_state.dashboard_active_date_range = (start_date, end_date)
-        
-        filtered_records = [r for r in records if start_date <= r["Date"] <= end_date]
-        
-        total_applied = len(filtered_records)
-        interviews = sum(1 for r in filtered_records if r["Status"] == "Interviewing")
-        rejections = sum(1 for r in filtered_records if r["Status"] == "Rejected")
-        
-        conversion_rate = (interviews / total_applied * 100) if total_applied > 0 else 0.0
-        
-        st.markdown("---")
-        st.markdown("### 📊 Conversion Overview")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Applied", total_applied)
-        c2.metric("Interviews", interviews)
-        c3.metric("Rejections", rejections)
-        c4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+            filtered_records = [r for r in records if start_date <= r["Date"] <= end_date]
+            
+            total_applied = len(filtered_records)
+            interviews = sum(1 for r in filtered_records if r["Status"] == "Interviewing")
+            rejections = sum(1 for r in filtered_records if r["Status"] == "Rejected")
+            
+            conversion_rate = (interviews / total_applied * 100) if total_applied > 0 else 0.0
+            
+            with col_metrics:
+                st.caption("📈 Conversion Metrics")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("📤 Applied", total_applied)
+                c2.metric("💬 Interviews", interviews)
+                c3.metric("💔 Rejections", rejections)
+                c4.metric("🏆 Conv. Rate", f"{conversion_rate:.1f}%")
+                
+        if total_applied > 0:
+            st.progress(min(conversion_rate / 100.0, 1.0), text=f"Interview Conversion Rate: {conversion_rate:.1f}%")
         
     except Exception as e:
         st.error(f"❌ Failed to load analysis data: {e}")
@@ -252,10 +258,9 @@ def render_dashboard(db, email: str):
     """
     Fetch and render job applications on the dashboard.
     """
-    st.subheader("📝 Application Records")
-    
-    # Timezone offset selector
-    col_tz, _ = st.columns([1, 2])
+    col_title, col_tz = st.columns([3, 1])
+    with col_title:
+        st.subheader("🗂️ Application Pipeline")
     with col_tz:
         tz_offset = st.number_input("🌍 Timezone Offset (Hours from UTC)", min_value=-12.0, max_value=14.0, value=8.0, step=0.5, help="e.g., +8 for Asia/Taipei, -7 for PDT")
 
@@ -272,7 +277,7 @@ def render_dashboard(db, email: str):
         if date_range and len(date_range) == 2:
             start_date, end_date = date_range
             
-        has_records = False
+        valid_records = []
         for app_data in app_records:
             applied_date = app_data.get("applied_date")
             
@@ -281,58 +286,83 @@ def render_dashboard(db, email: str):
                 if dt_date and not (start_date <= dt_date <= end_date):
                     continue
                     
-            has_records = True
-            doc_id = app_data['id']
+            valid_records.append(app_data)
             
-            company = app_data.get("company_name", "Unknown")
-            status = app_data.get("status", "Applied")
+        if not valid_records:
+            st.info("📭 No job applications found in this timeframe. Time to apply! 🚀")
+            return
             
-            applied_date = app_data.get("applied_date")
-            date_str = get_local_time_str(applied_date)
-            
-            status_emoji = {"Applied": "📤", "Interviewing": "💬", "Rejected": "💔"}.get(status, "📄")
-            
-            with st.expander(f"{status_emoji} {company} | Status: {status} | Applied: {date_str}"):
-                st.write(f"**Applied Date:** {date_str}")
+        # 分類 Pipeline 狀態
+        applied_records = [r for r in valid_records if r.get("status") == "Applied"]
+        interviewing_records = [r for r in valid_records if r.get("status") == "Interviewing"]
+        rejected_records = [r for r in valid_records if r.get("status") == "Rejected"]
+        
+        # 建立 Pipeline 分頁
+        tab_all, tab_applied, tab_interviewing, tab_rejected = st.tabs([
+            f"📋 All Records ({len(valid_records)})", 
+            f"📤 Applied ({len(applied_records)})", 
+            f"💬 Interviewing ({len(interviewing_records)})", 
+            f"💔 Rejected ({len(rejected_records)})"
+        ])
+        
+        def render_record_list(record_list):
+            if not record_list:
+                st.caption("No applications in this stage.")
+                return
                 
-                if app_data.get("interview_date"):
-                    st.write(f"**Interview Date:** {get_local_time_str(app_data['interview_date'])}")
-                if app_data.get("rejected_date"):
-                    st.write(f"**Rejected Date:** {get_local_time_str(app_data['rejected_date'])}")
+            for app_data in record_list:
+                doc_id = app_data['id']
+                company = app_data.get("company_name", "Unknown")
+                status = app_data.get("status", "Applied")
+                date_str = get_local_time_str(app_data.get("applied_date"))
+                status_emoji = {"Applied": "📤", "Interviewing": "💬", "Rejected": "💔"}.get(status, "📄")
                 
-                with st.popover("📄 View Saved JD & Resume JSON", use_container_width=True):
-                    st.markdown("**📝 Job Description:**")
-                    st.info(app_data.get("jd_text", "No JD saved for this application."))
-                    st.markdown("**📋 Saved Resume JSON:**")
-                    st.json(app_data.get("resume_json", {}))
-                
-                current_notes = app_data.get("notes", "")
-                new_notes = st.text_area("Notes:", value=current_notes, key=f"notes_{doc_id}", height=68)
-                
-                st.divider()
-                
-                col1, col2, col3 = st.columns([2, 1, 1])
-                with col1:
-                    options = ["Applied", "Interviewing", "Rejected"]
-                    current_idx = options.index(status) if status in options else 0
-                    new_status = st.selectbox("Update Status:", options, index=current_idx, key=f"select_{doc_id}")
-                
-                with col2:
-                    st.write("")
-                    if st.button("Update", key=f"btn_{doc_id}", use_container_width=True):
-                        if new_status != status or new_notes != current_notes:
-                            if update_application_status(db, email, doc_id, new_status, new_notes):
-                                st.success("✅ Application updated!")
-                                st.rerun()
-                                
-                with col3:
-                    st.write("")
-                    if st.button("🗑️ Delete", key=f"del_{doc_id}", use_container_width=True):
-                        if delete_application(db, email, doc_id):
-                            st.success("🗑️ Record deleted!")
-                            st.rerun()
-        if not has_records:
-            st.info("No job applications yet. Go apply for your first job! 🚀")
+                with st.expander(f"{status_emoji} **{company}** | {status} | 📅 {date_str}", expanded=False):
+                    # 現代化佈局: 左側為資訊, 右側為快捷操作區塊
+                    c_info, c_actions = st.columns([1, 1])
+                    
+                    with c_info:
+                        st.markdown(f"**📅 Applied:** `{date_str}`")
+                        if app_data.get("interview_date"):
+                            st.markdown(f"**💬 Interview:** `{get_local_time_str(app_data['interview_date'])}`")
+                        if app_data.get("rejected_date"):
+                            st.markdown(f"**💔 Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
+                        
+                        st.write("")
+                        with st.popover("📄 View Documents & JD", use_container_width=True):
+                            st.markdown("**📝 Job Description:**")
+                            st.info(app_data.get("jd_text", "No JD saved for this application."))
+                            st.markdown("**📋 Saved Resume JSON:**")
+                            st.json(app_data.get("resume_json", {}))
+                            
+                    with c_actions:
+                        current_notes = app_data.get("notes", "")
+                        new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
+                        
+                        # 操作按鈕列
+                        col_stat, col_upd, col_del = st.columns([5, 3, 2])
+                        with col_stat:
+                            options = ["Applied", "Interviewing", "Rejected"]
+                            current_idx = options.index(status) if status in options else 0
+                            new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{doc_id}", label_visibility="collapsed")
+                        with col_upd:
+                            if st.button("💾 Save", key=f"btn_{doc_id}", use_container_width=True, type="primary"):
+                                if new_status != status or new_notes != current_notes:
+                                    if update_application_status(db, email, doc_id, new_status, new_notes):
+                                        st.toast("✅ Application updated!")
+                                        st.rerun()
+                                else:
+                                    st.toast("No changes detected.")
+                        with col_del:
+                            if st.button("🗑️", key=f"del_{doc_id}", use_container_width=True, help="Delete this record"):
+                                if delete_application(db, email, doc_id):
+                                    st.toast("🗑️ Record deleted!")
+                                    st.rerun()
+                                    
+        with tab_all: render_record_list(valid_records)
+        with tab_applied: render_record_list(applied_records)
+        with tab_interviewing: render_record_list(interviewing_records)
+        with tab_rejected: render_record_list(rejected_records)
             
     except Exception as e:
         st.error(f"❌ Failed to load dashboard: {e}")
