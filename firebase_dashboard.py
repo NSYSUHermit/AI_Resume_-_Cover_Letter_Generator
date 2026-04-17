@@ -305,7 +305,7 @@ def render_dashboard(db, email: str):
             f"Rejected ({len(rejected_records)})"
         ])
         
-        def render_record_list(record_list):
+        def render_record_list(record_list, tab_name):
             if not record_list:
                 st.caption("No applications in this stage.")
                 return
@@ -336,16 +336,16 @@ def render_dashboard(db, email: str):
                             
                     with c_actions:
                         current_notes = app_data.get("notes", "")
-                        new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
+                        new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{tab_name}_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
                         
                         # 操作按鈕列
                         col_stat, col_upd, col_del = st.columns([5, 3, 2])
                         with col_stat:
                             options = ["Applied", "Interviewing", "Rejected"]
                             current_idx = options.index(status) if status in options else 0
-                            new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{doc_id}", label_visibility="collapsed")
+                            new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
                         with col_upd:
-                            if st.button("Update Record", key=f"btn_{doc_id}", use_container_width=True, type="primary"):
+                            if st.button("Update Record", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary"):
                                 if new_status != status or new_notes != current_notes:
                                     if update_application_status(db, email, doc_id, new_status, new_notes):
                                         st.toast("Application updated successfully.")
@@ -353,15 +353,15 @@ def render_dashboard(db, email: str):
                                 else:
                                     st.toast("No changes detected.")
                         with col_del:
-                            if st.button("Delete", key=f"del_{doc_id}", use_container_width=True):
+                            if st.button("Delete", key=f"del_{tab_name}_{doc_id}", use_container_width=True):
                                 if delete_application(db, email, doc_id):
                                     st.toast("Record deleted.")
                                     st.rerun()
                                     
-        with tab_all: render_record_list(valid_records)
-        with tab_applied: render_record_list(applied_records)
-        with tab_interviewing: render_record_list(interviewing_records)
-        with tab_rejected: render_record_list(rejected_records)
+        with tab_all: render_record_list(valid_records, "all")
+        with tab_applied: render_record_list(applied_records, "applied")
+        with tab_interviewing: render_record_list(interviewing_records, "interviewing")
+        with tab_rejected: render_record_list(rejected_records, "rejected")
             
     except Exception as e:
         st.error(f"❌ Failed to load dashboard: {e}")
