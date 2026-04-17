@@ -184,7 +184,7 @@ def render_interview_progress(db, email: str):
                     })
         
         if not records:
-            st.info(" No application records yet. Start applying to build your data! 🚀")
+            st.info("No application records yet. Start applying to build your data.")
             return
             
         all_dates = [r["Date"] for r in records]
@@ -193,25 +193,25 @@ def render_interview_progress(db, email: str):
         today = datetime.now().date()
         
         with st.container(border=True):
-            st.markdown("#### 🎯 Performance Dashboard")
+            st.markdown("### Performance Overview")
             col_filter, col_metrics = st.columns([1, 3])
             
             with col_filter:
-                st.caption("📅 Timeframe Filter")
+                st.caption("Timeframe Filter")
                 time_filter = st.selectbox(
-                    "Quick Filter:",
-                    ["Within 1 Day", "Within 3 Days", "Within 1 Week", "Within 1 Month", "All Time", "Custom Date Range"],
-                    index=0,  # 預設為 1 Day
+                    "Timeframe",
+                    ["Last 24 Hours", "Last 3 Days", "Last 7 Days", "Last 30 Days", "All Time", "Custom Range"],
+                    index=0,
                     label_visibility="collapsed"
                 )
                 
-                if time_filter == "Within 1 Day":
+                if time_filter == "Last 24 Hours":
                     start_date, end_date = today - timedelta(days=1), today
-                elif time_filter == "Within 3 Days":
+                elif time_filter == "Last 3 Days":
                     start_date, end_date = today - timedelta(days=3), today
-                elif time_filter == "Within 1 Week":
+                elif time_filter == "Last 7 Days":
                     start_date, end_date = today - timedelta(days=7), today
-                elif time_filter == "Within 1 Month":
+                elif time_filter == "Last 30 Days":
                     start_date, end_date = today - timedelta(days=30), today
                 elif time_filter == "All Time":
                     start_date, end_date = min_date, max(max_date, today)
@@ -241,15 +241,15 @@ def render_interview_progress(db, email: str):
             conversion_rate = (interviews / total_applied * 100) if total_applied > 0 else 0.0
             
             with col_metrics:
-                st.caption("📈 Conversion Metrics")
+                st.caption("Conversion Metrics")
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("📤 Applied", total_applied)
-                c2.metric("💬 Interviews", interviews)
-                c3.metric("💔 Rejections", rejections)
-                c4.metric("🏆 Conv. Rate", f"{conversion_rate:.1f}%")
+                c1.metric("Applied", total_applied)
+                c2.metric("Interviewing", interviews)
+                c3.metric("Rejected", rejections)
+                c4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
                 
         if total_applied > 0:
-            st.progress(min(conversion_rate / 100.0, 1.0), text=f"Interview Conversion Rate: {conversion_rate:.1f}%")
+            st.progress(min(conversion_rate / 100.0, 1.0), text=f"Conversion Rate: {conversion_rate:.1f}%")
         
     except Exception as e:
         st.error(f"❌ Failed to load analysis data: {e}")
@@ -260,9 +260,9 @@ def render_dashboard(db, email: str):
     """
     col_title, col_tz = st.columns([3, 1])
     with col_title:
-        st.subheader("🗂️ Application Pipeline")
+        st.subheader("Application Pipeline")
     with col_tz:
-        tz_offset = st.number_input("🌍 Timezone Offset (Hours from UTC)", min_value=-12.0, max_value=14.0, value=8.0, step=0.5, help="e.g., +8 for Asia/Taipei, -7 for PDT")
+        tz_offset = st.number_input("Timezone Offset (UTC)", min_value=-12.0, max_value=14.0, value=8.0, step=0.5)
 
     def get_local_time_str(dt_utc):
         if not dt_utc: return "N/A"
@@ -289,7 +289,7 @@ def render_dashboard(db, email: str):
             valid_records.append(app_data)
             
         if not valid_records:
-            st.info("📭 No job applications found in this timeframe. Time to apply! 🚀")
+            st.info("No job applications found in this timeframe.")
             return
             
         # 分類 Pipeline 狀態
@@ -299,10 +299,10 @@ def render_dashboard(db, email: str):
         
         # 建立 Pipeline 分頁
         tab_all, tab_applied, tab_interviewing, tab_rejected = st.tabs([
-            f"📋 All Records ({len(valid_records)})", 
-            f"📤 Applied ({len(applied_records)})", 
-            f"💬 Interviewing ({len(interviewing_records)})", 
-            f"💔 Rejected ({len(rejected_records)})"
+            f"All Records ({len(valid_records)})", 
+            f"Applied ({len(applied_records)})", 
+            f"Interviewing ({len(interviewing_records)})", 
+            f"Rejected ({len(rejected_records)})"
         ])
         
         def render_record_list(record_list):
@@ -315,24 +315,23 @@ def render_dashboard(db, email: str):
                 company = app_data.get("company_name", "Unknown")
                 status = app_data.get("status", "Applied")
                 date_str = get_local_time_str(app_data.get("applied_date"))
-                status_emoji = {"Applied": "📤", "Interviewing": "💬", "Rejected": "💔"}.get(status, "📄")
                 
-                with st.expander(f"{status_emoji} **{company}** | {status} | 📅 {date_str}", expanded=False):
+                with st.expander(f"{company} — {status} ({date_str})", expanded=False):
                     # 現代化佈局: 左側為資訊, 右側為快捷操作區塊
                     c_info, c_actions = st.columns([1, 1])
                     
                     with c_info:
-                        st.markdown(f"**📅 Applied:** `{date_str}`")
+                        st.markdown(f"**Applied:** `{date_str}`")
                         if app_data.get("interview_date"):
-                            st.markdown(f"**💬 Interview:** `{get_local_time_str(app_data['interview_date'])}`")
+                            st.markdown(f"**Interview:** `{get_local_time_str(app_data['interview_date'])}`")
                         if app_data.get("rejected_date"):
-                            st.markdown(f"**💔 Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
+                            st.markdown(f"**Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
                         
                         st.write("")
-                        with st.popover("📄 View Documents & JD", use_container_width=True):
-                            st.markdown("**📝 Job Description:**")
+                        with st.popover("View Documents & JD", use_container_width=True):
+                            st.markdown("**Job Description:**")
                             st.info(app_data.get("jd_text", "No JD saved for this application."))
-                            st.markdown("**📋 Saved Resume JSON:**")
+                            st.markdown("**Saved Resume JSON:**")
                             st.json(app_data.get("resume_json", {}))
                             
                     with c_actions:
@@ -346,17 +345,17 @@ def render_dashboard(db, email: str):
                             current_idx = options.index(status) if status in options else 0
                             new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{doc_id}", label_visibility="collapsed")
                         with col_upd:
-                            if st.button("💾 Save", key=f"btn_{doc_id}", use_container_width=True, type="primary"):
+                            if st.button("Update Record", key=f"btn_{doc_id}", use_container_width=True, type="primary"):
                                 if new_status != status or new_notes != current_notes:
                                     if update_application_status(db, email, doc_id, new_status, new_notes):
-                                        st.toast("✅ Application updated!")
+                                        st.toast("Application updated successfully.")
                                         st.rerun()
                                 else:
                                     st.toast("No changes detected.")
                         with col_del:
-                            if st.button("🗑️", key=f"del_{doc_id}", use_container_width=True, help="Delete this record"):
+                            if st.button("Delete", key=f"del_{doc_id}", use_container_width=True):
                                 if delete_application(db, email, doc_id):
-                                    st.toast("🗑️ Record deleted!")
+                                    st.toast("Record deleted.")
                                     st.rerun()
                                     
         with tab_all: render_record_list(valid_records)
