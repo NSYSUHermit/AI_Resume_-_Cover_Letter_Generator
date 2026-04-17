@@ -192,26 +192,44 @@ def render_interview_progress(db, email: str):
         all_dates = [r["Date"] for r in records]
         min_date = min(all_dates)
         max_date = max(all_dates)
-        
-        # 預設只顯示最近 1 天的區間 (避免跨越 min_date)
-        default_start = max(min_date, max_date - timedelta(days=1))
+        today = datetime.now().date()
         
         st.write("##### 📅 Timeframe Filter")
         col1, col2 = st.columns([1, 2])
         with col1:
-            date_range = st.date_input(
-                "Select Date Range:", 
-                value=(default_start, max_date), 
-                min_value=min_date, 
-                max_value=max_date,
-                key="dashboard_date_range"
+            time_filter = st.selectbox(
+                "Quick Filter:",
+                ["Within 1 Day", "Within 3 Days", "Within 1 Week", "Within 1 Month", "All Time", "Custom Date Range"],
+                index=4
             )
+            
+            if time_filter == "Within 1 Day":
+                start_date, end_date = today - timedelta(days=1), today
+            elif time_filter == "Within 3 Days":
+                start_date, end_date = today - timedelta(days=3), today
+            elif time_filter == "Within 1 Week":
+                start_date, end_date = today - timedelta(days=7), today
+            elif time_filter == "Within 1 Month":
+                start_date, end_date = today - timedelta(days=30), today
+            elif time_filter == "All Time":
+                start_date, end_date = min_date, max(max_date, today)
+            else:
+                default_start = max(min_date, max_date - timedelta(days=1))
+                date_range = st.date_input(
+                    "Select Date Range:", 
+                    value=(default_start, max_date), 
+                    min_value=min_date, 
+                    max_value=max(max_date, today),
+                    key="dashboard_date_range"
+                )
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                else:
+                    start_date, end_date = min_date, max_date
+            
+            st.session_state.dashboard_active_date_range = (start_date, end_date)
         
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            filtered_records = [r for r in records if start_date <= r["Date"] <= end_date]
-        else:
-            filtered_records = records
+        filtered_records = [r for r in records if start_date <= r["Date"] <= end_date]
         
         total_applied = len(filtered_records)
         interviews = sum(1 for r in filtered_records if r["Status"] == "Interviewing")
@@ -249,7 +267,7 @@ def render_dashboard(db, email: str):
     try:
         app_records = fetch_applications(db, email)
         
-        date_range = st.session_state.get("dashboard_date_range")
+        date_range = st.session_state.get("dashboard_active_date_range")
         start_date, end_date = None, None
         if date_range and len(date_range) == 2:
             start_date, end_date = date_range
