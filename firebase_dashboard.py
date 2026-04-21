@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 # ==========================================
 # 1. 初始化與連接 Firebase
 # ==========================================
+@st.cache_resource
 def init_firebase():
     """
     Initialize Firebase Admin SDK.

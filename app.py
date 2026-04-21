@@ -869,7 +869,7 @@ with tab1:
         font_size=14,
         tab_size=2,
         show_gutter=True,
-        auto_update=True,
+        auto_update=False,
     )
     
     if st.button("💾 Save JSON Changes", type="primary"):
@@ -1106,7 +1106,7 @@ with tab4:
                 theme="dracula",
                 height=800,
                 key=f"optimized_resume_editor_{st.session_state.opt_editor_key}",
-                font_size=14, tab_size=2, show_gutter=True, auto_update=True,
+            font_size=14, tab_size=2, show_gutter=True, auto_update=False,
             )
 
         with col_export:
