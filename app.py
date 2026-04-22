@@ -328,18 +328,22 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=
             with open(temp_json_path, "w", encoding="utf-8") as f:
                 json.dump(clean_data, f, ensure_ascii=False, indent=4)
                 
-            process = subprocess.run(
-                ['lualatex', '-interaction=nonstopmode', template_name],
-                cwd=temp_dir,
-                capture_output=True
-            )
-            
-            pdf_path = os.path.join(temp_dir, template_name.replace('.tex', '.pdf'))
-            if process.returncode == 0 and os.path.exists(pdf_path):
-                with open(pdf_path, "rb") as f:
-                    return f.read(), None
-            else:
-                return None, process.stdout.decode('utf-8', errors='ignore')
+            try:
+                process = subprocess.run(
+                    ['lualatex', '-interaction=nonstopmode', '-halt-on-error', template_name],
+                    cwd=temp_dir,
+                    capture_output=True,
+                    timeout=30
+                )
+                
+                pdf_path = os.path.join(temp_dir, template_name.replace('.tex', '.pdf'))
+                if process.returncode == 0 and os.path.exists(pdf_path):
+                    with open(pdf_path, "rb") as f:
+                        return f.read(), None
+                else:
+                    return None, process.stdout.decode('utf-8', errors='ignore')
+            except subprocess.TimeoutExpired:
+                return None, "⚠️ LaTeX compilation timed out after 30 seconds. This might be caused by syntax errors or missing packages."
     except Exception as e:
         return None, str(e)
 
@@ -478,19 +482,23 @@ def generate_cover_letter_pdf_bytes(resume_data):
             with open(tex_path, "w", encoding="utf-8") as f:
                 f.write(latex_template)
 
-            process = subprocess.run(
-                ['lualatex', '-interaction=nonstopmode', tex_filename],
-                cwd=temp_dir,
-                capture_output=True,
-                text=True
-            )
-            
-            gen_pdf_path = os.path.join(temp_dir, tex_filename.replace('.tex', '.pdf'))
-            if process.returncode == 0 and os.path.exists(gen_pdf_path):
-                with open(gen_pdf_path, "rb") as f:
-                    return f.read(), pdf_filename, None
-            else:
-                return None, None, process.stdout + "\n" + process.stderr
+            try:
+                process = subprocess.run(
+                    ['lualatex', '-interaction=nonstopmode', '-halt-on-error', tex_filename],
+                    cwd=temp_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                gen_pdf_path = os.path.join(temp_dir, tex_filename.replace('.tex', '.pdf'))
+                if process.returncode == 0 and os.path.exists(gen_pdf_path):
+                    with open(gen_pdf_path, "rb") as f:
+                        return f.read(), pdf_filename, None
+                else:
+                    return None, None, process.stdout + "\n" + process.stderr
+            except subprocess.TimeoutExpired:
+                return None, None, "⚠️ Cover Letter LaTeX compilation timed out after 30 seconds."
     except Exception as e:
         return None, None, str(e)
 
