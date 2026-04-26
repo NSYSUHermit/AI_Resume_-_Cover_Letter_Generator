@@ -1,5 +1,6 @@
 import streamlit as st
 import firebase_admin
+import numpy as np
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
