@@ -10,8 +10,8 @@ def render_auth_sidebar(db):
 
         if st.button("☁️ Sync Base Profile to Cloud"):
             if db:
-                # 這裡抓取目前的配置並上傳
-                current_prompt = st.session_state.get("opt_custom_prompt", "")
+                # 統一使用 custom_prompt
+                current_prompt = st.session_state.get("custom_prompt", "")
                 current_api_key = st.session_state.get("api_key", "")
                 success, msg = save_user_profile(
                     db, st.session_state.user_email, 
@@ -28,11 +28,11 @@ def render_auth_sidebar(db):
                 if loaded_resume:
                     st.session_state.resume_data = loaded_resume
                     st.session_state.base_editor_key += 1
-                    st.toast("✅ Base resume loaded from cloud.")
                 if loaded_prompt:
                     st.session_state.custom_prompt = loaded_prompt
                 if loaded_key:
                     st.session_state.api_key = loaded_key
+                st.toast("✅ Data pulled from cloud.")
                 st.rerun()
 
         if st.button("🚪 Logout"):
