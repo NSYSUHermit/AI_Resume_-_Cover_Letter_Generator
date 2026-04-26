@@ -31,27 +31,31 @@ with st.sidebar:
     st.header("⚙️ Settings")
     st.text_input("🔑 Gemini API Key", type="password", key="api_key")
     st.selectbox("🧠 AI Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
-    st.selectbox("🏃 Animal", ["🦦", "🦫", "🐕", "🦖"], key="animal_emoji")
+    from tabs import base_profile, ai_optimizer, ats_analysis, editor_export
 
-# --- Main UI ---
-st.title("🚀 AI-Powered Resume Builder Pro")
+    # --- Main UI ---
+    st.title("🚀 AI-Powered Resume Builder Pro")
 
-db = init_firebase()
+    db = init_firebase()
 
-tab1, tab2, tab3, tab4 = st.tabs([" Base Profile ", " AI Optimizer ", " Editor & Export ", " Job Tracker "])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " Editor & Export ", " Job Tracker "])
 
-with tab1:
-    base_profile.render_tab()
+    with tab1:
+        base_profile.render_tab()
 
-with tab2:
-    ai_optimizer.render_tab()
+    with tab2:
+        ai_optimizer.render_tab()
 
-with tab3:
-    editor_export.render_tab()
+    with tab3:
+        ats_analysis.render_tab()
 
-with tab4:
-    if db:
-        render_interview_progress(db, st.session_state.get("user_email", "guest"))
-        render_dashboard(db, st.session_state.get("user_email", "guest"))
-    else:
-        st.error("Firebase not connected.")
+    with tab4:
+        editor_export.render_tab()
+
+    with tab5:
+        if db:
+            render_interview_progress(db, st.session_state.get("user_email", "guest"))
+            render_dashboard(db, st.session_state.get("user_email", "guest"))
+        else:
+            st.error("Firebase not connected.")
+
