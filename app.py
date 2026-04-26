@@ -12,6 +12,8 @@ st.set_page_config(page_title="AI Resume Builder Pro", page_icon="🚀", layout=
 # 初始化 Session State
 if "resume_data" not in st.session_state:
     st.session_state.resume_data = { "heading": {"name": "User"}, "experience": [], "education": [], "skills": {} }
+if "custom_prompt" not in st.session_state:
+    st.session_state.custom_prompt = "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."
 if "base_editor_key" not in st.session_state:
     st.session_state.base_editor_key = 0
 if "logged_in" not in st.session_state:
