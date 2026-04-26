@@ -1,6 +1,7 @@
 import streamlit as st
 from tabs import base_profile, ai_optimizer, editor_export
 from firebase_dashboard import init_firebase, render_dashboard, render_interview_progress
+from components.auth import render_auth_sidebar
 import toml
 
 # ---------------------------------------------------------
@@ -8,14 +9,23 @@ import toml
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder Pro", page_icon="🚀", layout="wide")
 
-# 初始化 Session State (省略細節，保持原樣)
+# 初始化 Session State
 if "resume_data" not in st.session_state:
     st.session_state.resume_data = { "heading": {"name": "User"}, "experience": [], "education": [], "skills": {} }
 if "base_editor_key" not in st.session_state:
     st.session_state.base_editor_key = 0
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
+
+db = init_firebase()
 
 # --- Sidebar ---
 with st.sidebar:
+    render_auth_sidebar(db)
+    
+    st.markdown("---")
     st.header("⚙️ Settings")
     st.text_input("🔑 Gemini API Key", type="password", key="api_key")
     st.selectbox("🧠 AI Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
