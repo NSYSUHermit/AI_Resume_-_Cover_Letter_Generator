@@ -14,7 +14,7 @@ from docx.shared import Pt, Inches
 import streamlit.components.v1 as components
 import streamlit_ace as st_ace # 引入 streamlit-ace 套件
 from datetime import datetime
-from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, predict_interview_questions, analyze_skill_gap
 
 # ---------------------------------------------------------
 # 初始化 Session State (JSON 資料結構)
@@ -273,6 +273,69 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         return True, report_md
     except Exception as e:
         return False, f"⚠️ AI execution error: {e}"
+
+def predict_interview_questions(jd_text, resume_data):
+    """Predict potential interview questions based on JD and Resume."""
+    try:
+        api_key = st.session_state.get("api_key", "")
+        if not api_key:
+            return None
+            
+        genai.configure(api_key=api_key)
+        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name)
+        
+        prompt = f"""
+        You are a senior interviewer. Based on the following Job Description (JD) and the candidate's Resume, 
+        predict 5 technical questions and 3 behavioral questions that are most likely to be asked.
+        Focus on the candidate's specific experiences and how they relate to the JD requirements.
+        Return ONLY valid JSON.
+        
+        Format:
+        {{
+            "technical": ["Question 1", "Question 2", ...],
+            "behavioral": ["Question 1", "Question 2", ...]
+        }}
+        
+        [JD]: {jd_text}
+        [Resume]: {json.dumps(resume_data)}
+        """
+        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
+        return json.loads(response.text)
+    except Exception:
+        return None
+
+def analyze_skill_gap(jd_text, resume_data):
+    """Analyze skill gap and return data for radar chart."""
+    try:
+        api_key = st.session_state.get("api_key", "")
+        if not api_key:
+            return None
+            
+        genai.configure(api_key=api_key)
+        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name)
+        
+        prompt = f"""
+        Analyze the match between the candidate's Resume and the Job Description (JD).
+        Extract 5 key categories (e.g., Programming, Cloud, Soft Skills, Tools, Domain Knowledge).
+        For each category, provide a score (0-100) for the candidate's proficiency and the job's requirement level.
+        Return ONLY valid JSON.
+        
+        Format:
+        {{
+            "categories": ["Category 1", "Category 2", ...],
+            "candidate_scores": [80, 70, ...],
+            "requirement_scores": [90, 80, ...]
+        }}
+        
+        [JD]: {jd_text}
+        [Resume]: {json.dumps(resume_data)}
+        """
+        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
+        return json.loads(response.text)
+    except Exception:
+        return None
 
 # ---------------------------------------------------------
 # PDF 生成與預覽邏輯 (全部使用獨立的暫存目錄避免名稱衝突)
@@ -1035,45 +1098,56 @@ with tab3:
         if st.session_state.ai_report:
             st.info(st.session_state.ai_report)
             
-        if st.session_state.ats_metrics:
+        if st.session_state.optimized_resume_data:
             m = st.session_state.ats_metrics
+            if m:
+                col1, col2, col3 = st.columns(3)
+                delta_pct = m['optimized_pct'] - m['original_pct']
+                
+                col1.metric("Original Match", f"{m['original_pct']}%", f"{m['original_count']} / {m['total']} keywords", delta_color="off")
+                col2.metric("Optimized Match", f"{m['optimized_pct']}%", f"+{delta_pct}% Improvement")
+                col3.metric("Keywords Injected", f"{len(m['newly_added'])}", "AI newly added")
+                
+                st.write("##### Match Progress")
+                st.progress(min(m['optimized_pct'] / 100.0, 1.0))
+                st.markdown("---")
             
-            col1, col2, col3 = st.columns(3)
-            delta_pct = m['optimized_pct'] - m['original_pct']
-            
-            col1.metric("Original Match", f"{m['original_pct']}%", f"{m['original_count']} / {m['total']} keywords", delta_color="off")
-            col2.metric("Optimized Match", f"{m['optimized_pct']}%", f"+{delta_pct}% Improvement")
-            col3.metric("Keywords Injected", f"{len(m['newly_added'])}", "AI newly added")
-            
-            st.write("##### Match Progress")
-            st.progress(min(m['optimized_pct'] / 100.0, 1.0))
-            st.markdown("---")
-            
-            col_k1, col_k2 = st.columns(2)
-            with col_k1:
-                st.success("✅ **Successfully Hit Keywords**")
-                for k in m['optimized_hits']:
-                    if k in m['newly_added']:
-                        st.markdown(f"- `{k}` 🌟 *(Forced injection)*")
-                    else:
+            # --- Keyword Details ---
+            if m:
+                col_k1, col_k2 = st.columns(2)
+                with col_k1:
+                    st.success("✅ **Successfully Hit Keywords**")
+                    for k in m['optimized_hits']:
+                        if k in m['newly_added']:
+                            st.markdown(f"- `{k}` 🌟 *(Forced injection)*")
+                        else:
+                            st.markdown(f"- `{k}`")
+                        
+                with col_k2:
+                    st.error("❌ **Missing Keywords**")
+                    for k in m['missing_keywords']:
                         st.markdown(f"- `{k}`")
-                if not m['optimized_hits']:
-                    st.write("- None")
-                    
-            with col_k2:
-                st.error("❌ **Missing Keywords**")
-                for k in m['missing_keywords']:
-                    st.markdown(f"- `{k}`")
-                if not m['missing_keywords']:
-                    st.write("- None")
-                    
-            st.markdown("---")
-            
-        if st.session_state.changelog:
-            st.write("### 📝 Changelog")
-            st.info(st.session_state.changelog)
-            
-        if not st.session_state.ats_metrics and not st.session_state.changelog and not st.session_state.ai_report:
+                st.markdown("---")
+
+            # --- Feature: Skill Gap Analysis Radar ---
+            st.subheader("🕸️ Skill Gap Radar")
+            if st.button("📊 Generate Skill Gap Analysis", use_container_width=True):
+                with st.spinner("Analyzing skill match..."):
+                    gap_data = analyze_skill_gap(st.session_state.get('jd_input_for_cl', ''), st.session_state.optimized_resume_data)
+                    if gap_data:
+                        import plotly.graph_objects as go
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Your Proficiency'))
+                        fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Job Requirement'))
+                        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.error("Failed to generate analysis. Check API key.")
+
+            if st.session_state.changelog:
+                st.write("### 📝 Optimization Changelog")
+                st.info(st.session_state.changelog)
+        else:
             st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Optimize' and run it, or import JSON from the right panel.")
 
 # --- 4. Editor & Export Tab ---

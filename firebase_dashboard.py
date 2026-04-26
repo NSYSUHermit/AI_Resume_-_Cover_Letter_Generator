@@ -1,9 +1,78 @@
 import streamlit as st
 import firebase_admin
 import numpy as np
+import json
+import plotly.graph_objects as go
+import google.generativeai as genai
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+
+# ==========================================
+# 0. AI Helpers (Predict Interview & Skill Gap)
+# ==========================================
+def predict_interview_questions(jd_text, resume_data):
+    """Predict potential interview questions based on JD and Resume."""
+    try:
+        api_key = st.session_state.get("api_key", "")
+        if not api_key:
+            return None
+            
+        genai.configure(api_key=api_key)
+        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name)
+        
+        prompt = f"""
+        You are a senior interviewer. Based on the following Job Description (JD) and the candidate's Resume, 
+        predict 5 technical questions and 3 behavioral questions that are most likely to be asked.
+        Focus on the candidate's specific experiences and how they relate to the JD requirements.
+        Return ONLY valid JSON.
+        
+        Format:
+        {{
+            "technical": ["Question 1", "Question 2", ...],
+            "behavioral": ["Question 1", "Question 2", ...]
+        }}
+        
+        [JD]: {jd_text}
+        [Resume]: {json.dumps(resume_data)}
+        """
+        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
+        return json.loads(response.text)
+    except Exception:
+        return None
+
+def analyze_skill_gap(jd_text, resume_data):
+    """Analyze skill gap and return data for radar chart."""
+    try:
+        api_key = st.session_state.get("api_key", "")
+        if not api_key:
+            return None
+            
+        genai.configure(api_key=api_key)
+        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name)
+        
+        prompt = f"""
+        Analyze the match between the candidate's Resume and the Job Description (JD).
+        Extract 5 key categories (e.g., Programming, Cloud, Soft Skills, Tools, Domain Knowledge).
+        For each category, provide a score (0-100) for the candidate's proficiency and the job's requirement level.
+        Return ONLY valid JSON.
+        
+        Format:
+        {{
+            "categories": ["Category 1", "Category 2", ...],
+            "candidate_scores": [80, 70, ...],
+            "requirement_scores": [90, 80, ...]
+        }}
+        
+        [JD]: {jd_text}
+        [Resume]: {json.dumps(resume_data)}
+        """
+        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
+        return json.loads(response.text)
+    except Exception:
+        return None
 
 # ==========================================
 # 1. 初始化與連接 Firebase
@@ -341,23 +410,78 @@ def render_dashboard(db, email: str):
                         new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{tab_name}_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
                         
                         # 操作按鈕列
-                        col_stat, col_upd, col_del = st.columns([5, 3, 2])
+                        col_stat, col_upd, col_prep, col_del = st.columns([4, 2, 2, 2])
                         with col_stat:
                             options = ["Applied", "Interviewing", "Rejected"]
                             current_idx = options.index(status) if status in options else 0
                             new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
                         with col_upd:
-                            if st.button("Update Record", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary"):
+                            if st.button("Update", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary"):
                                 if new_status != status or new_notes != current_notes:
                                     if update_application_status(db, email, doc_id, new_status, new_notes):
                                         st.toast("Application updated successfully.")
                                         st.rerun()
                                 else:
                                     st.toast("No changes detected.")
+                        
+                        with col_prep:
+                            # --- 補回你原本強大的面試準備按鈕 ---
+                            btn_prep = st.button("🧠 Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role")
+                            btn_radar = st.button("📊 Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role")
+                            
+                            if btn_prep:
+                                with st.spinner("AI is analyzing JD and Resume..."):
+                                    questions = predict_interview_questions(app_data.get("jd_text", ""), app_data.get("resume_json", {}))
+                                    if questions:
+                                        st.session_state[f"prep_result_{doc_id}"] = questions
+                                        if f"radar_result_{doc_id}" in st.session_state: del st.session_state[f"radar_result_{doc_id}"]
+                                    else:
+                                        st.error("Failed to generate questions. Check API key.")
+                            
+                            if btn_radar:
+                                with st.spinner("Analyzing skill match..."):
+                                    gap_data = analyze_skill_gap(app_data.get("jd_text", ""), app_data.get("resume_json", {}))
+                                    if gap_data:
+                                        st.session_state[f"radar_result_{doc_id}"] = gap_data
+                                        if f"prep_result_{doc_id}" in st.session_state: del st.session_state[f"prep_result_{doc_id}"]
+                                    else:
+                                        st.error("Failed to generate radar data.")
+                        
                         with col_del:
-                            if st.button("Delete", key=f"del_{tab_name}_{doc_id}", use_container_width=True):
+                            if st.button("Del", key=f"del_{tab_name}_{doc_id}", use_container_width=True):
                                 if delete_application(db, email, doc_id):
                                     st.toast("Record deleted.")
+                                    st.rerun()
+                        
+                        # 如果有預測結果，顯示在下方
+                        if f"prep_result_{doc_id}" in st.session_state:
+                            q_data = st.session_state[f"prep_result_{doc_id}"]
+                            with st.container(border=True):
+                                st.markdown("##### 🎯 Predicted Interview Questions")
+                                t_col, b_col = st.columns(2)
+                                with t_col:
+                                    st.markdown("**💻 Tech Questions**")
+                                    for q in q_data.get("technical", []): st.caption(f"- {q}")
+                                with b_col:
+                                    st.markdown("**🤝 Behavioral (STAR)**")
+                                    for q in q_data.get("behavioral", []): st.caption(f"- {q}")
+                                if st.button("Close", key=f"close_prep_{doc_id}"):
+                                    del st.session_state[f"prep_result_{doc_id}"]
+                                    st.rerun()
+
+                        # 如果有雷達圖結果
+                        if f"radar_result_{doc_id}" in st.session_state:
+                            gap_data = st.session_state[f"radar_result_{doc_id}"]
+                            with st.container(border=True):
+                                st.markdown("##### 🕸️ Skill Gap Analysis")
+                                import plotly.graph_objects as go
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Proficiency'))
+                                fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Requirement'))
+                                fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=300)
+                                st.plotly_chart(fig, use_container_width=True)
+                                if st.button("Close", key=f"close_radar_{doc_id}"):
+                                    del st.session_state[f"radar_result_{doc_id}"]
                                     st.rerun()
                                     
         with tab_all: render_record_list(valid_records, "all")
