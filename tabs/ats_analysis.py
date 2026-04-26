@@ -15,7 +15,6 @@ def show_diff_dialog(base_json, opt_json):
         context=True, numlines=5
     )
     
-    # 注入 Dark Mode CSS
     custom_css = """
     <style>
         body { font-family: 'Courier New', Courier, monospace; font-size: 13px; background-color: #0e1117; color: #fafafa; margin: 0; padding: 10px;}
@@ -33,48 +32,59 @@ def show_diff_dialog(base_json, opt_json):
     components.html(html_diff, height=650, scrolling=True)
 
 def render_tab():
-    st.header("📊 ATS Analysis Report")
+    st.header("📊 ATS Analysis & External Import")
     
-    if not st.session_state.get("optimized_resume_data"):
-        st.info("Please run the AI Optimizer first to see the analysis report.")
-        return
-
     col_main, col_side = st.columns([7, 3])
     
     with col_main:
-        # --- ATS Metrics ---
-        metrics = st.session_state.get("ats_metrics")
-        if metrics:
-            st.subheader("ATS Keyword Match Rate")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Keywords Found", metrics.get("optimized_count", 0), delta=f"+{len(metrics.get('newly_added', []))}")
-            c2.metric("Total JD Keywords", metrics.get("total", 0))
-            c3.metric("Match Score", f"{metrics.get('optimized_pct', 0)}%", delta=f"{metrics.get('optimized_pct', 0) - metrics.get('original_pct', 0)}%")
+        if st.session_state.get("optimized_resume_data"):
+            # --- ATS Metrics ---
+            metrics = st.session_state.get("ats_metrics")
+            if metrics:
+                st.subheader("ATS Keyword Match Rate")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Keywords Found", metrics.get("optimized_count", 0), delta=f"+{len(metrics.get('newly_added', []))}")
+                c2.metric("Total JD Keywords", metrics.get("total", 0))
+                c3.metric("Match Score", f"{metrics.get('optimized_pct', 0)}%")
+                
+                st.progress(metrics.get("optimized_pct", 0) / 100)
             
-            st.progress(metrics.get("optimized_pct", 0) / 100)
+            st.markdown("---")
+            st.subheader("🤖 AI Optimization Report")
+            st.info(st.session_state.get("changelog", "Detailed optimization results are ready."))
             
-            with st.expander("📝 Detailed Keyword Analysis"):
-                st.write("**✅ Newly Added Keywords:**")
-                st.write(", ".join(metrics.get("newly_added", [])) if metrics.get("newly_added") else "None")
-                st.write("**❌ Still Missing Keywords:**")
-                st.write(", ".join(metrics.get("missing_keywords", [])) if metrics.get("missing_keywords") else "None")
-        
-        st.markdown("---")
-        st.subheader("🤖 AI Changelog")
-        st.info(st.session_state.get("changelog", "No changelog provided."))
-        
-        if st.button("🔍 View Detailed Changes (Diff)", use_container_width=True):
-            show_diff_dialog(st.session_state.resume_data, st.session_state.optimized_resume_data)
+            if st.button("🔍 View Detailed Changes (Diff)", use_container_width=True):
+                show_diff_dialog(st.session_state.resume_data, st.session_state.optimized_resume_data)
+        else:
+            st.info("💡 No optimized data found. You can run the AI Optimizer or paste an external JSON on the right.")
 
     with col_side:
         with st.container(border=True):
-            st.subheader("📥 External JSON")
-            st.caption("Import JSON from ChatGPT/Claude")
-            ext_json = st.text_area("Paste JSON here", height=300)
-            if st.button("Apply External JSON", use_container_width=True):
-                try:
-                    st.session_state.optimized_resume_data = json.loads(ext_json)
-                    st.success("External JSON applied!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Invalid JSON: {e}")
+            st.subheader("📥 External Import")
+            st.write("Paste the JSON result from ChatGPT/Claude here:")
+            ext_json = st.text_area("Paste Full JSON Response", height=400, placeholder='{"heading": ..., "experience": ...}')
+            
+            if st.button("Apply External JSON", type="primary", use_container_width=True):
+                if ext_json.strip():
+                    try:
+                        # 嘗試解析 JSON
+                        parsed_json = json.loads(ext_json)
+                        
+                        # 處理可能嵌套在 "optimized_resume" 裡面的情況
+                        if "optimized_resume" in parsed_json:
+                            st.session_state.optimized_resume_data = parsed_json["optimized_resume"]
+                        else:
+                            st.session_state.optimized_resume_data = parsed_json
+                            
+                        # 如果有 ATS 數據也一併更新
+                        if "keyword_analysis" in parsed_json:
+                            st.session_state.ats_metrics = parsed_json["keyword_analysis"]
+                        if "changelog" in parsed_json:
+                            st.session_state.changelog = parsed_json["changelog"]
+                            
+                        st.success("✅ External JSON successfully applied!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ JSON Parsing Error: {e}")
+                else:
+                    st.warning("Please paste JSON content first.")

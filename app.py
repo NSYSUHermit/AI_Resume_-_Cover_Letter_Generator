@@ -1,5 +1,5 @@
 import streamlit as st
-from tabs import base_profile, ai_optimizer, editor_export
+from tabs import base_profile, ai_optimizer, ats_analysis, editor_export
 from firebase_dashboard import init_firebase, render_dashboard, render_interview_progress
 from components.auth import render_auth_sidebar
 import toml
@@ -20,10 +20,12 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
+if "optimized_resume_data" not in st.session_state:
+    st.session_state.optimized_resume_data = None
 
 db = init_firebase()
 
-# --- Sidebar ---
+# --- Sidebar (僅保留帳號與設定) ---
 with st.sidebar:
     render_auth_sidebar(db)
     
@@ -31,31 +33,28 @@ with st.sidebar:
     st.header("⚙️ Settings")
     st.text_input("🔑 Gemini API Key", type="password", key="api_key")
     st.selectbox("🧠 AI Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
-    from tabs import base_profile, ai_optimizer, ats_analysis, editor_export
+    st.selectbox("🏃 Animal", ["🦦 Otter", "🦫 Beaver", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji")
 
-    # --- Main UI ---
-    st.title("🚀 AI-Powered Resume Builder Pro")
+# --- Main UI (這裡應該在外面！) ---
+st.title("🚀 AI-Powered Resume Builder Pro")
 
-    db = init_firebase()
+tab1, tab2, tab3, tab4, tab5 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " Editor & Export ", " Job Tracker "])
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " Editor & Export ", " Job Tracker "])
+with tab1:
+    base_profile.render_tab()
 
-    with tab1:
-        base_profile.render_tab()
+with tab2:
+    ai_optimizer.render_tab()
 
-    with tab2:
-        ai_optimizer.render_tab()
+with tab3:
+    ats_analysis.render_tab()
 
-    with tab3:
-        ats_analysis.render_tab()
+with tab4:
+    editor_export.render_tab()
 
-    with tab4:
-        editor_export.render_tab()
-
-    with tab5:
-        if db:
-            render_interview_progress(db, st.session_state.get("user_email", "guest"))
-            render_dashboard(db, st.session_state.get("user_email", "guest"))
-        else:
-            st.error("Firebase not connected.")
-
+with tab5:
+    if db:
+        render_interview_progress(db, st.session_state.get("user_email", "guest"))
+        render_dashboard(db, st.session_state.get("user_email", "guest"))
+    else:
+        st.error("Firebase not connected.")
