@@ -962,38 +962,64 @@ with tab2:
         with col2:
             st.checkbox("Visa Sponsorship Check", value=True, key="check_visa_v2")
 
-        # --- 恢復：複製 Prompt 供外部 AI 使用 ---
-        if jd_input:
-            st.markdown("---")
-            st.write("##### 📋 Work with Other AIs (ChatGPT, Claude...)")
-            prompt_text = build_optimization_prompt(jd_input, st.session_state.custom_prompt_v2, st.session_state.enable_ats_v2, st.session_state.check_visa_v2, st.session_state.resume_data)
-            b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
-            
-            html_code = f"""
+        # --- 🚀 複製 Prompt 供外部 AI 使用 ---
+        st.markdown("---")
+        st.write("##### 📋 Work with Other AIs (ChatGPT, Claude...)")
+        
+        # 準備 Prompt 文字
+        current_jd = jd_input if jd_input else "[PLEASE PASTE JOB DESCRIPTION HERE]"
+        prompt_text = build_optimization_prompt(
+            current_jd, 
+            st.session_state.custom_prompt_v2, 
+            st.session_state.enable_ats_v2, 
+            st.session_state.check_visa_v2, 
+            st.session_state.resume_data
+        )
+        b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
+        
+        html_code = f"""
+        <div style="width: 100%;">
             <button class="copy-btn" id="copyBtn" onclick="copyToClipboard()" style="
                 display: flex; align-items: center; justify-content: center;
-                font-weight: 500; padding: 0.5rem 1rem; border-radius: 8px;
-                min-height: 40px; margin: 0; line-height: 1.6;
+                font-weight: 500; padding: 0.75rem 1rem; border-radius: 8px;
+                min-height: 44px; margin: 0; line-height: 1.6;
                 color: #f8fafc; width: 100%; user-select: none;
-                background-color: #1e293b; border: 1px solid rgba(255, 255, 255, 0.1);
-                cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
+                background-color: #1e293b; border: 1px solid rgba(255, 255, 255, 0.2);
+                cursor: pointer; font-size: 14px; transition: all 0.2s ease;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
                 📋 Copy Optimized Prompt for Other AIs
             </button>
-            <script>
-            function copyToClipboard() {{
-                const b64 = "{b64_text}";
-                const text = decodeURIComponent(escape(window.atob(b64)));
-                navigator.clipboard.writeText(text).then(function() {{
-                    const btn = document.getElementById('copyBtn');
-                    btn.innerText = '✅ Copied to Clipboard!';
-                    setTimeout(() => {{
-                        btn.innerText = '📋 Copy Optimized Prompt for Other AIs';
-                    }}, 2000);
-                }});
+        </div>
+        <script>
+        function copyToClipboard() {{
+            const b64 = "{b64_text}";
+            const text = decodeURIComponent(escape(window.atob(b64)));
+            
+            if ("{jd_input}".trim() === "") {{
+                alert("⚠️ Please paste the Job Description first to generate a complete prompt!");
+                return;
             }}
-            </script>
-            """
-            components.html(html_code, height=60)
+
+            navigator.clipboard.writeText(text).then(function() {{
+                const btn = document.getElementById('copyBtn');
+                btn.innerText = '✅ Copied to Clipboard!';
+                btn.style.backgroundColor = '#064e3b';
+                btn.style.borderColor = '#059669';
+                btn.style.color = '#34d399';
+                setTimeout(() => {{
+                    btn.innerText = '📋 Copy Optimized Prompt for Other AIs';
+                    btn.style.backgroundColor = '#1e293b';
+                    btn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                    btn.style.color = '#f8fafc';
+                }}, 2000);
+            }}).catch(function(err) {{
+                console.error('Copy failed', err);
+                alert("Failed to copy. Please try manually.");
+            }});
+        }}
+        </script>
+        """
+        components.html(html_code, height=70)
 
 # --- 3. Optimization Tab ---
 with tab3:
