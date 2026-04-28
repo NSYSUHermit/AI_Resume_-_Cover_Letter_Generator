@@ -745,64 +745,36 @@ def show_diff_dialog(base_json, opt_json):
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
-# 🎨 Custom Modern CSS (Shadcn/UI Inspired)
+# 🎨 CLEAN MODERN UI (Removed all font overrides that break icons)
 st.markdown("""
 <style>
-    /* Global Styles */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    html, body, [class*="st-"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    /* Main Container Padding */
+    /* 1. Main Layout */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
         max-width: 1200px;
     }
 
-    /* Card Styling */
+    /* 2. Professional Cards */
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         background-color: #ffffff05;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         border-radius: 12px !important;
         padding: 1.5rem !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
-    /* Header Styling */
-    h1 {
-        font-weight: 700 !important;
-        letter-spacing: -0.025em !important;
-        color: #f8fafc !important;
-    }
-    
-    h2, h3 {
-        font-weight: 600 !important;
-        color: #f1f5f9 !important;
-        margin-top: 1rem !important;
-    }
-
-    /* Button Styling - Specific selectors to avoid icon interference */
+    /* 3. Enhanced Buttons (Keep shapes/colors, avoid font changes) */
     .stButton > button {
         border-radius: 8px !important;
-        font-weight: 500 !important;
         transition: all 0.2s ease !important;
         text-transform: none !important;
     }
     
-    /* Protect Streamlit internal Icons from global font overrides */
-    [data-testid="stIcon"], .st-emotion-cache-1vt4y6f, .st-key-internal, span[data-testid="stIconMaterial"], [data-testid="stExpanderChevron"], [data-testid="stSidebarNav"] * {
-        font-family: 'Material Icons' !important;
-        font-feature-settings: 'liga' !important;
-    }
-
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
         border: none !important;
         color: white !important;
-        padding: 0.5rem 1rem !important;
     }
 
     .stButton > button[kind="primary"]:hover {
@@ -811,64 +783,32 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
     }
 
-    /* Tab Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: transparent;
-    }
-
+    /* 4. Tabs & Sidebar */
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] {
-        height: 40px;
-        white-space: pre;
         background-color: #1e293b;
         border-radius: 8px 8px 0px 0px;
-        color: #94a3b8;
         padding: 0px 20px;
-        border: none;
     }
-
     .stTabs [aria-selected="true"] {
-        background-color: #334155 !important;
-        color: #f8fafc !important;
         border-bottom: 2px solid #6366f1 !important;
     }
+    [data-testid="stSidebar"] { background-color: #0f172a; }
 
-    /* Sidebar Styling */
-    [data-testid="stSidebar"] {
-        background-color: #0f172a;
-    }
-
-    /* Tooltip/Caption */
-    .stCaption {
-        color: #64748b !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 db = init_firebase()
+
+@st.dialog("Base Profile Content", width="large")
+def preview_base_profile():
+    st.json(st.session_state.resume_data)
 
 # --- Sidebar Settings ---
 with st.sidebar:
     st.markdown("### 🚀 AI Resume Gen")
     st.markdown("---")
     
-    # 📥 側邊欄快速上傳
-    with st.expander("📥 Quick PDF Import", expanded=not st.session_state.logged_in):
-        side_pdf = st.file_uploader("Upload Resume", type=["pdf"], key="side_uploader")
-        if st.button("✨ Extract Data", type="primary", key="side_extract", use_container_width=True):
-            if side_pdf:
-                loading_overlay = st.empty()
-                loading_overlay.markdown(get_glass_overlay_html("Parsing PDF...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
-                success, msg, parsed_json = parse_pdf_resume_to_json(side_pdf.getvalue(), st.session_state.get("api_key", ""))
-                loading_overlay.empty()
-                if success:
-                    st.session_state.resume_data = parsed_json
-                    st.session_state.base_editor_key += 1
-                    st.toast("✅ Profile extracted!")
-                    st.rerun()
-                else: st.error(msg)
-            else: st.warning("Please upload a PDF.")
-
     if st.session_state.logged_in:
         st.success(f"**Logged in:**\n`{st.session_state.user_email}`")
         
@@ -900,7 +840,6 @@ with st.sidebar:
             st.rerun()
     else:
         st.info("Log in to sync data.")
-        # 修正後的 Login Form，移除過多的自定義包裝以確保穩定
         with st.form("sidebar_login_form"):
             login_email = st.text_input("Email", key="login_email").strip()
             login_pwd = st.text_input("Password", type="password", key="login_pwd")
@@ -919,7 +858,6 @@ with st.sidebar:
                             st.session_state.base_editor_key += 1
                         if loaded_prompt:
                             st.session_state.custom_prompt = loaded_prompt
-                            # 確保新版 UI 的 key 也能同步
                             st.session_state.custom_prompt_v2 = loaded_prompt
                         if loaded_key:
                             st.session_state.api_key = loaded_key
@@ -1039,8 +977,7 @@ with tab2:
                 color: #f8fafc; width: 100%; user-select: none;
                 background-color: #1e293b; border: 1px solid rgba(255, 255, 255, 0.1);
                 cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
-                📋 
-                
+                📋 Copy Optimized Prompt for Other AIs
             </button>
             <script>
             function copyToClipboard() {{
@@ -1049,12 +986,8 @@ with tab2:
                 navigator.clipboard.writeText(text).then(function() {{
                     const btn = document.getElementById('copyBtn');
                     btn.innerText = '✅ Copied to Clipboard!';
-                    btn.style.borderColor = '#00cc66';
-                    btn.style.color = '#00cc66';
                     setTimeout(() => {{
                         btn.innerText = '📋 Copy Optimized Prompt for Other AIs';
-                        btn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                        btn.style.color = '#f8fafc';
                     }}, 2000);
                 }});
             }}
