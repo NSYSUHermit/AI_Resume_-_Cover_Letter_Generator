@@ -236,68 +236,46 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         try:
             ai_result = json.loads(raw_text)
         except json.JSONDecodeError as json_err:
-            return False, f"⚠️ AI output malformed JSON. Please try again!\n\n**System Error:** {json_err}\n\n**Raw Output Fragment:**\n```json\n{raw_text[:800]}\n```"
+            return False, f"⚠️ AI output malformed JSON. Please try again!\n\n**System Error:** {json_err}"
 
         # Handle response based on visa_blocked flag
         if ai_result.get("visa_blocked"):
-            report_md = f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {ai_result.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization. Save your time for the next company!"
+            report_md = f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {ai_result.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization."
             return False, report_md
         
-        # If not blocked, proceed with processing the successful result
+        # If not blocked, proceed
         report_md += "✅ **Visa check passed! No explicit sponsorship barriers found.**\n\n---\n" if check_visa else ""
 
         modified_resume_data = ai_result.get("optimized_resume", {})
         if not modified_resume_data:
-            return False, "⚠️ Parsing Error: Could not find the optimized resume data in AI response."
+            return False, "⚠️ Parsing Error: Could not find optimized resume data."
             
         st.session_state.optimized_resume_data = modified_resume_data
         st.session_state.opt_editor_key += 1
         st.session_state.optimized_resume_saved_time = None
-        st.session_state.ats_metrics = None
         st.session_state.changelog = ai_result.get('changelog', '')
 
-        # Generate Markdown report
+        # Generate ATS Metrics
         if enable_ats and "keyword_analysis" in ai_result:
             kw = ai_result["keyword_analysis"]
             tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
             orig_c = len(kw.get("original_hits", []))
             opt_c = len(kw.get("optimized_hits", []))
-            orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
-            opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
-
+            
             st.session_state.ats_metrics = {
                 "total": tot,
                 "original_count": orig_c,
                 "optimized_count": opt_c,
-                "original_pct": orig_pct,
-                "optimized_pct": opt_pct,
-                "optimized_hits": kw.get("optimized_hits", []),
-                "newly_added": kw.get("newly_added", []),
-                "missing_keywords": kw.get("missing_keywords", [])
-            }
-
-        return True, report_md # <--- 修正：補回成功回傳
-    except Exception as e:
-        return False, f"⚠️ AI execution error: {e}"
-            kw = ai_result["keyword_analysis"]
-            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
-            orig_c = len(kw.get("original_hits", []))
-            opt_c = len(kw.get("optimized_hits", []))
-            orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
-            opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
-
-            st.session_state.ats_metrics = {
-                "total": tot,
-                "original_count": orig_c,
-                "optimized_count": opt_c,
-                "original_pct": orig_pct,
-                "optimized_pct": opt_pct,
+                "original_pct": int((orig_c / tot) * 100) if tot > 0 else 0,
+                "optimized_pct": int((opt_c / tot) * 100) if tot > 0 else 0,
                 "optimized_hits": kw.get("optimized_hits", []),
                 "newly_added": kw.get("newly_added", []),
                 "missing_keywords": kw.get("missing_keywords", [])
             }
 
         return True, report_md
+    except Exception as e:
+        return False, f"⚠️ AI execution error: {e}"
     except Exception as e:
         return False, f"⚠️ AI execution error: {e}"
 
