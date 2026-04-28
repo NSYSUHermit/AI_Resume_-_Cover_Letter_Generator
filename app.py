@@ -91,7 +91,13 @@ if "ats_metrics" not in st.session_state:
 if "changelog" not in st.session_state:
     st.session_state.changelog = ""
 if "custom_prompt" not in st.session_state:
-    st.session_state.custom_prompt = "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."
+    st.session_state.custom_prompt = """You are an elite Career Strategist and ATS Architect. Overhaul the resume based on the JD using these rules:
+
+1. **Strategic Quantization**: Every experience bullet point MUST include a metric (%, $, time saved, scale). Transform tasks into results. (e.g., instead of 'Used microservices', use 'Architected 20+ FastAPI microservices, reducing latency by 45%').
+2. **Aggressive Action Verbs**: Use high-ownership verbs like 'Spearheaded', 'Engineered', 'Orchestrated', and 'Optimized'.
+3. **ATS Semantic Mapping**: Perform 'Horizontal Shifts'. If the JD demands GCP but I have AWS, frame it as 'Cloud-native architecture expertise (AWS/GCP)'. Ensure high keyword density in Summary and Skills.
+4. **Pain Point Alignment**: Identify the 3 biggest problems mentioned in the JD and ensure the Summary and top Experience points explicitly demonstrate how I solved those exact problems before.
+5. **Authoritative Tone**: Maintain a bold, professional, and result-oriented voice that positions me as the 'perfect solution' to the company's needs."""
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 if "logged_in" not in st.session_state:
