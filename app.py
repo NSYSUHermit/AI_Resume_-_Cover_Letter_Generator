@@ -1120,25 +1120,28 @@ with tab4:
             prev_type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
             
             if prev_type == "Resume" and st.session_state.resume_preview_bytes:
+                # 動態顯示 Resume 檔名
+                resume_filename = st.session_state.resume_dl_data["name"]
                 st.download_button(
-                    "📥 Download Resume PDF", 
+                    f"📥 Download: {resume_filename}", 
                     st.session_state.resume_dl_data["bytes"], 
-                    st.session_state.resume_dl_data["name"], 
+                    resume_filename, 
                     use_container_width=True,
-                    on_click=trigger_resume_sync # 僅履歷下載觸發同步
+                    on_click=trigger_resume_sync
                 )
                 render_pdf_js(st.session_state.resume_preview_bytes, height=750)
             elif prev_type == "Cover Letter" and st.session_state.cover_letter_preview_bytes:
+                # 動態顯示 Cover Letter 檔名
+                cl_filename = st.session_state.cl_dl_data["name"]
                 st.download_button(
-                    "📥 Download Cover Letter PDF", 
+                    f"📥 Download: {cl_filename}", 
                     st.session_state.cl_dl_data["bytes"], 
-                    st.session_state.cl_dl_data["name"], 
+                    cl_filename, 
                     use_container_width=True
-                    # 下載 Cover Letter 不觸發同步
                 )
                 render_pdf_js(st.session_state.cover_letter_preview_bytes, height=750)
             else:
-                st.info("Click '🔄 Refresh Preview' to see document.")
+                st.info("Click '📝 Tweak Content & Refresh' to generate documents.")
 
 # --- 5. Tracker Tab ---
 with tab5:
