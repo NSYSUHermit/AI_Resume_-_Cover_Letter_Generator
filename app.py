@@ -767,6 +767,7 @@ st.markdown("""
     /* 3. Enhanced Buttons (Keep shapes/colors, avoid font changes) */
     .stButton > button {
         border-radius: 8px !important;
+        height: 44px !important;
         transition: all 0.2s ease !important;
         text-transform: none !important;
     }
@@ -982,13 +983,22 @@ with tab2:
                     else: st.error("Failed.")
 
         with c_copy:
+            # 準備 Prompt 文字
             jd_for_prompt = jd_input if jd_input else "[PLEASE PASTE JOB DESCRIPTION HERE]"
             prompt_text = build_optimization_prompt(jd_for_prompt, st.session_state.custom_prompt_v2, st.session_state.enable_ats_v2, st.session_state.check_visa_v2, st.session_state.resume_data)
             b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
             jd_is_empty = "true" if not jd_input.strip() else "false"
             
             html_code = f"""
-            <button id="copyBtn" onclick="copy()" style="width:100%; height:44px; border-radius:8px; background:#1e293b; color:white; border:1px solid #444; cursor:pointer; font-weight:500;">📋 Copy Prompt</button>
+            <body style="margin:0; padding:0;">
+                <button id="copyBtn" onclick="copy()" style="
+                    width:100%; height:44px; border-radius:8px; 
+                    background:#1e293b; color:white; border:1px solid #444; 
+                    cursor:pointer; font-weight:500; font-family: sans-serif;
+                    display: flex; align-items: center; justify-content: center;">
+                    📋 Copy Prompt
+                </button>
+            </body>
             <script>
             function copy() {{
                 if ({jd_is_empty}) {{ alert("⚠️ Paste JD first!"); return; }}
@@ -997,12 +1007,18 @@ with tab2:
                 navigator.clipboard.writeText(text).then(() => {{
                     const btn = document.getElementById('copyBtn');
                     btn.innerText = '✅ Copied!';
-                    setTimeout(() => {{ btn.innerText = '📋 Copy Prompt'; }}, 2000);
+                    btn.style.borderColor = '#059669';
+                    btn.style.color = '#34d399';
+                    setTimeout(() => {{ 
+                        btn.innerText = '📋 Copy Prompt'; 
+                        btn.style.borderColor = '#444';
+                        btn.style.color = 'white';
+                    }}, 2000);
                 }});
             }}
             </script>
             """
-            components.html(html_code, height=50)
+            components.html(html_code, height=44)
 
 # --- 3. ATS Analysis Tab ---
 with tab3:
