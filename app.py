@@ -748,17 +748,11 @@ st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wid
 # 🎨 Custom Modern CSS (Shadcn/UI Inspired)
 st.markdown("""
 <style>
-    /* Global Styles - Only target text-heavy elements to avoid breaking icons */
+    /* Global Styles */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    h1, h2, h3, h4, h5, h6, .stMarkdown p, .stButton button, label, .stCaption {
-        font-family: 'Inter', sans-serif !important;
-    }
-
-    /* Prevent icon names from showing as text in buttons and labels */
-    [data-testid="stIconMaterial"], [data-testid="stExpanderChevron"], .material-icons {
-        font-family: 'Material Icons' !important;
-        font-feature-settings: 'liga' 1 !important;
+    html, body, [class*="st-"] {
+        font-family: 'Inter', sans-serif;
     }
 
     /* Main Container Padding */
@@ -790,7 +784,7 @@ st.markdown("""
         margin-top: 1rem !important;
     }
 
-    /* Button Styling */
+    /* Button Styling - Specific selectors to avoid icon interference */
     .stButton > button {
         border-radius: 8px !important;
         font-weight: 500 !important;
@@ -798,6 +792,12 @@ st.markdown("""
         text-transform: none !important;
     }
     
+    /* Protect Streamlit internal Icons from global font overrides */
+    [data-testid="stIcon"], .st-emotion-cache-1vt4y6f, .st-key-internal, span[data-testid="stIconMaterial"], [data-testid="stExpanderChevron"], [data-testid="stSidebarNav"] * {
+        font-family: 'Material Icons' !important;
+        font-feature-settings: 'liga' !important;
+    }
+
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
         border: none !important;
@@ -847,15 +847,28 @@ st.markdown("""
 
 db = init_firebase()
 
-@st.dialog("Base Profile Content", width="large")
-def preview_base_profile():
-    st.json(st.session_state.resume_data)
-
 # --- Sidebar Settings ---
 with st.sidebar:
     st.markdown("### 🚀 AI Resume Gen")
     st.markdown("---")
     
+    # 📥 側邊欄快速上傳
+    with st.expander("📥 Quick PDF Import", expanded=not st.session_state.logged_in):
+        side_pdf = st.file_uploader("Upload Resume", type=["pdf"], key="side_uploader")
+        if st.button("✨ Extract Data", type="primary", key="side_extract", use_container_width=True):
+            if side_pdf:
+                loading_overlay = st.empty()
+                loading_overlay.markdown(get_glass_overlay_html("Parsing PDF...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+                success, msg, parsed_json = parse_pdf_resume_to_json(side_pdf.getvalue(), st.session_state.get("api_key", ""))
+                loading_overlay.empty()
+                if success:
+                    st.session_state.resume_data = parsed_json
+                    st.session_state.base_editor_key += 1
+                    st.toast("✅ Profile extracted!")
+                    st.rerun()
+                else: st.error(msg)
+            else: st.warning("Please upload a PDF.")
+
     if st.session_state.logged_in:
         st.success(f"**Logged in:**\n`{st.session_state.user_email}`")
         
@@ -887,6 +900,7 @@ with st.sidebar:
             st.rerun()
     else:
         st.info("Log in to sync data.")
+        # 修正後的 Login Form，移除過多的自定義包裝以確保穩定
         with st.form("sidebar_login_form"):
             login_email = st.text_input("Email", key="login_email").strip()
             login_pwd = st.text_input("Password", type="password", key="login_pwd")
@@ -905,6 +919,7 @@ with st.sidebar:
                             st.session_state.base_editor_key += 1
                         if loaded_prompt:
                             st.session_state.custom_prompt = loaded_prompt
+                            # 確保新版 UI 的 key 也能同步
                             st.session_state.custom_prompt_v2 = loaded_prompt
                         if loaded_key:
                             st.session_state.api_key = loaded_key
@@ -1024,7 +1039,8 @@ with tab2:
                 color: #f8fafc; width: 100%; user-select: none;
                 background-color: #1e293b; border: 1px solid rgba(255, 255, 255, 0.1);
                 cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
-                📋 Copy Optimized Prompt for Other AIs
+                📋 
+                
             </button>
             <script>
             function copyToClipboard() {{
