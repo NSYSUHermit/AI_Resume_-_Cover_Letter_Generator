@@ -745,7 +745,7 @@ def show_diff_dialog(base_json, opt_json):
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
-# 🎨 CLEAN MODERN UI (Removed all font overrides that break icons)
+# 🎨 CLEAN MODERN UI (Removed font-family overrides that break icons)
 st.markdown("""
 <style>
     /* 1. Main Layout */
@@ -890,15 +890,33 @@ with st.sidebar:
 
 # --- Main UI ---
 st.title("🚀 Professional AI Resume")
-st.markdown("Elevate your job application with AI-optimized content and high-quality LaTeX templates.")
 
-# 進度指示 (Visual Aid)
-step_cols = st.columns(5)
-steps = ["1. Source", "2. Target", "3. Analysis", "4. Review", "5. Tracker"]
+# --- 動態進度指示器邏輯 ---
+s1_done = len(st.session_state.resume_data.get("experience", [])) > 0
+s2_done = len(st.session_state.get("jd_input_v2", "")) > 50
+s3_done = st.session_state.optimized_resume_data is not None
+s4_done = st.session_state.resume_preview_bytes is not None
+s5_done = st.session_state.logged_in
+
+steps = [
+    {"label": "1. Source", "done": s1_done, "msg": "Profile Ready" if s1_done else "Import Resume"},
+    {"label": "2. Target", "done": s2_done, "msg": "JD Linked" if s2_done else "Paste JD"},
+    {"label": "3. Analysis", "done": s3_done, "msg": "AI Optimized" if s3_done else "Run AI"},
+    {"label": "4. Review", "done": s4_done, "msg": "PDF Ready" if s4_done else "Export PDF"},
+    {"label": "5. Tracker", "done": s5_done, "msg": "Synced" if s5_done else "Login to Track"}
+]
+
+step_cols = st.columns(len(steps))
 for i, step in enumerate(steps):
     with step_cols[i]:
-        st.markdown(f"<p style='text-align: center; color: {'#6366f1' if i < 4 else '#64748b'}; font-weight: bold;'>{step}</p>", unsafe_allow_html=True)
-        st.progress(100 if i < 3 else 0)
+        color = "#10b981" if step["done"] else ("#6366f1" if (i == 0 or steps[i-1]["done"]) else "#334155")
+        icon = "✅" if step["done"] else "🔵"
+        st.markdown(f"""
+            <div style='text-align: center; padding: 10px; border-radius: 10px; background: {color}15; border: 1px solid {color}40;'>
+                <p style='margin:0; font-size: 0.8rem; color: {color}; font-weight: bold;'>{icon} {step['label']}</p>
+                <p style='margin:0; font-size: 0.7rem; color: #94a3b8;'>{step['msg']}</p>
+            </div>
+        """, unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -906,40 +924,31 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊
 
 # --- 1. Base Profile Tab ---
 with tab1:
-    col_left, col_right = st.columns([1, 1])
-    
-    with col_left:
-        with st.container(border=True):
-            st.subheader("📥 Quick Import")
-            uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-            if st.button("✨ Extract with AI", type="primary", key="extract_btn", use_container_width=True):
-                if uploaded_pdf:
-                    with st.status("Parsing PDF...", expanded=True):
-                        success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
-                        if success:
-                            st.session_state.resume_data = parsed_json
-                            st.session_state.base_editor_key += 1
-                            st.rerun()
-                        else: st.error(msg)
-                else: st.warning("Please upload a PDF.")
+    with st.container(border=True):
+        st.subheader("📥 Quick Import")
+        uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
+        if st.button("✨ Extract with AI", type="primary", key="extract_btn", use_container_width=True):
+            if uploaded_pdf:
+                with st.status("Parsing PDF...", expanded=True):
+                    success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
+                    if success:
+                        st.session_state.resume_data = parsed_json
+                        st.session_state.base_editor_key += 1
+                        st.rerun()
+                    else: st.error(msg)
+            else: st.warning("Please upload a PDF.")
 
-    with col_right:
-        with st.container(border=True):
-            st.subheader("📋 Manual Edit")
-            if st.button("👁️ Preview Raw JSON", use_container_width=True):
-                preview_base_profile()
-
-    st.markdown("#### Base Profile Editor")
+    st.markdown("#### 📝 Base Profile Editor")
     edited_json = st_ace.st_ace(
         value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False),
-        language="json", theme="dracula", height=400,
+        language="json", theme="dracula", height=500,
         key=f"base_resume_editor_{st.session_state.base_editor_key}",
     )
-    if st.button("💾 Save Changes", key="save_base_btn", use_container_width=True):
+    if st.button("💾 Save Base Changes", key="save_base_btn", use_container_width=True):
         try:
             st.session_state.resume_data = json.loads(edited_json)
-            st.toast("✅ Updated!")
-        except: st.error("Invalid JSON.")
+            st.toast("✅ Base profile updated!")
+        except: st.error("Invalid JSON format.")
 
 # --- 2. Target Job Tab ---
 with tab2:
@@ -956,7 +965,6 @@ with tab2:
         with col1: st.checkbox("ATS Analysis", value=True, key="enable_ats_v2")
         with col2: st.checkbox("Visa Check", value=True, key="check_visa_v2")
 
-        # --- 🚀 優化與複製區域 ---
         st.markdown("---")
         c_opt, c_copy = st.columns(2)
         
@@ -974,7 +982,6 @@ with tab2:
                     else: st.error("Failed.")
 
         with c_copy:
-            # 準備 Prompt 文字
             jd_for_prompt = jd_input if jd_input else "[PLEASE PASTE JOB DESCRIPTION HERE]"
             prompt_text = build_optimization_prompt(jd_for_prompt, st.session_state.custom_prompt_v2, st.session_state.enable_ats_v2, st.session_state.check_visa_v2, st.session_state.resume_data)
             b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
@@ -999,18 +1006,26 @@ with tab2:
 
 # --- 3. ATS Analysis Tab ---
 with tab3:
-    if not st.session_state.optimized_resume_data:
-        st.info("📊 Results will appear here once you run optimization.")
-        with st.expander("📥 Import from External AI"):
-            ext_json = st.text_area("Paste JSON here", height=300)
-            if st.button("Apply JSON"):
-                try:
-                    data = json.loads(ext_json.replace('```json', '').replace('```', '').strip())
-                    st.session_state.optimized_resume_data = data.get("optimized_resume", data)
-                    st.session_state.opt_editor_key += 1
-                    st.rerun()
-                except: st.error("Invalid JSON.")
-    else:
+    st.header("📊 ATS Analysis & Import")
+    with st.expander("📥 Import Result from External AI", expanded=not st.session_state.optimized_resume_data):
+        ext_json = st.text_area("Paste JSON here", height=300, key="external_json_tab3")
+        if st.button("🚀 Apply External JSON", use_container_width=True):
+            try:
+                clean_str = ext_json.replace('```json', '').replace('```', '').strip()
+                data = json.loads(clean_str)
+                st.session_state.optimized_resume_data = data.get("optimized_resume", data)
+                st.session_state.opt_editor_key += 1
+                st.session_state.changelog = data.get("changelog", "Imported.")
+                st.rerun()
+            except: st.error("Invalid JSON.")
+
+    if st.session_state.optimized_resume_data:
+        if st.session_state.changelog:
+            with st.container(border=True):
+                st.subheader("📝 Optimization Summary")
+                st.info(st.session_state.changelog)
+            st.markdown("---")
+
         m = st.session_state.ats_metrics
         if m:
             c1, c2, c3 = st.columns(3)
@@ -1027,53 +1042,54 @@ with tab3:
             with k2:
                 st.error("❌ Missing")
                 for k in m['missing_keywords']: st.markdown(f"- `{k}`")
-        
-        st.markdown("---")
-        st.subheader("📝 AI Report")
-        st.info(st.session_state.ai_report)
 
 # --- 4. Review & Export Tab ---
 with tab4:
     if not st.session_state.optimized_resume_data:
-        st.warning("Run optimization first.")
+        st.warning("⚠️ Run AI Optimization in Step 2 first.")
     else:
         col_preview_left, col_preview_right = st.columns([4, 6])
         with col_preview_left:
             with st.container(border=True):
-                st.subheader("🛠️ Settings")
-                show_editor = st.toggle("Edit JSON", value=False)
-                if show_editor:
-                    edited_opt_json = st_ace.st_ace(value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=400, key=f"opt_ed_{st.session_state.opt_editor_key}")
-                    if st.button("Apply Edits"):
-                        try: st.session_state.optimized_resume_data = json.loads(edited_opt_json); st.toast("Saved!")
-                        except: st.error("Error.")
-                
+                st.subheader("🛠️ Final Tweaks")
+                edited_opt_json = st_ace.st_ace(
+                    value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
+                    language="json", theme="dracula", height=450,
+                    key=f"opt_editor_step4_{st.session_state.opt_editor_key}"
+                )
                 st.markdown("---")
+                st.subheader("🎨 PDF Style")
                 st.selectbox("Template", ["💻 Tech (Modern)", "📈 Consulting (Classic)"], key="tmpl_select")
                 st.multiselect("Block Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Experience", "Education", "Skills"], key="block_order_v2")
                 
-                if st.button("🔄 Refresh Preview", type="primary", use_container_width=True):
-                    data_to_use = st.session_state.optimized_resume_data
-                    selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
-                    with st.spinner("Generating..."):
-                        resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
-                        if resume_bytes:
-                            st.session_state.resume_preview_bytes = resume_bytes
-                            st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"Resume_{data_to_use.get('target_company','AI')}.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
-                        cl_bytes, cl_name, _ = generate_cover_letter_pdf_bytes(data_to_use)
-                        if cl_bytes:
-                            st.session_state.cover_letter_preview_bytes = cl_bytes
-                            st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": cl_name, "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
+                if st.button("🔄 Save & Refresh Preview", type="primary", use_container_width=True):
+                    try:
+                        st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+                        data_to_use = st.session_state.optimized_resume_data
+                        selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
+                        with st.spinner("Generating..."):
+                            resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
+                            if resume_bytes:
+                                st.session_state.resume_preview_bytes = resume_bytes
+                                st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"Resume_{data_to_use.get('target_company','AI')}.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
+                            cl_bytes, cl_name, _ = generate_cover_letter_pdf_bytes(data_to_use)
+                            if cl_bytes:
+                                st.session_state.cover_letter_preview_bytes = cl_bytes
+                                st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": cl_name, "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
+                        st.toast("✅ Updated!")
+                    except: st.error("Invalid JSON.")
 
         with col_preview_right:
             st.subheader("📄 Preview")
             prev_type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
             if prev_type == "Resume" and st.session_state.resume_preview_bytes:
                 st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], use_container_width=True)
-                render_pdf_js(st.session_state.resume_preview_bytes, height=700)
+                render_pdf_js(st.session_state.resume_preview_bytes, height=750)
             elif prev_type == "Cover Letter" and st.session_state.cover_letter_preview_bytes:
                 st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], use_container_width=True)
-                render_pdf_js(st.session_state.cover_letter_preview_bytes, height=700)
+                render_pdf_js(st.session_state.cover_letter_preview_bytes, height=750)
+            else:
+                st.info("Click '🔄 Save & Refresh Preview' to see document.")
 
 # --- 5. Tracker Tab ---
 with tab5:
