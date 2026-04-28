@@ -847,13 +847,13 @@ with st.sidebar:
     st.markdown("---")
     
     if st.session_state.logged_in:
-        st.markdown(f"**Welcome back,**\n`{st.session_state.user_email}`")
+        st.success(f"**Logged in:**\n`{st.session_state.user_email}`")
         
         with st.expander("☁️ Cloud Sync"):
             col_s1, col_s2 = st.columns(2)
             if col_s1.button("Push", help="Sync to Cloud", use_container_width=True):
                 if db:
-                    current_prompt = st.session_state.get("custom_prompt_input", st.session_state.get("custom_prompt", ""))
+                    current_prompt = st.session_state.get("custom_prompt_v2", st.session_state.get("custom_prompt", ""))
                     current_api_key = st.session_state.get("api_key", "")
                     success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt, current_api_key)
                     if success: st.toast(msg)
@@ -877,10 +877,12 @@ with st.sidebar:
             st.rerun()
     else:
         st.info("Log in to sync data.")
-        with st.expander("🔑 Login / Register"):
-            login_email = st.text_input("Email").strip()
-            login_pwd = st.text_input("Password", type="password")
-            if st.button("Login", type="primary", use_container_width=True):
+        # 修正後的 Login Form，移除過多的自定義包裝以確保穩定
+        with st.form("sidebar_login_form"):
+            login_email = st.text_input("Email", key="login_email").strip()
+            login_pwd = st.text_input("Password", type="password", key="login_pwd")
+            login_btn = st.form_submit_button("Login", type="primary", use_container_width=True)
+            if login_btn:
                 if db:
                     success, msg = authenticate_user(db, login_email, login_pwd)
                     if success:
@@ -888,10 +890,17 @@ with st.sidebar:
                         st.session_state.user_email = login_email
                         st.rerun()
                     else: st.error(msg)
-            
-            st.markdown("---")
-            if st.button("Create Account", use_container_width=True):
-                st.info("Please fill the fields above and click 'Create' (Mockup)")
+
+        with st.expander("📝 Register New Account"):
+            with st.form("register_form"):
+                reg_email = st.text_input("Email", key="reg_email").strip()
+                reg_pwd = st.text_input("Password", type="password", key="reg_pwd")
+                reg_btn = st.form_submit_button("Register", use_container_width=True)
+                if reg_btn:
+                    if db:
+                        success, msg = register_user(db, reg_email, reg_pwd)
+                        if success: st.success(msg)
+                        else: st.error(msg)
 
     st.markdown("---")
     with st.expander("⚙️ Advanced Settings"):
@@ -929,7 +938,7 @@ with tab1:
             st.subheader("📥 Quick Import")
             st.write("Upload your current resume to bootstrap your profile.")
             uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-            if st.button("✨ Extract with AI", type="primary", use_container_width=True):
+            if st.button("✨ Extract with AI", type="primary", key="extract_btn", use_container_width=True):
                 if uploaded_pdf:
                     with st.status("Parsing PDF...", expanded=True):
                         success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
@@ -954,7 +963,7 @@ with tab1:
         language="json", theme="dracula", height=400,
         key=f"base_resume_editor_{st.session_state.base_editor_key}",
     )
-    if st.button("💾 Save Changes", use_container_width=True):
+    if st.button("💾 Save Changes", key="save_base_btn", use_container_width=True):
         try:
             st.session_state.resume_data = json.loads(edited_json)
             st.toast("✅ Base profile updated!")
@@ -978,18 +987,54 @@ with tab2:
         with col2:
             st.checkbox("Visa Sponsorship Check", value=True, key="check_visa_v2")
 
+        # --- 恢復：複製 Prompt 供外部 AI 使用 ---
+        if jd_input:
+            st.markdown("---")
+            st.write("##### 📋 Work with Other AIs (ChatGPT, Claude...)")
+            prompt_text = build_optimization_prompt(jd_input, st.session_state.custom_prompt_v2, st.session_state.enable_ats_v2, st.session_state.check_visa_v2, st.session_state.resume_data)
+            b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
+            
+            html_code = f"""
+            <button class="copy-btn" id="copyBtn" onclick="copyToClipboard()" style="
+                display: flex; align-items: center; justify-content: center;
+                font-weight: 500; padding: 0.5rem 1rem; border-radius: 8px;
+                min-height: 40px; margin: 0; line-height: 1.6;
+                color: #f8fafc; width: 100%; user-select: none;
+                background-color: #1e293b; border: 1px solid rgba(255, 255, 255, 0.1);
+                cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
+                📋 Copy Optimized Prompt for Other AIs
+            </button>
+            <script>
+            function copyToClipboard() {{
+                const b64 = "{b64_text}";
+                const text = decodeURIComponent(escape(window.atob(b64)));
+                navigator.clipboard.writeText(text).then(function() {{
+                    const btn = document.getElementById('copyBtn');
+                    btn.innerText = '✅ Copied to Clipboard!';
+                    btn.style.borderColor = '#00cc66';
+                    btn.style.color = '#00cc66';
+                    setTimeout(() => {{
+                        btn.innerText = '📋 Copy Optimized Prompt for Other AIs';
+                        btn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                        btn.style.color = '#f8fafc';
+                    }}, 2000);
+                }});
+            }}
+            </script>
+            """
+            components.html(html_code, height=60)
+
 # --- 3. Optimization Tab ---
 with tab3:
-    if not st.session_state.get("jd_input_v2"):
-        st.info("👈 Please provide the Job Description in the 'Target Job' tab first.")
-    else:
-        col_opt1, col_opt2 = st.columns([1, 1])
-        
-        with col_opt1:
+    col_main, col_import = st.columns([6, 4])
+    
+    with col_main:
+        if not st.session_state.get("jd_input_v2"):
+            st.info("👈 Please provide the Job Description in the 'Target Job' tab first.")
+        else:
             with st.container(border=True):
-                st.subheader("🚀 Run Optimization")
-                st.write("This will generate a customized version of your resume.")
-                if st.button("✨ Generate Optimized Resume", type="primary", use_container_width=True):
+                st.subheader("🚀 Run AI Optimization")
+                if st.button("✨ Generate Optimized Resume (Internal)", type="primary", use_container_width=True):
                     loading_overlay = st.empty()
                     loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...", st.session_state.animal_emoji, st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
                     
@@ -1004,20 +1049,51 @@ with tab3:
                     if success: st.success("Optimization Complete!")
                     else: st.error("Failed.")
 
-        with col_opt2:
-            with st.container(border=True):
+            if st.session_state.optimized_resume_data:
+                st.markdown("---")
                 st.subheader("📊 ATS Match Score")
                 if st.session_state.ats_metrics:
                     m = st.session_state.ats_metrics
-                    st.metric("Match Rate", f"{m['optimized_pct']}%", f"+{m['optimized_pct'] - m['original_pct']}% Improvement")
+                    col_m1, col_m2 = st.columns(2)
+                    col_m1.metric("Match Rate", f"{m['optimized_pct']}%", f"+{m['optimized_pct'] - m['original_pct']}%")
+                    col_m2.metric("Keywords Hit", f"{m['optimized_count']} / {m['total']}")
                     st.progress(m['optimized_pct'] / 100)
-                else:
-                    st.write("Run optimization to see your ATS score.")
+                
+                st.markdown("#### Analysis Report")
+                st.info(st.session_state.ai_report)
 
-        if st.session_state.optimized_resume_data:
-            st.markdown("---")
-            st.subheader("📝 Analysis Report")
-            st.info(st.session_state.ai_report)
+    with col_import:
+        with st.container(border=True):
+            st.subheader("📥 Import from External AI")
+            st.write("If you used ChatGPT/Claude with the copied prompt, paste the JSON result here.")
+            ext_json = st.text_area("Paste AI JSON response here", height=400, key="external_json_tab3")
+            if st.button("Apply External JSON", use_container_width=True):
+                if ext_json.strip():
+                    try:
+                        clean_str = ext_json.replace('```json', '').replace('```', '').strip()
+                        data = json.loads(clean_str)
+                        st.session_state.optimized_resume_data = data.get("optimized_resume", data)
+                        st.session_state.opt_editor_key += 1
+                        st.session_state.changelog = data.get("changelog", "Imported from external AI.")
+                        
+                        # Try to extract metrics if present
+                        if "keyword_analysis" in data:
+                            kw = data["keyword_analysis"]
+                            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
+                            orig_c = len(kw.get("original_hits", []))
+                            opt_c = len(kw.get("optimized_hits", []))
+                            st.session_state.ats_metrics = {
+                                "total": tot, "original_count": orig_c, "optimized_count": opt_c,
+                                "original_pct": int((orig_c/tot)*100) if tot>0 else 0,
+                                "optimized_pct": int((opt_c/tot)*100) if tot>0 else 0,
+                                "optimized_hits": kw.get("optimized_hits", []),
+                                "newly_added": kw.get("newly_added", []),
+                                "missing_keywords": kw.get("missing_keywords", [])
+                            }
+                        st.success("External JSON applied!")
+                        st.rerun()
+                    except: st.error("Failed to parse JSON. Please check the format.")
+                else: st.warning("Please paste some content.")
 
 # --- 4. Review & Export Tab ---
 with tab4:
