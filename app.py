@@ -276,6 +276,27 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
                 "missing_keywords": kw.get("missing_keywords", [])
             }
 
+        return True, report_md # <--- 修正：補回成功回傳
+    except Exception as e:
+        return False, f"⚠️ AI execution error: {e}"
+            kw = ai_result["keyword_analysis"]
+            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
+            orig_c = len(kw.get("original_hits", []))
+            opt_c = len(kw.get("optimized_hits", []))
+            orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
+            opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
+
+            st.session_state.ats_metrics = {
+                "total": tot,
+                "original_count": orig_c,
+                "optimized_count": opt_c,
+                "original_pct": orig_pct,
+                "optimized_pct": opt_pct,
+                "optimized_hits": kw.get("optimized_hits", []),
+                "newly_added": kw.get("newly_added", []),
+                "missing_keywords": kw.get("missing_keywords", [])
+            }
+
         return True, report_md
     except Exception as e:
         return False, f"⚠️ AI execution error: {e}"
