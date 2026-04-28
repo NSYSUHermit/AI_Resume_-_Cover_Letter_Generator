@@ -445,7 +445,7 @@ def render_dashboard(db, email: str):
                             }}
                             </script>
                             """
-                            st.components.v1.html(html_copy_json, height=38)
+                            st.html(html_copy_json)
                             
                     with c_actions:
                         current_notes = app_data.get("notes", "")

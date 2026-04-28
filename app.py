@@ -216,14 +216,14 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         api_key = st.session_state.get("api_key", "")
         if not api_key:
             return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
-            
+
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model_name = st.session_state.get("ai_model", "gemini-1.5-flash")
         model = genai.GenerativeModel(model_name)
         report_md = ""
-        
+
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
-        
+
         # Single API call
         response = model.generate_content(
             final_prompt,
@@ -232,7 +232,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             )
         )
         raw_text = response.text.strip()
-        
+
         try:
             ai_result = json.loads(raw_text)
         except json.JSONDecodeError as json_err:
@@ -242,14 +242,14 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         if ai_result.get("visa_blocked"):
             report_md = f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {ai_result.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization."
             return False, report_md
-        
+
         # If not blocked, proceed
         report_md += "✅ **Visa check passed! No explicit sponsorship barriers found.**\n\n---\n" if check_visa else ""
 
         modified_resume_data = ai_result.get("optimized_resume", {})
         if not modified_resume_data:
             return False, "⚠️ Parsing Error: Could not find optimized resume data."
-            
+
         st.session_state.optimized_resume_data = modified_resume_data
         st.session_state.opt_editor_key += 1
         st.session_state.optimized_resume_saved_time = None
@@ -261,7 +261,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
             tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
             orig_c = len(kw.get("original_hits", []))
             opt_c = len(kw.get("optimized_hits", []))
-            
+
             st.session_state.ats_metrics = {
                 "total": tot,
                 "original_count": orig_c,
@@ -276,9 +276,6 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         return True, report_md
     except Exception as e:
         return False, f"⚠️ AI execution error: {e}"
-    except Exception as e:
-        return False, f"⚠️ AI execution error: {e}"
-
 def predict_interview_questions(jd_text, resume_data):
     """Predict potential interview questions based on JD and Resume."""
     try:
@@ -642,7 +639,7 @@ def render_pdf_js(pdf_bytes, height=650):
     </body>
     </html>
     """
-    components.html(pdf_js_html, height=height, scrolling=True)
+    st.html(pdf_js_html)
 
 # ---------------------------------------------------------
 # Custom Premium UI Components (Glassmorphism & Overlays)
@@ -743,7 +740,7 @@ def show_diff_dialog(base_json, opt_json):
     </style>
     """
     html_diff = html_diff.replace("</head>", custom_css + "</head>")
-    components.html(html_diff, height=650, scrolling=True)
+    st.html(html_diff)
 
 # ---------------------------------------------------------
 # Streamlit UI 介面
@@ -985,7 +982,7 @@ with tab2:
                     st.session_state.ai_report = report
                     loading_overlay.empty()
                     if success: st.success("Done! Check 'ATS Analysis' tab.")
-                    else: st.error("Failed.")
+                    else: st.error(f"❌ Optimization Failed: {report}")
 
         with c_copy:
             # 準備 Prompt 文字
@@ -1023,7 +1020,8 @@ with tab2:
             }}
             </script>
             """
-            components.html(html_code, height=44)
+            st.html(html_code)
+
 
 # --- 3. ATS Analysis Tab ---
 with tab3:
