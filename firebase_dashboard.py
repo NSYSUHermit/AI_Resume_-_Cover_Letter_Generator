@@ -408,18 +408,23 @@ def render_dashboard(db, email: str):
                                 st.json(app_data.get("resume_json", {}))
                         
                         with col_copy:
-                            # --- 📋 一鍵複製 JSON 功能 ---
+                            # --- 📋 一鍵複製 JSON 功能 (修正對齊版本) ---
                             import base64
                             resume_json_str = json.dumps(app_data.get("resume_json", {}), ensure_ascii=False, indent=4)
                             b64_resume = base64.b64encode(resume_json_str.encode('utf-8')).decode('utf-8')
                             
                             html_copy_json = f"""
-                            <button id="copyJsonBtn_{doc_id}" onclick="copyJson()" style="
-                                width:100%; height:38px; border-radius:8px; 
-                                background:#1e293b; color:white; border:1px solid #444; 
-                                cursor:pointer; font-weight:500; font-size: 13px;">
-                                📋 Copy JSON
-                            </button>
+                            <body style="margin:0; padding:0; background:transparent;">
+                                <button id="copyJsonBtn_{doc_id}" onclick="copyJson()" style="
+                                    width:100%; height:38px; border-radius:8px; 
+                                    background:#1e293b; color:white; border:1px solid rgba(255,255,255,0.2); 
+                                    cursor:pointer; font-weight:400; font-size: 14px;
+                                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                                    display: flex; align-items: center; justify-content: center;
+                                    transition: border-color 0.2s;">
+                                    📋 Copy JSON
+                                </button>
+                            </body>
                             <script>
                             function copyJson() {{
                                 const b64 = "{b64_resume}";
@@ -429,16 +434,18 @@ def render_dashboard(db, email: str):
                                     btn.innerText = '✅ Copied!';
                                     btn.style.borderColor = '#059669';
                                     btn.style.color = '#34d399';
+                                    btn.style.backgroundColor = '#064e3b10';
                                     setTimeout(() => {{
                                         btn.innerText = '📋 Copy JSON';
-                                        btn.style.borderColor = '#444';
+                                        btn.style.borderColor = 'rgba(255,255,255,0.2)';
                                         btn.style.color = 'white';
+                                        btn.style.backgroundColor = '#1e293b';
                                     }}, 2000);
                                 }});
                             }}
                             </script>
                             """
-                            st.components.v1.html(html_copy_json, height=45)
+                            st.components.v1.html(html_copy_json, height=38)
                             
                     with c_actions:
                         current_notes = app_data.get("notes", "")

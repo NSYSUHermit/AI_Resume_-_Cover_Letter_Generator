@@ -1068,37 +1068,18 @@ with tab3:
 # --- Dialog: 最終微調編輯器 ---
 @st.dialog("🛠️ Final Tweaks (Edit Optimized JSON)", width="large")
 def edit_optimized_dialog():
-    st.write("Adjust the AI-generated content. Saving will automatically update the PDF preview.")
+    st.write("Adjust the AI-generated content below. Click 'Save' to update the data, then use the main 'Generate' button to refresh the PDF.")
     edited_opt_json = st_ace.st_ace(
         value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
         language="json", theme="dracula", height=500,
         auto_update=True,
         key=f"opt_editor_dialog_{st.session_state.opt_editor_key}"
     )
-    if st.button("💾 Save & Refresh All", use_container_width=True):
+    if st.button("💾 Save Changes", use_container_width=True):
         try:
-            # 1. 儲存 JSON 到 Session
-            new_data = json.loads(edited_opt_json)
-            st.session_state.optimized_resume_data = new_data
+            st.session_state.optimized_resume_data = json.loads(edited_opt_json)
             st.session_state.opt_editor_key += 1
-            
-            # 2. 自動執行重新編譯 (與主介面同步)
-            selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
-            clean_company = new_data.get('target_company', 'Company').replace(' ', '_')
-            clean_role = new_data.get('target_role', 'Role').replace(' ', '_')
-            
-            with st.spinner("Recompiling documents..."):
-                resume_bytes, _ = generate_preview_pdf_bytes(new_data, selected_tex, block_order=st.session_state.block_order_v2)
-                if resume_bytes:
-                    st.session_state.resume_preview_bytes = resume_bytes
-                    st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"{clean_company}_{clean_role}_Resume.pdf", "word_bytes": generate_word_from_json(new_data, st.session_state.block_order_v2)}
-                
-                cl_bytes, _, _ = generate_cover_letter_pdf_bytes(new_data)
-                if cl_bytes:
-                    st.session_state.cover_letter_preview_bytes = cl_bytes
-                    st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": f"{clean_company}_{clean_role}_Coverletter.pdf", "word_bytes": generate_cover_letter_word_bytes(new_data)}
-            
-            st.success("✅ Saved and preview updated!")
+            st.success("✅ Changes saved locally!")
             st.rerun()
         except Exception as e:
             st.error(f"Format error: {e}")
@@ -1113,15 +1094,34 @@ with tab4:
             with st.container(border=True):
                 st.subheader("🛠️ Settings & Export")
                 
+                # --- 📝 修改資料入口 ---
+                if st.button("📝 Edit Optimized Data", use_container_width=True, help="Open pop-out editor to modify data."):
+                    edit_optimized_dialog()
+                
+                st.markdown("---")
+                st.subheader("🎨 PDF Style")
                 st.selectbox("Template", ["💻 Tech (Modern)", "📈 Consulting (Classic)"], key="tmpl_select")
                 st.multiselect("Block Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"], key="block_order_v2")
                 
                 st.markdown("---")
-                # --- 🚀 唯一的互動入口 ---
-                if st.button("📝 Tweak Content & Refresh", type="primary", use_container_width=True, help="Open editor to modify data and refresh the preview."):
-                    edit_optimized_dialog()
-                
-                st.caption("Tip: Editing content via the button above will automatically refresh the preview on the right.")
+                # --- 🚀 獨立生成按鈕 ---
+                if st.button("🚀 Generate & Refresh Preview", type="primary", use_container_width=True, help="Compile LaTeX to generate the latest PDF and Cover Letter."):
+                    data_to_use = st.session_state.optimized_resume_data
+                    selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
+                    
+                    with st.spinner("Compiling documents..."):
+                        resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
+                        if resume_bytes:
+                            st.session_state.resume_preview_bytes = resume_bytes
+                            clean_company = data_to_use.get('target_company', 'Company').replace(' ', '_')
+                            clean_role = data_to_use.get('target_role', 'Role').replace(' ', '_')
+                            st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"{clean_company}_{clean_role}_Resume.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
+                        
+                        cl_bytes, _, _ = generate_cover_letter_pdf_bytes(data_to_use)
+                        if cl_bytes:
+                            st.session_state.cover_letter_preview_bytes = cl_bytes
+                            st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": f"{clean_company}_{clean_role}_Coverletter.pdf", "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
+                        st.toast("✅ Documents successfully generated!")
 
         with col_preview_right:
             st.subheader("📄 Preview")
