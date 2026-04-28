@@ -784,7 +784,7 @@ st.markdown("""
         margin-top: 1rem !important;
     }
 
-    /* Button Styling */
+    /* Button Styling - Specific selectors to avoid icon interference */
     .stButton > button {
         border-radius: 8px !important;
         font-weight: 500 !important;
@@ -792,6 +792,12 @@ st.markdown("""
         text-transform: none !important;
     }
     
+    /* Protect Streamlit internal Icons from global font overrides */
+    [data-testid="stIcon"], .st-emotion-cache-1vt4y6f, .st-key-internal, span[data-testid="stIconMaterial"], [data-testid="stExpanderChevron"], [data-testid="stSidebarNav"] * {
+        font-family: 'Material Icons' !important;
+        font-feature-settings: 'liga' !important;
+    }
+
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
         border: none !important;
@@ -846,6 +852,23 @@ with st.sidebar:
     st.markdown("### 🚀 AI Resume Gen")
     st.markdown("---")
     
+    # 📥 側邊欄快速上傳
+    with st.expander("📥 Quick PDF Import", expanded=not st.session_state.logged_in):
+        side_pdf = st.file_uploader("Upload Resume", type=["pdf"], key="side_uploader")
+        if st.button("✨ Extract Data", type="primary", key="side_extract", use_container_width=True):
+            if side_pdf:
+                loading_overlay = st.empty()
+                loading_overlay.markdown(get_glass_overlay_html("Parsing PDF...", st.session_state.get('animal_emoji', '🐕')), unsafe_allow_html=True)
+                success, msg, parsed_json = parse_pdf_resume_to_json(side_pdf.getvalue(), st.session_state.get("api_key", ""))
+                loading_overlay.empty()
+                if success:
+                    st.session_state.resume_data = parsed_json
+                    st.session_state.base_editor_key += 1
+                    st.toast("✅ Profile extracted!")
+                    st.rerun()
+                else: st.error(msg)
+            else: st.warning("Please upload a PDF.")
+
     if st.session_state.logged_in:
         st.success(f"**Logged in:**\n`{st.session_state.user_email}`")
         
@@ -888,6 +911,20 @@ with st.sidebar:
                     if success:
                         st.session_state.logged_in = True
                         st.session_state.user_email = login_email
+                        
+                        # 🔄 自動載入雲端資料
+                        loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, login_email)
+                        if loaded_resume:
+                            st.session_state.resume_data = loaded_resume
+                            st.session_state.base_editor_key += 1
+                        if loaded_prompt:
+                            st.session_state.custom_prompt = loaded_prompt
+                            # 確保新版 UI 的 key 也能同步
+                            st.session_state.custom_prompt_v2 = loaded_prompt
+                        if loaded_key:
+                            st.session_state.api_key = loaded_key
+                            
+                        st.toast("Welcome! Your profile has been synchronized.")
                         st.rerun()
                     else: st.error(msg)
 
