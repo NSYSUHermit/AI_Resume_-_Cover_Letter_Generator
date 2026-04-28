@@ -1078,7 +1078,7 @@ with tab4:
                 st.markdown("---")
                 st.subheader("🎨 PDF Style")
                 st.selectbox("Template", ["💻 Tech (Modern)", "📈 Consulting (Classic)"], key="tmpl_select")
-                st.multiselect("Block Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Experience", "Education", "Skills"], key="block_order_v2")
+                st.multiselect("Block Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"], key="block_order_v2")
                 
                 if st.button("🔄 Refresh Preview", type="primary", use_container_width=True):
                     data_to_use = st.session_state.optimized_resume_data
