@@ -806,7 +806,7 @@ def preview_base_profile():
 
 # --- Sidebar Settings ---
 with st.sidebar:
-    st.markdown("### 🚀 AI Resume Gen")
+    st.markdown("### 🚀 AI Resume Generator")
     st.markdown("---")
     
     if st.session_state.logged_in:
