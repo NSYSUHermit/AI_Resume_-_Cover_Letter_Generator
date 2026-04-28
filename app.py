@@ -1043,6 +1043,24 @@ with tab3:
                 st.error("❌ Missing")
                 for k in m['missing_keywords']: st.markdown(f"- `{k}`")
 
+# --- Dialog: 最終微調編輯器 ---
+@st.dialog("🛠️ Final Tweaks (Edit Optimized JSON)", width="large")
+def edit_optimized_dialog():
+    st.write("Make precision adjustments to the AI-generated content below.")
+    edited_opt_json = st_ace.st_ace(
+        value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
+        language="json", theme="dracula", height=500,
+        key=f"opt_editor_dialog_{st.session_state.opt_editor_key}"
+    )
+    if st.button("💾 Save Changes", use_container_width=True):
+        try:
+            st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+            st.session_state.opt_editor_key += 1
+            st.success("✅ Changes saved locally!")
+            st.rerun()
+        except:
+            st.error("Invalid JSON format.")
+
 # --- 4. Review & Export Tab ---
 with tab4:
     if not st.session_state.optimized_resume_data:
@@ -1051,45 +1069,69 @@ with tab4:
         col_preview_left, col_preview_right = st.columns([4, 6])
         with col_preview_left:
             with st.container(border=True):
-                st.subheader("🛠️ Final Tweaks")
-                edited_opt_json = st_ace.st_ace(
-                    value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
-                    language="json", theme="dracula", height=450,
-                    key=f"opt_editor_step4_{st.session_state.opt_editor_key}"
-                )
+                st.subheader("🛠️ Settings & Export")
+                
+                # --- 🚀 彈窗觸發按鈕 ---
+                if st.button("📝 Tweak Optimized Data", use_container_width=True, help="Pop out the JSON editor for final manual adjustments."):
+                    edit_optimized_dialog()
+                
                 st.markdown("---")
                 st.subheader("🎨 PDF Style")
                 st.selectbox("Template", ["💻 Tech (Modern)", "📈 Consulting (Classic)"], key="tmpl_select")
                 st.multiselect("Block Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Experience", "Education", "Skills"], key="block_order_v2")
                 
-                if st.button("🔄 Save & Refresh Preview", type="primary", use_container_width=True):
-                    try:
-                        st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-                        data_to_use = st.session_state.optimized_resume_data
-                        selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
-                        with st.spinner("Generating..."):
-                            resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
-                            if resume_bytes:
-                                st.session_state.resume_preview_bytes = resume_bytes
-                                st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"Resume_{data_to_use.get('target_company','AI')}.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
-                            cl_bytes, cl_name, _ = generate_cover_letter_pdf_bytes(data_to_use)
-                            if cl_bytes:
-                                st.session_state.cover_letter_preview_bytes = cl_bytes
-                                st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": cl_name, "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
-                        st.toast("✅ Updated!")
-                    except: st.error("Invalid JSON.")
+                if st.button("🔄 Refresh Preview", type="primary", use_container_width=True):
+                    data_to_use = st.session_state.optimized_resume_data
+                    selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
+                    with st.spinner("Generating..."):
+                        resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
+                        if resume_bytes:
+                            st.session_state.resume_preview_bytes = resume_bytes
+                            st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"Resume_{data_to_use.get('target_company','AI')}.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
+                        cl_bytes, cl_name, _ = generate_cover_letter_pdf_bytes(data_to_use)
+                        if cl_bytes:
+                            st.session_state.cover_letter_preview_bytes = cl_bytes
+                            st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": cl_name, "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
+                        st.toast("✅ Documents ready!")
 
         with col_preview_right:
             st.subheader("📄 Preview")
+            
+            # --- 🔄 Job Tracker 同步選項 ---
+            do_sync = False
+            if st.session_state.logged_in:
+                do_sync = st.checkbox("📈 Sync to Job Tracker upon download", value=True, help="Automatically log this application in your dashboard when you download.")
+
+            def trigger_sync():
+                if do_sync and db and st.session_state.logged_in:
+                    data = st.session_state.optimized_resume_data
+                    company = data.get("target_company", "Unknown")
+                    jd_text = st.session_state.get("jd_input_v2", "")
+                    if save_application(db, st.session_state.user_email, company, data, jd_text):
+                        st.toast(f"✅ Application for {company} synced to Tracker!")
+
             prev_type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
+            
             if prev_type == "Resume" and st.session_state.resume_preview_bytes:
-                st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], use_container_width=True)
+                st.download_button(
+                    "📥 Download PDF", 
+                    st.session_state.resume_dl_data["bytes"], 
+                    st.session_state.resume_dl_data["name"], 
+                    use_container_width=True,
+                    on_click=trigger_sync
+                )
                 render_pdf_js(st.session_state.resume_preview_bytes, height=750)
             elif prev_type == "Cover Letter" and st.session_state.cover_letter_preview_bytes:
-                st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], use_container_width=True)
+                st.download_button(
+                    "📥 Download PDF", 
+                    st.session_state.cl_dl_data["bytes"], 
+                    st.session_state.cl_dl_data["name"], 
+                    use_container_width=True,
+                    on_click=trigger_sync
+                )
                 render_pdf_js(st.session_state.cover_letter_preview_bytes, height=750)
             else:
-                st.info("Click '🔄 Save & Refresh Preview' to see document.")
+                st.info("Click '🔄 Refresh Preview' to see document.")
 
 # --- 5. Tracker Tab ---
 with tab5:
