@@ -399,11 +399,46 @@ def render_dashboard(db, email: str):
                             st.markdown(f"**Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
                         
                         st.write("")
-                        with st.popover("View Documents & JD", use_container_width=True):
-                            st.markdown("**Job Description:**")
-                            st.info(app_data.get("jd_text", "No JD saved for this application."))
-                            st.markdown("**Saved Resume JSON:**")
-                            st.json(app_data.get("resume_json", {}))
+                        col_view, col_copy = st.columns(2)
+                        with col_view:
+                            with st.popover("👁️ View Data", use_container_width=True):
+                                st.markdown("**Job Description:**")
+                                st.info(app_data.get("jd_text", "No JD saved."))
+                                st.markdown("**Saved Resume JSON:**")
+                                st.json(app_data.get("resume_json", {}))
+                        
+                        with col_copy:
+                            # --- 📋 一鍵複製 JSON 功能 ---
+                            import base64
+                            resume_json_str = json.dumps(app_data.get("resume_json", {}), ensure_ascii=False, indent=4)
+                            b64_resume = base64.b64encode(resume_json_str.encode('utf-8')).decode('utf-8')
+                            
+                            html_copy_json = f"""
+                            <button id="copyJsonBtn_{doc_id}" onclick="copyJson()" style="
+                                width:100%; height:38px; border-radius:8px; 
+                                background:#1e293b; color:white; border:1px solid #444; 
+                                cursor:pointer; font-weight:500; font-size: 13px;">
+                                📋 Copy JSON
+                            </button>
+                            <script>
+                            function copyJson() {{
+                                const b64 = "{b64_resume}";
+                                const text = decodeURIComponent(escape(window.atob(b64)));
+                                navigator.clipboard.writeText(text).then(() => {{
+                                    const btn = document.getElementById('copyJsonBtn_{doc_id}');
+                                    btn.innerText = '✅ Copied!';
+                                    btn.style.borderColor = '#059669';
+                                    btn.style.color = '#34d399';
+                                    setTimeout(() => {{
+                                        btn.innerText = '📋 Copy JSON';
+                                        btn.style.borderColor = '#444';
+                                        btn.style.color = 'white';
+                                    }}, 2000);
+                                }});
+                            }}
+                            </script>
+                            """
+                            st.components.v1.html(html_copy_json, height=45)
                             
                     with c_actions:
                         current_notes = app_data.get("notes", "")
