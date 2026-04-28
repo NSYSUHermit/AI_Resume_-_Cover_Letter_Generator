@@ -745,571 +745,352 @@ def show_diff_dialog(base_json, opt_json):
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
+# 🎨 Custom Modern CSS (Shadcn/UI Inspired)
+st.markdown("""
+<style>
+    /* Global Styles */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    html, body, [class*="st-"] {
+        font-family: 'Inter', sans-serif;
+    }
+
+    /* Main Container Padding */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+    }
+
+    /* Card Styling */
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {
+        background-color: #ffffff05;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px !important;
+        padding: 1.5rem !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    /* Header Styling */
+    h1 {
+        font-weight: 700 !important;
+        letter-spacing: -0.025em !important;
+        color: #f8fafc !important;
+    }
+    
+    h2, h3 {
+        font-weight: 600 !important;
+        color: #f1f5f9 !important;
+        margin-top: 1rem !important;
+    }
+
+    /* Button Styling */
+    .stButton > button {
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+        text-transform: none !important;
+    }
+    
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
+        border: none !important;
+        color: white !important;
+        padding: 0.5rem 1rem !important;
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: transparent;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 40px;
+        white-space: pre;
+        background-color: #1e293b;
+        border-radius: 8px 8px 0px 0px;
+        color: #94a3b8;
+        padding: 0px 20px;
+        border: none;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #334155 !important;
+        color: #f8fafc !important;
+        border-bottom: 2px solid #6366f1 !important;
+    }
+
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background-color: #0f172a;
+    }
+
+    /* Tooltip/Caption */
+    .stCaption {
+        color: #64748b !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 db = init_firebase()
 
 # --- Sidebar Settings ---
 with st.sidebar:
-    st.header("👤 Account")
+    st.markdown("### 🚀 AI Resume Gen")
+    st.markdown("---")
+    
     if st.session_state.logged_in:
-        st.success(f"Logged in as: {st.session_state.user_email}")
+        st.markdown(f"**Welcome back,**\n`{st.session_state.user_email}`")
+        
+        with st.expander("☁️ Cloud Sync"):
+            col_s1, col_s2 = st.columns(2)
+            if col_s1.button("Push", help="Sync to Cloud", use_container_width=True):
+                if db:
+                    current_prompt = st.session_state.get("custom_prompt_input", st.session_state.get("custom_prompt", ""))
+                    current_api_key = st.session_state.get("api_key", "")
+                    success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt, current_api_key)
+                    if success: st.toast(msg)
+                    else: st.error(msg)
+            
+            if col_s2.button("Pull", help="Load from Cloud", use_container_width=True):
+                if db:
+                    loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, st.session_state.user_email)
+                    if loaded_resume:
+                        st.session_state.resume_data = loaded_resume
+                        st.session_state.base_editor_key += 1
+                    if loaded_prompt:
+                        st.session_state.custom_prompt = loaded_prompt
+                    if loaded_key:
+                        st.session_state.api_key = loaded_key
+                    st.rerun()
 
-        if st.button("☁️ Sync Base Profile to Cloud"):
-            if db:
-                current_prompt = st.session_state.get("custom_prompt_input", st.session_state.get("custom_prompt", ""))
-                current_api_key = st.session_state.get("api_key", "")
-                success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt, current_api_key)
-                if success:
-                    st.toast(msg)
-                else:
-                    st.error(msg)
-                    
-        if st.button("⬇️ Pull Data from Cloud"):
-            if db:
-                loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, st.session_state.user_email)
-                if loaded_resume:
-                    st.session_state.resume_data = loaded_resume
-                    st.session_state.base_editor_key += 1
-                    st.toast("✅ Base resume loaded from cloud.")
-                if loaded_prompt:
-                    st.session_state.custom_prompt = loaded_prompt
-                    st.session_state.custom_prompt_input = loaded_prompt
-                    st.toast("✅ Custom prompt loaded from cloud.")
-                if loaded_key:
-                    st.session_state.api_key = loaded_key
-                    st.toast("✅ API Key loaded from cloud.")
-                st.rerun()
-
-        if st.button("🚪 Logout"):
+        if st.button("🚪 Logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.user_email = ""
             st.rerun()
     else:
-        st.info("Log in to sync and track your job applications.")
-        with st.form("login_form"):
-            login_email = st.text_input("Email", key="sidebar_login_email").strip()
-            login_pwd = st.text_input("Password", type="password", key="sidebar_login_pwd")
-            login_submitted = st.form_submit_button("Login")
-            if login_submitted:
-                if db is None:
-                    st.error("Firebase connection failed.")
-                else:
+        st.info("Log in to sync data.")
+        with st.expander("🔑 Login / Register"):
+            login_email = st.text_input("Email").strip()
+            login_pwd = st.text_input("Password", type="password")
+            if st.button("Login", type="primary", use_container_width=True):
+                if db:
                     success, msg = authenticate_user(db, login_email, login_pwd)
                     if success:
                         st.session_state.logged_in = True
                         st.session_state.user_email = login_email
-                        
-                        loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, login_email)
-                        if loaded_resume:
-                            st.session_state.resume_data = loaded_resume
-                            st.session_state.base_editor_key += 1
-                            st.toast("✅ Base resume loaded from cloud.")
-                        if loaded_prompt:
-                            st.session_state.custom_prompt = loaded_prompt
-                            st.session_state.custom_prompt_input = loaded_prompt
-                            st.toast("✅ Custom prompt loaded from cloud.")
-                        if loaded_key:
-                            st.session_state.api_key = loaded_key
-                            st.toast("✅ API Key loaded from cloud.")
                         st.rerun()
-                    else:
-                        st.error(msg)
-
-        with st.expander("📝 Don't have an account? Register here"):
-            with st.form("register_form"):
-                reg_email = st.text_input("Email", key="sidebar_reg_email").strip()
-                reg_pwd = st.text_input("Password", type="password", key="sidebar_reg_pwd")
-                reg_pwd_confirm = st.text_input("Confirm Password", type="password", key="sidebar_reg_pwd_confirm")
-                reg_submitted = st.form_submit_button("Register")
-                if reg_submitted:
-                    if reg_pwd != reg_pwd_confirm:
-                        st.error("Passwords do not match!")
-                    elif len(reg_pwd) < 6:
-                        st.error("Password must be at least 6 characters long.")
-                    else:
-                        success, msg = register_user(db, reg_email, reg_pwd)
-                        if success:
-                            st.success(msg)
-                        else:
-                            st.error(msg)
+                    else: st.error(msg)
+            
+            st.markdown("---")
+            if st.button("Create Account", use_container_width=True):
+                st.info("Please fill the fields above and click 'Create' (Mockup)")
 
     st.markdown("---")
-    st.header("⚙️ Settings")
-    st.text_input("🔑 Google Gemini API Key", type="password", key="api_key", help="API Key is required to use AI features.")
-    
-    ai_model_choice = st.selectbox(
-        "🧠 AI Model",
-        ["gemini-2.5-flash", "gemini-2.5-pro"],
-        index=0,
-        help="Select the Gemini model to use for generation."
-    )
-    st.session_state.ai_model = ai_model_choice
-    st.markdown("---")
-    
-    st.header("🏃 Loading Animation")
-    animal_choice = st.selectbox(
-        "Choose your runner",
-        ["🦦 Otter", "🦫 Beaver", "🥟🥟 Dumplings", "🏂 Henry", "🐕 Dog", "🐅 Tiger", "🦖 T-Rex", "🐎 Horse", "🐢 Turtle", "🏃 Human"],
-        index=0
-    )
-    st.session_state.animal_emoji = animal_choice.split(" ")[0]
-    
-    theme_color_choice = st.color_picker("Choose theme color", "#8a2be2")
-    st.session_state.theme_color = theme_color_choice
-    
-    st.markdown("---")
-    st.markdown("👉 [Get Gemini API Key for free](https://aistudio.google.com/app/apikey)")
-    st.markdown("👨‍💻 **Developed by [NSYSUHermit](https://github.com/NSYSUHermit)**")
+    with st.expander("⚙️ Advanced Settings"):
+        st.text_input("🔑 Gemini API Key", type="password", key="api_key")
+        st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
+        st.color_picker("Brand Color", "#8a2be2", key="theme_color")
+        st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
+        st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
 
-st.title("🚀 AI-Powered Resume Builder")
-st.write("Combine Gemini AI with LaTeX to write, optimize, and export high-quality PDF resumes and cover letters effortlessly.")
+    st.markdown("---")
+    st.caption("Developed by NSYSUHermit")
+
+# --- Main UI ---
+st.title("🚀 Professional AI Resume")
+st.markdown("Elevate your job application with AI-optimized content and high-quality LaTeX templates.")
+
+# 進度指示 (Visual Aid)
+step_cols = st.columns(5)
+steps = ["1. Source", "2. Target", "3. Optimize", "4. Review", "5. Tracker"]
+for i, step in enumerate(steps):
+    with step_cols[i]:
+        st.markdown(f"<p style='text-align: center; color: {'#6366f1' if i < 4 else '#64748b'}; font-weight: bold;'>{step}</p>", unsafe_allow_html=True)
+        st.progress(100 if i < 3 else 0)
 
 st.markdown("---")
-st.subheader("📝 Current Data Status")
 
-@st.dialog("Base Profile Content", width="large")
-def preview_base_profile():
-    st.json(st.session_state.resume_data)
-
-@st.dialog("Optimized Profile Content", width="large")
-def preview_optimized_profile():
-    st.json(st.session_state.optimized_resume_data)
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("👁️ Preview Base Profile", use_container_width=True):
-        preview_base_profile()
-    if st.session_state.get("base_resume_saved_time"):
-        st.caption(f"💾 Base Saved: {st.session_state.base_resume_saved_time}")
-
-with col2:
-    if st.session_state.optimized_resume_data:
-        if st.button("👁️ Preview Optimized Profile", use_container_width=True):
-            preview_optimized_profile()
-        if st.session_state.get("optimized_resume_saved_time"):
-            st.caption(f"💾 Optimized Saved: {st.session_state.optimized_resume_saved_time}")
-    else:
-        st.button("👁️ Preview Optimized Profile", disabled=True, use_container_width=True)
-        st.caption("🚫 Not generated yet")
-st.markdown("---")
-
-tab1, tab2, tab3, tab4, tab5 = st.tabs([" Base Profile ", " AI Optimizer ", " ATS Analysis ", " Editor & Export ", " Job Tracker "])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source Profile ", " 🎯 Target Job ", " ✨ AI Optimization ", " 📝 Review & Export ", " 📈 Job Tracker "])
 
 # --- 1. Base Profile Tab ---
 with tab1:
-    st.header("👤 Edit Your Base Profile")
-    st.info("This is your **Base Template**. AI will always use this as the ground truth for optimizations. Remember to click 'Save Changes' below.")
+    col_left, col_right = st.columns([1, 1])
     
-    with st.container(border=True):
-        st.subheader("📥 Auto-Fill from PDF")
-        st.write("Upload your existing PDF resume, and let Gemini AI automatically extract and fill the JSON for you!")
-        uploaded_pdf = st.file_uploader("Upload your current PDF resume", type=["pdf"])
-        if st.button("✨ Auto-Fill JSON from PDF", type="primary", use_container_width=True):
-            if uploaded_pdf is None:
-                st.warning("Please upload a PDF file first.")
-            else:
-                loading_overlay = st.empty()
-                loading_overlay.markdown(get_glass_overlay_html("Extracting data from PDF...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+    with col_left:
+        with st.container(border=True):
+            st.subheader("📥 Quick Import")
+            st.write("Upload your current resume to bootstrap your profile.")
+            uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
+            if st.button("✨ Extract with AI", type="primary", use_container_width=True):
+                if uploaded_pdf:
+                    with st.status("Parsing PDF...", expanded=True):
+                        success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
+                        if success:
+                            st.session_state.resume_data = parsed_json
+                            st.session_state.base_editor_key += 1
+                            st.success("Done!")
+                            st.rerun()
+                        else: st.error(msg)
+                else: st.warning("Please upload a PDF.")
 
-                success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
+    with col_right:
+        with st.container(border=True):
+            st.subheader("📋 Manual Edit")
+            st.write("Refine your base data directly in the JSON editor below.")
+            if st.button("👁️ Preview Raw JSON", use_container_width=True):
+                preview_base_profile()
 
-                loading_overlay.empty()
-                if success and parsed_json:
-                    st.session_state.resume_data = parsed_json
-                    st.session_state.base_editor_key += 1
-                    st.toast(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
-
-    json_str = json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False)
+    st.markdown("#### Base Profile Editor")
     edited_json = st_ace.st_ace(
-        value=json_str,
-        language="json",
-        theme="dracula",
-        height=500,
+        value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False),
+        language="json", theme="dracula", height=400,
         key=f"base_resume_editor_{st.session_state.base_editor_key}",
-        font_size=14,
-        tab_size=2,
-        show_gutter=True,
-        auto_update=False,
     )
-    
-    if st.button("💾 Save JSON Changes", type="primary"):
+    if st.button("💾 Save Changes", use_container_width=True):
         try:
             st.session_state.resume_data = json.loads(edited_json)
-            st.session_state.base_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.success("JSON data saved successfully!")
-        except Exception as e:
-            st.error(f"JSON format error, please check syntax: {e}")
+            st.toast("✅ Base profile updated!")
+        except: st.error("Invalid JSON format.")
 
-# --- 2. AI Customization Tab ---
+# --- 2. Target Job Tab ---
 with tab2:
-    st.header("🤖 Auto-Optimize Resume based on JD")
-    col1, col2 = st.columns(2)
-    enable_ats = col1.checkbox("Enable ATS Keyword Analysis", value=True)
-    check_visa = col2.checkbox("Check Visa/Sponsorship Restrictions", value=True)
-    
-    jd_input = st.text_area("📄 Paste the Target Job Description (JD)", height=250, key="jd_input_for_cl")
-    custom_prompt = st.text_area(
-        "🗣️ Custom Prompt (Optional)", 
-        value=st.session_state.get("custom_prompt", "Make the experiences sound more aggressive and impactful. Focus on system optimization and microservices keywords."),
-        key="custom_prompt_input"
-    )
-    
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        run_ai = st.button("🚀 Start AI Optimization", type="primary", use_container_width=True)
-    with col_btn2:
-        if not jd_input:
-            show_prompt = st.button("📋 Copy Prompt for Other AIs", use_container_width=True)
-            if show_prompt:
-                st.warning("Please paste the JD content first!")
-        else:
-            prompt_text = build_optimization_prompt(jd_input, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
-            # 將 Prompt 轉換成 Base64，確保換行與特殊字元在傳入 JS 時不會發生語法錯誤
-            b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
-            
-            html_code = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <style>
-            body {{ margin: 0; padding: 0; background-color: transparent; font-family: "Source Sans Pro", sans-serif; }}
-            .copy-btn {{
-                display: flex; align-items: center; justify-content: center;
-                font-weight: 400; padding: 0.25rem 0.75rem; border-radius: 0.5rem;
-                min-height: 38px; margin: 0; line-height: 1.6;
-                color: rgb(250, 250, 250); width: 100%; user-select: none;
-                background-color: transparent; border: 1px solid rgba(250, 250, 250, 0.2);
-                cursor: pointer; font-size: 16px; box-sizing: border-box;
-                transition: all 0.2s ease;
-            }}
-            .copy-btn:hover {{ border-color: #ff4b4b; color: #ff4b4b; }}
-            .copy-btn:active {{ background-color: #ff4b4b; color: white; }}
-            </style>
-            </head>
-            <body>
-                <button class="copy-btn" id="copyBtn" onclick="copyToClipboard()">📋 Copy Prompt for Other AIs</button>
-                <script>
-                function copyToClipboard() {{
-                    const b64 = "{b64_text}";
-                    const text = decodeURIComponent(escape(window.atob(b64)));
-                    navigator.clipboard.writeText(text).then(function() {{
-                        const btn = document.getElementById('copyBtn');
-                        btn.innerText = '✅ Copied to Clipboard!';
-                        btn.style.borderColor = '#00cc66';
-                        btn.style.color = '#00cc66';
-                        setTimeout(() => {{
-                            btn.innerText = '📋 Copy Prompt for Other AIs';
-                            btn.style.borderColor = 'rgba(250, 250, 250, 0.2)';
-                            btn.style.color = 'rgb(250, 250, 250)';
-                        }}, 2000);
-                    }}).catch(function(err) {{
-                        console.error('Copy failed', err);
-                        const btn = document.getElementById('copyBtn');
-                        btn.innerText = '❌ Copy Failed';
-                    }});
-                }}
-                </script>
-            </body>
-            </html>
-            """
-            components.html(html_code, height=45)
-    
-    if run_ai:
-        if not jd_input:
-            st.warning("Please paste the JD content first!")
-        else:
-            loading_overlay = st.empty()
-            loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-            
-            success, report = ai_optimize_and_update(jd_input, custom_prompt, enable_ats, check_visa)
-            st.session_state.ai_report = report
-            
-            loading_overlay.empty()
-            
-            if success:
-                st.success("Optimization completed! Check the '3️⃣ Dashboard' or edit in '4️⃣ Editor'.")
-            else:
-                st.error("Optimization interrupted or failed. Check the details below:")
-                st.warning(st.session_state.ai_report)
-
-# --- 3. Dashboard Tab ---
-with tab3:
-    st.header("📊 ATS Analysis Report")
-    
-    col_main, col_side = st.columns([7, 3])
-    
-    with col_side:
-        with st.container(border=True):
-            st.subheader("📥 Import External JSON")
-            st.write("Used ChatGPT or Claude? Paste the full JSON response here to update the ATS metrics and Editor.")
-            external_json_str = st.text_area("Paste JSON here", height=400, key="external_json_input")
-            
-            if st.button("Apply External JSON", type="primary", use_container_width=True):
-                if not external_json_str.strip():
-                    st.warning("Please paste some JSON first.")
-                else:
-                    try:
-                        # Clean potential markdown backticks (e.g. ```json ... ```)
-                        clean_str = external_json_str.replace('```json', '').replace('```', '').strip()
-                        external_data = json.loads(clean_str)
-                        
-                        # Very robust extraction (fallback to full JSON if missing the wrapper structure)
-                        modified_resume_data = external_data.get("optimized_resume", external_data)
-                        st.session_state.optimized_resume_data = modified_resume_data
-                        st.session_state.opt_editor_key += 1
-                        st.session_state.optimized_resume_saved_time = None
-                        st.session_state.changelog = external_data.get('changelog', 'Imported from external AI.')
-                        st.session_state.ai_report = "✅ **External JSON loaded successfully!**\n\n---\n"
-                        
-                        # Calculate ATS metrics if provided
-                        if "keyword_analysis" in external_data:
-                            kw = external_data["keyword_analysis"]
-                            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
-                            orig_c = len(kw.get("original_hits", []))
-                            opt_c = len(kw.get("optimized_hits", []))
-                            orig_pct = int((orig_c / tot) * 100) if tot > 0 else 0
-                            opt_pct = int((opt_c / tot) * 100) if tot > 0 else 0
-
-                            st.session_state.ats_metrics = {
-                                "total": tot,
-                                "original_count": orig_c,
-                                "optimized_count": opt_c,
-                                "original_pct": orig_pct,
-                                "optimized_pct": opt_pct,
-                                "optimized_hits": kw.get("optimized_hits", []),
-                                "newly_added": kw.get("newly_added", []),
-                                "missing_keywords": kw.get("missing_keywords", [])
-                            }
-                        else:
-                            st.session_state.ats_metrics = None
-                            
-                        st.toast("✅ External JSON successfully applied!")
-                        st.rerun()
-                        
-                    except json.JSONDecodeError as json_err:
-                        st.error(f"⚠️ Malformed JSON. Please check syntax!\n\nError: {json_err}")
-                    except Exception as e:
-                        st.error(f"⚠️ Error: {e}")
-
-    with col_main:
-        if st.session_state.ai_report:
-            st.info(st.session_state.ai_report)
-            
-        if st.session_state.optimized_resume_data:
-            m = st.session_state.ats_metrics
-            if m:
-                col1, col2, col3 = st.columns(3)
-                delta_pct = m['optimized_pct'] - m['original_pct']
-                
-                col1.metric("Original Match", f"{m['original_pct']}%", f"{m['original_count']} / {m['total']} keywords", delta_color="off")
-                col2.metric("Optimized Match", f"{m['optimized_pct']}%", f"+{delta_pct}% Improvement")
-                col3.metric("Keywords Injected", f"{len(m['newly_added'])}", "AI newly added")
-                
-                st.write("##### Match Progress")
-                st.progress(min(m['optimized_pct'] / 100.0, 1.0))
-                st.markdown("---")
-            
-            # --- Keyword Details ---
-            if m:
-                col_k1, col_k2 = st.columns(2)
-                with col_k1:
-                    st.success("✅ **Successfully Hit Keywords**")
-                    for k in m['optimized_hits']:
-                        if k in m['newly_added']:
-                            st.markdown(f"- `{k}` 🌟 *(Forced injection)*")
-                        else:
-                            st.markdown(f"- `{k}`")
-                        
-                with col_k2:
-                    st.error("❌ **Missing Keywords**")
-                    for k in m['missing_keywords']:
-                        st.markdown(f"- `{k}`")
-                st.markdown("---")
-
-            # --- Feature: Skill Gap Analysis Radar ---
-            st.subheader("🕸️ Skill Gap Radar")
-            if st.button("📊 Generate Skill Gap Analysis", use_container_width=True):
-                with st.spinner("Analyzing skill match..."):
-                    gap_data = analyze_skill_gap(st.session_state.get('jd_input_for_cl', ''), st.session_state.optimized_resume_data)
-                    if gap_data:
-                        import plotly.graph_objects as go
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Your Proficiency'))
-                        fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Job Requirement'))
-                        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.error("Failed to generate analysis. Check API key.")
-
-            if st.session_state.changelog:
-                st.write("### 📝 Optimization Changelog")
-                st.info(st.session_state.changelog)
-        else:
-            st.write("No AI optimization executed yet. Please paste a JD in '2️⃣ AI Optimize' and run it, or import JSON from the right panel.")
-
-# --- 4. Editor & Export Tab ---
-with tab4:
-    if st.session_state.optimized_resume_data:
-        col_title, col_slider = st.columns([6, 4])
-        with col_title:
-            st.header("📝 Editor & Export")
-        with col_slider:
-            # 使用 Slider 動態控制左右欄位的寬度比例
-            editor_width = st.slider("📐 Adjust Layout (Editor Width %)", min_value=30, max_value=80, value=60, step=5, format="%d%%", help="Slide to resize the Editor and Preview panels")
+    with st.container(border=True):
+        st.subheader("🎯 Job Details")
+        st.write("AI will tailor your resume specifically for this role.")
+        jd_input = st.text_area("Job Description (JD)", height=300, placeholder="Paste the job description here...", key="jd_input_v2")
         
-        # Main layout dynamically controlled by the slider
-        col_edit, col_export = st.columns([editor_width, 100 - editor_width])
-        data_to_use = st.session_state.optimized_resume_data
+        st.markdown("#### 🗣️ Optimization Strategy")
+        st.text_area("Custom Instructions", 
+                    value=st.session_state.get("custom_prompt", "Focus on system optimization and microservices keywords."),
+                    key="custom_prompt_v2", help="Tell AI what to emphasize (e.g., 'more aggressive tone').")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.checkbox("ATS Keyword Analysis", value=True, key="enable_ats_v2")
+        with col2:
+            st.checkbox("Visa Sponsorship Check", value=True, key="check_visa_v2")
 
-        with col_edit:
-            col_ed_title, col_ed_btn = st.columns([6, 4])
-            with col_ed_title:
-                st.subheader("JSON Editor")
-            with col_ed_btn:
-                if st.button("🔍 Compare Changes", use_container_width=True, help="See what the AI modified compared to your Base Profile"):
-                    show_diff_dialog(st.session_state.resume_data, data_to_use)
-                    
-            st.info("Make final tweaks to the AI-generated JSON here. Click 'Save & Refresh' to update the previews on the right.")
-            editor_value = json.dumps(data_to_use, indent=4, ensure_ascii=False)
-            edited_opt_json = st_ace.st_ace(
-                value=editor_value,
-                language="json",
-                theme="dracula",
-                height=800,
-                key=f"optimized_resume_editor_{st.session_state.opt_editor_key}",
-            font_size=14, tab_size=2, show_gutter=True, auto_update=False,
-            )
-
-        with col_export:
-            st.subheader("⚙️ Resume Settings")
-            
-            col_tmpl, col_order = st.columns(2)
-            with col_tmpl:
-                preview_template = st.selectbox("Template:", ["💻 Tech", "📈 Consulting"], key="preview_template")
-                selected_preview_template = "main.tex" if preview_template.startswith("💻") else "elsa_main.tex"
-
-            with col_order:
-                default_order = ["Experience", "Education", "Projects & Patents", "Skills"]
-                if data_to_use.get("summary"):
-                    default_order.insert(0, "Summary")
-                block_order = st.multiselect("Block Order:", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=default_order)
-
-            if st.button("🔄 Generate & Update", type="primary", use_container_width=True):
-                try:
-                    st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-                    st.session_state.optimized_resume_saved_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    data_to_use = st.session_state.optimized_resume_data
-                    
-                    st.toast("✅ JSON saved!")
-
-                    loading_overlay = st.empty()
-                    loading_overlay.markdown(get_glass_overlay_html("Compiling Documents...<br>Please wait.", st.session_state.get('animal_emoji', '🐕'), st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-
-                    resume_bytes, r_err = generate_preview_pdf_bytes(data_to_use, selected_preview_template, block_order=block_order)
-                    if resume_bytes:
-                        st.session_state.resume_preview_bytes = resume_bytes
-                        company_name = data_to_use.get('target_company', 'Resume').replace(' ', '_')
-                        role_name = data_to_use.get('target_role', 'Role').replace(' ', '_')
-                        st.session_state.resume_dl_data = {
-                            "bytes": resume_bytes, 
-                            "name": f"{company_name}_{role_name}_Resume.pdf",
-                            "word_bytes": generate_word_from_json(data_to_use, block_order)
-                        }
-                        
-                    else:
-                        st.error(f"Resume generation failed: {r_err}")
-                        st.session_state.resume_preview_bytes = None
-                        st.session_state.resume_dl_data = None
-                    
-                    cl_bytes, cl_name, cl_err = generate_cover_letter_pdf_bytes(data_to_use)
-                    if cl_bytes:
-                        st.session_state.cover_letter_preview_bytes = cl_bytes
-                        st.session_state.cl_dl_data = {
-                            "bytes": cl_bytes,
-                            "name": cl_name,
-                            "word_bytes": generate_cover_letter_word_bytes(data_to_use)
-                        }
-                    else:
-                        st.session_state.cover_letter_preview_bytes = None
-                        st.session_state.cl_dl_data = None
-
-                    loading_overlay.empty()
-                    if resume_bytes:
-                        st.toast("✅ Documents successfully generated!")
-                except Exception as e:
-                    st.error(f"JSON format error, please check syntax: {e}")
-
-            st.divider()
-            st.subheader(" Document Preview & Download")
-            preview_choice = st.radio("Target:", ["Resume", "Cover Letter"], horizontal=True, key="preview_choice", label_visibility="collapsed")
-
-            if preview_choice == "Resume":
-                if st.session_state.resume_dl_data:
-                    st.caption(f"📄 **File:** `{st.session_state.resume_dl_data['name']}`")
-                    
-                    if st.session_state.logged_in:
-                        do_sync = st.checkbox("🔄 Sync this application to Job Tracker upon download", value=True, key="sync_resume")
-                    else:
-                        do_sync = False
-                        
-                    def on_resume_dl():
-                        if do_sync and st.session_state.logged_in and db:
-                            company = data_to_use.get('target_company', 'Unknown')
-                            jd_text = st.session_state.get('jd_input_for_cl', '')
-                            if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
-                                st.toast(f"✅ Synced application for {company} to Job Tracker!")
-                                
-                    dl_col_pdf, dl_col_word = st.columns([7, 3])
-                    with dl_col_pdf:
-                        st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], "application/pdf", use_container_width=True, on_click=on_resume_dl)
-                    with dl_col_word:
-                        word_name = st.session_state.resume_dl_data['name'].replace('.pdf', '.docx')
-                        st.download_button("📝 Word (.docx)", st.session_state.resume_dl_data["word_bytes"], word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.", on_click=on_resume_dl)
-                    
-                    render_pdf_js(st.session_state.resume_preview_bytes, height=500)
-                else:
-                    st.info("Click '🔄 Generate & Update' to see your resume here.")
-            else:
-                if st.session_state.cl_dl_data:
-                    st.caption(f"📄 **File:** `{st.session_state.cl_dl_data['name']}`")
-                    
-                    if st.session_state.logged_in:
-                        do_sync_cl = st.checkbox("🔄 Sync this application to Job Tracker upon download", value=False, key="sync_cl", help="Unchecked by default to prevent duplicate entries if you already synced the Resume.")
-                    else:
-                        do_sync_cl = False
-                        
-                    def on_cl_dl():
-                        if do_sync_cl and st.session_state.logged_in and db:
-                            company = data_to_use.get('target_company', 'Unknown')
-                            jd_text = st.session_state.get('jd_input_for_cl', '')
-                            if save_application(db, st.session_state.user_email, company, data_to_use, jd_text):
-                                st.toast(f"✅ Synced application for {company} to Job Tracker!")
-
-                    dl_col_pdf_cl, dl_col_word_cl = st.columns([7, 3])
-                    with dl_col_pdf_cl:
-                        st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], "application/pdf", use_container_width=True, on_click=on_cl_dl)
-                    with dl_col_word_cl:
-                        cl_word_name = st.session_state.cl_dl_data['name'].replace('.pdf', '.docx')
-                        st.download_button("📝 Word (.docx)", st.session_state.cl_dl_data["word_bytes"], cl_word_name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, help="Download an editable Word document for manual tweaks.", on_click=on_cl_dl)
-                    
-                    render_pdf_js(st.session_state.cover_letter_preview_bytes, height=500)
-                else:
-                    st.info("Click '🔄 Generate & Update' to see your cover letter here.")
+# --- 3. Optimization Tab ---
+with tab3:
+    if not st.session_state.get("jd_input_v2"):
+        st.info("👈 Please provide the Job Description in the 'Target Job' tab first.")
     else:
-        st.header("📝 Editor & Export")
-        st.warning("No optimized data generated yet. Please run the AI in '2️⃣ AI Optimizer' first.")
+        col_opt1, col_opt2 = st.columns([1, 1])
+        
+        with col_opt1:
+            with st.container(border=True):
+                st.subheader("🚀 Run Optimization")
+                st.write("This will generate a customized version of your resume.")
+                if st.button("✨ Generate Optimized Resume", type="primary", use_container_width=True):
+                    loading_overlay = st.empty()
+                    loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...", st.session_state.animal_emoji, st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
+                    
+                    success, report = ai_optimize_and_update(
+                        st.session_state.jd_input_v2, 
+                        st.session_state.custom_prompt_v2, 
+                        st.session_state.enable_ats_v2, 
+                        st.session_state.check_visa_v2
+                    )
+                    st.session_state.ai_report = report
+                    loading_overlay.empty()
+                    if success: st.success("Optimization Complete!")
+                    else: st.error("Failed.")
 
-# --- 5. Job Tracker Tab ---
+        with col_opt2:
+            with st.container(border=True):
+                st.subheader("📊 ATS Match Score")
+                if st.session_state.ats_metrics:
+                    m = st.session_state.ats_metrics
+                    st.metric("Match Rate", f"{m['optimized_pct']}%", f"+{m['optimized_pct'] - m['original_pct']}% Improvement")
+                    st.progress(m['optimized_pct'] / 100)
+                else:
+                    st.write("Run optimization to see your ATS score.")
+
+        if st.session_state.optimized_resume_data:
+            st.markdown("---")
+            st.subheader("📝 Analysis Report")
+            st.info(st.session_state.ai_report)
+
+# --- 4. Review & Export Tab ---
+with tab4:
+    if not st.session_state.optimized_resume_data:
+        st.warning("Please run the optimization step first.")
+    else:
+        # Layout: Left side for settings, Right side for preview
+        col_preview_left, col_preview_right = st.columns([4, 6])
+        
+        with col_preview_left:
+            with st.container(border=True):
+                st.subheader("🛠️ Final Touches")
+                
+                # Editor Toggle
+                show_editor = st.toggle("Show JSON Editor", value=False)
+                if show_editor:
+                    edited_opt_json = st_ace.st_ace(
+                        value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
+                        language="json", theme="dracula", height=400,
+                        key=f"opt_editor_{st.session_state.opt_editor_key}"
+                    )
+                    if st.button("💾 Apply Edits"):
+                        try:
+                            st.session_state.optimized_resume_data = json.loads(edited_opt_json)
+                            st.toast("Applied!")
+                        except: st.error("Invalid JSON.")
+                
+                st.markdown("---")
+                st.subheader("🎨 PDF Style")
+                st.selectbox("Template", ["💻 Tech (Modern)", "📈 Consulting (Classic)"], key="tmpl_select")
+                
+                st.multiselect("Block Order", 
+                             ["Summary", "Experience", "Education", "Projects & Patents", "Skills"],
+                             default=["Experience", "Education", "Skills"], key="block_order_v2")
+                
+                if st.button("🔄 Refresh Preview", type="primary", use_container_width=True):
+                    # (Re-use your existing generation logic here...)
+                    data_to_use = st.session_state.optimized_resume_data
+                    selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
+                    
+                    with st.spinner("Generating PDF..."):
+                        resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
+                        if resume_bytes:
+                            st.session_state.resume_preview_bytes = resume_bytes
+                            st.session_state.resume_dl_data = {
+                                "bytes": resume_bytes, 
+                                "name": f"Resume_{data_to_use.get('target_company','AI')}.pdf",
+                                "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)
+                            }
+                        
+                        cl_bytes, cl_name, _ = generate_cover_letter_pdf_bytes(data_to_use)
+                        if cl_bytes:
+                            st.session_state.cover_letter_preview_bytes = cl_bytes
+                            st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": cl_name, "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
+
+        with col_preview_right:
+            st.subheader("📄 Live Preview")
+            prev_type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
+            
+            if prev_type == "Resume" and st.session_state.resume_preview_bytes:
+                st.download_button("📥 Download PDF", st.session_state.resume_dl_data["bytes"], st.session_state.resume_dl_data["name"], use_container_width=True)
+                render_pdf_js(st.session_state.resume_preview_bytes, height=700)
+            elif prev_type == "Cover Letter" and st.session_state.cover_letter_preview_bytes:
+                st.download_button("📥 Download PDF", st.session_state.cl_dl_data["bytes"], st.session_state.cl_dl_data["name"], use_container_width=True)
+                render_pdf_js(st.session_state.cover_letter_preview_bytes, height=700)
+            else:
+                st.info("Click 'Refresh Preview' to see the document.")
+
+# --- 5. Tracker Tab ---
 with tab5:
-    st.header("📈 Job Application Tracker")
-    if not st.session_state.logged_in:
-        st.warning("🔒 Please log in to view your interview progress and conversion rates.")
-    elif db:
+    if st.session_state.logged_in and db:
         render_interview_progress(db, st.session_state.user_email)
         st.markdown("---")
         render_dashboard(db, st.session_state.user_email)
     else:
-        st.error("❌ Cannot connect to Firebase database.")
+        st.warning("Please log in to track your applications.")
