@@ -748,29 +748,17 @@ st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wid
 # 🎨 Custom Modern CSS (Shadcn/UI Inspired)
 st.markdown("""
 <style>
-    /* Global Styles */
+    /* Global Styles - Only target text-heavy elements to avoid breaking icons */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* Apply Inter font ONLY to text elements */
-    .stApp, .stApp p, .stApp label, .stApp div, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
-        font-family: 'Inter', sans-serif;
+    h1, h2, h3, h4, h5, h6, .stMarkdown p, .stButton button, label, .stCaption {
+        font-family: 'Inter', sans-serif !important;
     }
 
-    /* Surgical Protection for Icons to fix [upload Upload] and [arrow] issues */
-    [data-testid="stIconMaterial"], 
-    [data-testid="stExpanderChevron"],
-    span[data-testid="stSidebarNav"] span,
-    .material-icons {
+    /* Prevent icon names from showing as text in buttons and labels */
+    [data-testid="stIconMaterial"], [data-testid="stExpanderChevron"], .material-icons {
         font-family: 'Material Icons' !important;
         font-feature-settings: 'liga' 1 !important;
-        text-transform: none !important;
-        display: inline-block !important;
-    }
-
-    /* FORCE RESET for button labels to prevent ligature conversion */
-    .stButton button div p, .stButton button label {
-        font-family: 'Inter', sans-serif !important;
-        text-transform: none !important;
     }
 
     /* Main Container Padding */
