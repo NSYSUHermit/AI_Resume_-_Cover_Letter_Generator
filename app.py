@@ -1083,51 +1083,65 @@ with tab4:
                 if st.button("🔄 Refresh Preview", type="primary", use_container_width=True):
                     data_to_use = st.session_state.optimized_resume_data
                     selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
+                    
+                    # 生成乾淨的檔名前綴
+                    clean_company = data_to_use.get('target_company', 'Company').replace(' ', '_')
+                    clean_role = data_to_use.get('target_role', 'Role').replace(' ', '_')
+                    
                     with st.spinner("Generating..."):
                         resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
                         if resume_bytes:
                             st.session_state.resume_preview_bytes = resume_bytes
-                            st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"Resume_{data_to_use.get('target_company','AI')}.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
-                        cl_bytes, cl_name, _ = generate_cover_letter_pdf_bytes(data_to_use)
+                            st.session_state.resume_dl_data = {
+                                "bytes": resume_bytes, 
+                                "name": f"{clean_company}_{clean_role}_Resume.pdf", 
+                                "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)
+                            }
+                        
+                        cl_bytes, _, _ = generate_cover_letter_pdf_bytes(data_to_use)
                         if cl_bytes:
                             st.session_state.cover_letter_preview_bytes = cl_bytes
-                            st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": cl_name, "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
+                            st.session_state.cl_dl_data = {
+                                "bytes": cl_bytes, 
+                                "name": f"{clean_company}_{clean_role}_Coverletter.pdf", 
+                                "word_bytes": generate_cover_letter_word_bytes(data_to_use)
+                            }
                         st.toast("✅ Documents ready!")
 
         with col_preview_right:
             st.subheader("📄 Preview")
             
-            # --- 🔄 Job Tracker 同步選項 ---
+            # --- 🔄 Job Tracker 同步選項 (僅針對 Resume) ---
             do_sync = False
             if st.session_state.logged_in:
-                do_sync = st.checkbox("📈 Sync to Job Tracker upon download", value=True, help="Automatically log this application in your dashboard when you download.")
+                do_sync = st.checkbox("📈 Sync to Tracker (Resume only)", value=True, help="Automatically log this application when you download the Resume.")
 
-            def trigger_sync():
+            def trigger_resume_sync():
                 if do_sync and db and st.session_state.logged_in:
                     data = st.session_state.optimized_resume_data
                     company = data.get("target_company", "Unknown")
                     jd_text = st.session_state.get("jd_input_v2", "")
                     if save_application(db, st.session_state.user_email, company, data, jd_text):
-                        st.toast(f"✅ Application for {company} synced to Tracker!")
+                        st.toast(f"🚀 Synced application for {company} to Tracker!")
 
             prev_type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
             
             if prev_type == "Resume" and st.session_state.resume_preview_bytes:
                 st.download_button(
-                    "📥 Download PDF", 
+                    "📥 Download Resume PDF", 
                     st.session_state.resume_dl_data["bytes"], 
                     st.session_state.resume_dl_data["name"], 
                     use_container_width=True,
-                    on_click=trigger_sync
+                    on_click=trigger_resume_sync # 僅履歷下載觸發同步
                 )
                 render_pdf_js(st.session_state.resume_preview_bytes, height=750)
             elif prev_type == "Cover Letter" and st.session_state.cover_letter_preview_bytes:
                 st.download_button(
-                    "📥 Download PDF", 
+                    "📥 Download Cover Letter PDF", 
                     st.session_state.cl_dl_data["bytes"], 
                     st.session_state.cl_dl_data["name"], 
-                    use_container_width=True,
-                    on_click=trigger_sync
+                    use_container_width=True
+                    # 下載 Cover Letter 不觸發同步
                 )
                 render_pdf_js(st.session_state.cover_letter_preview_bytes, height=750)
             else:
