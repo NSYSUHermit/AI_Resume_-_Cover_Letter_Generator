@@ -161,6 +161,11 @@ def get_glass_overlay_html(message, animal):
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume", page_icon="🚀", layout="wide")
 
+# 🔔 處理 Rerun 後的通知 (由使用者要求)
+if "pending_toast" in st.session_state:
+    st.toast(st.session_state.pending_toast)
+    del st.session_state.pending_toast
+
 # 🎨 修正後的 CSS：避免影響圖示
 st.markdown("""
 <style>
@@ -210,7 +215,7 @@ with st.sidebar:
             st.session_state.custom_prompt = current_prompt # 同步回 session_state
             
             ok, msg = save_user_profile(db, st.session_state.user_email, current_resume, current_prompt, st.session_state.api_key)
-            if ok: st.success(msg)
+            if ok: st.toast("✅ Profile pushed to cloud!")
             else: st.error(msg)
             
         if st.button("Pull from Cloud", use_container_width=True):
@@ -218,9 +223,10 @@ with st.sidebar:
             if r: 
                 st.session_state.resume_data = r
                 st.session_state.custom_prompt = pr
-                st.session_state.cp_v2 = pr # 同步更新 Target 頁籤的 Strategy 欄位
+                st.session_state.cp_v2 = pr
                 st.session_state.api_key = k
-                st.session_state.base_editor_key += 1 # 強制刷新編輯器
+                st.session_state.base_editor_key += 1
+                st.session_state.pending_toast = "✅ Profile pulled from cloud!" # Rerun 通知
                 st.rerun()
         if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
     else:
@@ -263,13 +269,18 @@ with t1:
             loading = st.empty(); loading.markdown(get_glass_overlay_html("Extracting...", st.session_state.animal_emoji), unsafe_allow_html=True)
             ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
             loading.empty()
-            if ok: st.session_state.resume_data = data; st.session_state.base_editor_key += 1; st.rerun()
+            if ok: 
+                st.session_state.resume_data = data
+                st.session_state.base_editor_key += 1
+                st.session_state.pending_toast = "✅ Data extracted successfully!"
+                st.rerun()
             else: st.error(msg)
     
     st.markdown("#### 📝 Profile Editor")
     edit = st_ace.st_ace(value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500, key=f"base_ed_{st.session_state.base_editor_key}")
     if st.button("💾 Save Base Changes", use_container_width=True): 
-        st.session_state.resume_data = json.loads(edit); st.toast("Saved!")
+        st.session_state.resume_data = json.loads(edit)
+        st.toast("💾 Base Profile Saved!")
 
 with t2:
     with st.container(border=True):
@@ -280,10 +291,12 @@ with t2:
         with c1:
             if st.button("🚀 Optimize Resume", type="primary", use_container_width=True):
                 if jd:
-                    l = st.empty(); l.markdown(get_glass_overlay_html("Gemini 1.5 Pro Crafting...", st.session_state.animal_emoji), unsafe_allow_html=True)
+                    l = st.empty(); l.markdown(get_glass_overlay_html("Gemini 2.5 Pro Crafting...", st.session_state.animal_emoji), unsafe_allow_html=True)
                     ok, rep = ai_optimize_and_update(jd, st.session_state.cp_v2, True, True)
                     l.empty()
-                    if ok: st.success("Done!"); st.rerun()
+                    if ok: 
+                        st.session_state.pending_toast = "✅ Resume Optimized Successfully!"
+                        st.rerun()
                     else: st.error(rep)
         with c2:
             p_text = build_optimization_prompt(jd if jd else "JD", st.session_state.cp_v2, True, True, st.session_state.resume_data)
@@ -357,7 +370,7 @@ with t4:
                         if cb: 
                             st.session_state.cover_letter_preview_bytes = cb
                             st.session_state.cl_dl_data = {"bytes": cb, "name": f"{c}_{r}_CL.pdf"}
-                        st.toast("✅ Ready!")
+                        st.toast("✅ PDF Generated Successfully!")
         with cl2:
             st.subheader("📄 Preview")
             if st.session_state.resume_preview_bytes or st.session_state.cover_letter_preview_bytes:
