@@ -184,17 +184,17 @@ def generate_cover_letter_pdf_bytes(data):
 
 def get_glass_overlay_html(message, animal):
     return f"""
-    <div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.5);backdrop-filter:blur(4px);z-index:9999;display:flex;justify-content:center;align-items:center;font-family:sans-serif;">
-        <div style="background:rgba(30, 41, 59, 0.95); border:2px solid #6366f1; padding:40px 60px; border-radius:24px; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); max-width:450px;">
-            <div style="font-size:100px; margin-bottom:20px; animation: bounce 2s infinite ease-in-out; display:inline-block;">{animal}</div>
-            <h3 style="color:white; margin:0; font-weight:600; letter-spacing:0.5px;">{message}</h3>
-            <div style="margin-top:15px; color:#94a3b8; font-size:14px;">Please hold on while AI works its magic...</div>
+    <div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(255,255,255,0.6);backdrop-filter:blur(6px);z-index:9999;display:flex;justify-content:center;align-items:center;font-family:sans-serif;">
+        <div style="background:white; border:1px solid #10b981; padding:40px 60px; border-radius:30px; text-align:center; box-shadow:0 30px 60px -12px rgba(6, 95, 70, 0.2), inset 0 1px 0 rgba(255,255,255,1); max-width:450px;">
+            <div style="font-size:100px; margin-bottom:20px; animation: bounce 2s infinite ease-in-out; display:inline-block; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.1));">{animal}</div>
+            <h3 style="color:#065f46; margin:0; font-weight:700; letter-spacing:-0.5px;">{message}</h3>
+            <div style="margin-top:15px; color:#64748b; font-size:14px; font-weight:500;">Crafting perfection with AI...</div>
         </div>
     </div>
     <style>
         @keyframes bounce {{
-            0%, 100% {{ transform: translateY(0); }}
-            50% {{ transform: translateY(-30px); }}
+            0%, 100% {{ transform: translateY(0) scale(1); }}
+            50% {{ transform: translateY(-30px) scale(1.05); }}
         }}
     </style>
     """
@@ -209,29 +209,67 @@ if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
     del st.session_state.pending_toast
 
-# 🎨 修正後的 CSS：避免影響圖示
+# 🎨 全新白色與深綠色主題 (由使用者要求：立體感與光澤感)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* 僅對標題與文字生效，不影響全局圖示 */
-    h1, h2, h3, p, label, .stMarkdown { font-family: 'Inter', sans-serif !important; }
+    /* 全域背景與字體 */
+    .stApp {{
+        background-color: #f8fafc;
+        font-family: 'Inter', sans-serif !important;
+    }}
+
+    h1, h2, h3, p, label, .stMarkdown {{ font-family: 'Inter', sans-serif !important; color: #1e293b; }}
     
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {
-        background-color: #ffffff05; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px !important; padding: 1.5rem !important;
-    }
+    /* 立體感卡片設計 */
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {{
+        background: white !important;
+        border: 1px solid rgba(16, 185, 129, 0.1) !important;
+        border-radius: 16px !important;
+        padding: 2rem !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02), inset 0 1px 0 0 rgba(255, 255, 255, 0.5) !important;
+    }}
 
-    .stButton > button { border-radius: 8px !important; height: 44px !important; font-weight: 500 !important; }
-    .stButton > button[kind="primary"] { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important; border: none !important; color: white !important; }
+    /* 深綠色光澤按鈕 */
+    .stButton > button {{
+        border-radius: 10px !important;
+        height: 46px !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        border: none !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+    }}
+    
+    .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, #059669 0%, #065f46 100%) !important;
+        color: white !important;
+        box-shadow: 0 4px 15px rgba(5, 150, 105, 0.3), inset 0 -2px 0 rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+    }}
+    
+    .stButton > button:hover {{
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 15px -3px rgba(5, 150, 105, 0.4) !important;
+    }}
 
-    /* Tabs Styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #1e293b; border-radius: 8px 8px 0px 0px; padding: 10px 20px; color: #94a3b8; border: none;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #334155 !important; color: white !important; border-bottom: 2px solid #6366f1 !important;
-    }
+    /* Tabs 樣式優化 */
+    .stTabs [data-baseweb="tab-list"] {{ gap: 12px; background: transparent; }}
+    .stTabs [data-baseweb="tab"] {{
+        background-color: #ffffff;
+        border-radius: 12px 12px 0px 0px;
+        padding: 12px 24px;
+        color: #64748b;
+        border: 1px solid #e2e8f0;
+        border-bottom: none;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.02);
+        transition: all 0.2s ease;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background-color: #059669 !important;
+        color: white !important;
+        border-color: #059669 !important;
+        box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2) !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
