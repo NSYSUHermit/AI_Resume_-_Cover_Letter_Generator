@@ -67,7 +67,7 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "API Key missing.", None
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         prompt = "Parse this PDF resume into JSON format. Return ONLY valid JSON."
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
         response = model.generate_content([prompt, pdf_part])
@@ -81,7 +81,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         api_key = st.session_state.get("api_key")
         if not api_key: return False, "API Key missing."
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         response = model.generate_content(final_prompt)
@@ -171,7 +171,7 @@ with st.sidebar:
                 if authenticate_user(db, e, p): st.session_state.logged_in = True; st.session_state.user_email = e; st.rerun()
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    st.selectbox("🧠 Model", ["gemini-1.5-flash", "gemini-1.5-pro"], key="ai_model")
+    st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
 
 # --- Tabs ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS ", " 📝 Export ", " 📈 Tracker "])
