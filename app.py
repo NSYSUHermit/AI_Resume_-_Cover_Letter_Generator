@@ -60,6 +60,8 @@ if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
 if "cover_letter_preview_bytes" not in st.session_state: st.session_state.cover_letter_preview_bytes = None
+if "resume_dl_data" not in st.session_state: st.session_state.resume_dl_data = None
+if "cl_dl_data" not in st.session_state: st.session_state.cl_dl_data = None
 
 # ---------------------------------------------------------
 # AI 核心穩定邏輯
