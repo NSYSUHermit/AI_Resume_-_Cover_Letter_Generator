@@ -239,7 +239,7 @@ for i, s in enumerate(steps):
 st.markdown("---")
 tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS Analysis ", " 📝 Editor & Export ", " 📈 Job Tracker "])
 
-with t1:
+with tab1:
     with st.container(border=True):
         st.subheader("📥 Quick Import")
         st.write("Upload your existing PDF resume to bootstrap your profile with AI.")
