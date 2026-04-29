@@ -157,15 +157,21 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
 
 def generate_cover_letter_pdf_bytes(data):
     try:
-        txt = data.get('cover_letter', '').replace('**', '')
-        lat = r"""\documentclass[11pt]{article}\usepackage[margin=1in]{geometry}\usepackage{fontspec}\begin{document}""" + txt.replace("\n", "\n\n") + r"""\end{document}"""
+        # 🚀 智能抓取：支援多種可能的鍵值名稱 (cover_letter, coverLetter, Cover Letter)
+        cl_text = data.get('cover_letter') or data.get('coverLetter') or data.get('Cover Letter', '')
+        cl_text = cl_text.replace('**', '') # 移除 Markdown 加粗
+
+        if not cl_text: return None
+
+        latex = r"""\documentclass[11pt]{article}\usepackage[margin=1in]{geometry}\usepackage{fontspec}\begin{document}""" + cl_text.replace("\n", "\n\n") + r"""\end{document}"""
         with tempfile.TemporaryDirectory() as td:
-            with open(os.path.join(td, "cl.tex"), "w", encoding="utf-8") as f: f.write(lat)
+            with open(os.path.join(td, "cl.tex"), "w", encoding="utf-8") as f: f.write(latex)
             subprocess.run(['lualatex', '-interaction=nonstopmode', 'cl.tex'], cwd=td)
             if os.path.exists(os.path.join(td, "cl.pdf")):
                 with open(os.path.join(td, "cl.pdf"), "rb") as f: return f.read()
     except: return None
     return None
+
 
 def get_glass_overlay_html(message, animal):
     return f"""<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.85);backdrop-filter:blur(10px);z-index:9999;display:flex;justify-content:center;align-items:center;color:white;flex-direction:column;font-family:sans-serif;"><h1>{animal}</h1><h3>{message}</h3></div>"""
