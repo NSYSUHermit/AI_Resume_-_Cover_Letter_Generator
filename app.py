@@ -403,6 +403,10 @@ with t3:
                 st.error(f"Invalid JSON: {e}")
 
     if st.session_state.optimized_resume_data:
+        # 📝 修改日誌 (移至最上方由使用者要求)
+        if st.session_state.changelog:
+            st.info(f"**Changelog:** {st.session_state.changelog}")
+
         m = st.session_state.ats_metrics
         if m:
             mc1, mc2, mc3 = st.columns(3)
