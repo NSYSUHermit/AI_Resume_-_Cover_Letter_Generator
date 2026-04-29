@@ -140,7 +140,21 @@ def generate_cover_letter_pdf_bytes(data):
     except: return None
 
 def get_glass_overlay_html(message, animal):
-    return f"""<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.85);backdrop-filter:blur(10px);z-index:9999;display:flex;justify-content:center;align-items:center;color:white;flex-direction:column;font-family:sans-serif;"><h1>{animal}</h1><h3>{message}</h3></div>"""
+    return f"""
+    <div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.5);backdrop-filter:blur(4px);z-index:9999;display:flex;justify-content:center;align-items:center;font-family:sans-serif;">
+        <div style="background:rgba(30, 41, 59, 0.95); border:2px solid #6366f1; padding:40px 60px; border-radius:24px; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); max-width:450px;">
+            <div style="font-size:100px; margin-bottom:20px; animation: bounce 1s infinite ease-in-out; display:inline-block;">{animal}</div>
+            <h3 style="color:white; margin:0; font-weight:600; letter-spacing:0.5px;">{message}</h3>
+            <div style="margin-top:15px; color:#94a3b8; font-size:14px;">Please hold on while AI works its magic...</div>
+        </div>
+    </div>
+    <style>
+        @keyframes bounce {{
+            0%, 100% {{ transform: translateY(0); }}
+            50% {{ transform: translateY(-30px); }}
+        }}
+    </style>
+    """
 
 # ---------------------------------------------------------
 # UI 介面
@@ -204,7 +218,7 @@ with st.sidebar:
                     st.rerun()
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
+    st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-flash"], key="ai_model")
     st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
     st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
 
