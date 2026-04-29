@@ -437,7 +437,7 @@ with t4:
             with st.container(border=True):
                 st.subheader("🛠️ Export Settings")
                 if st.button("📝 Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
-                tmpl = st.selectbox("Template", ["💻 Tech", "📈 Classic"], key="tm")
+                tmpl = st.selectbox("Template", ["💻 Tech", "📈 Business"], key="tm")
                 order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
                 if st.button("🚀 Generate PDF", type="primary", use_container_width=True):
                     with st.spinner("Generating..."):
