@@ -336,9 +336,6 @@ with st.sidebar:
     col_gh, col_li = st.columns(2)
     with col_gh:
         st.markdown("[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/NSYSUHermit)")
-    with col_li:
-        st.markdown("[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/henry-lin-05a1b31b3/)")
-
 # --- Stepper ---
 s1, s2, s3, s4 = len(st.session_state.resume_data.get("experience", [])) > 0, len(st.session_state.get("jd_v2", "")) > 50, st.session_state.optimized_resume_data is not None, st.session_state.resume_preview_bytes is not None
 steps = [{"l": "Source", "d": s1}, {"l": "Target", "d": s2}, {"l": "Analysis", "d": s3}, {"l": "Review", "d": s4}, {"l": "Tracker", "d": st.session_state.logged_in}]
