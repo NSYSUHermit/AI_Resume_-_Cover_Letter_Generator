@@ -57,7 +57,7 @@ if "resume_dl_data" not in st.session_state: st.session_state.resume_dl_data = N
 if "cl_dl_data" not in st.session_state: st.session_state.cl_dl_data = None
 
 # ---------------------------------------------------------
-# AI 核心邏輯 (使用 Gemini 1.5 Pro)
+# AI 核心邏輯 (使用 Gemini 2.5 flash)
 # ---------------------------------------------------------
 def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "Missing API Key.", None
@@ -181,7 +181,10 @@ with st.sidebar:
         if st.button("Pull from Cloud", use_container_width=True):
             r, pr, k = load_user_profile(db, st.session_state.user_email)
             if r: 
-                st.session_state.resume_data = r; st.session_state.custom_prompt = pr; st.session_state.api_key = k
+                st.session_state.resume_data = r
+                st.session_state.custom_prompt = pr
+                st.session_state.cp_v2 = pr # 同步更新 Target 頁籤的 Strategy 欄位
+                st.session_state.api_key = k
                 st.session_state.base_editor_key += 1 # 強制刷新編輯器
                 st.rerun()
         if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
@@ -193,7 +196,10 @@ with st.sidebar:
                     st.session_state.logged_in = True; st.session_state.user_email = e
                     r, pr, k = load_user_profile(db, e)
                     if r: 
-                        st.session_state.resume_data = r; st.session_state.custom_prompt = pr; st.session_state.api_key = k
+                        st.session_state.resume_data = r
+                        st.session_state.custom_prompt = pr
+                        st.session_state.cp_v2 = pr # 同步更新 Strategy 欄位
+                        st.session_state.api_key = k
                         st.session_state.base_editor_key += 1
                     st.rerun()
     st.markdown("---")
