@@ -67,7 +67,7 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "API Key missing.", None
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = "Parse this PDF resume into JSON format. Return ONLY valid JSON."
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
         response = model.generate_content([prompt, pdf_part])
@@ -81,7 +81,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         api_key = st.session_state.get("api_key")
         if not api_key: return False, "API Key missing."
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         response = model.generate_content(final_prompt)
@@ -304,8 +304,8 @@ with tab4:
                 st.subheader("🛠️ Settings")
                 if st.button("📝 Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
                 tmpl = st.selectbox("Template", ["💻 Tech (Modern)", "📈 Classic"], key="tm")
-                order = st.multiselect("Order", ["Summary", "Experience", "Education", "Skills"], default=["Summary", "Experience", "Education", "Skills"])
-                if st.button("🚀 Generate PDF", type="primary", use_container_width=True):
+                order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
+            if st.button("🚀 Generate PDF", type="primary", use_container_width=True):
                     with st.spinner("Generating..."):
                         data = st.session_state.optimized_resume_data
                         tex = "main.tex" if "Tech" in tmpl else "elsa_main.tex"
