@@ -63,7 +63,7 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "Missing API Key.", None
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-pro") # 使用 Pro 版本
+        model = genai.GenerativeModel("gemini-2.5-flash")
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
         response = model.generate_content(["Parse PDF to JSON. Return ONLY JSON.", pdf_part])
         raw = response.text.strip()
@@ -82,6 +82,11 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         raw = response.text.strip()
         if "```" in raw: raw = raw.split("```")[1].replace("json", "").strip()
         res = json.loads(raw)
+        
+        # 📂 儲存 ATS 與優化結果到外部 JSON (恢復使用者要求的存入外部 JSON 功能)
+        with open("ats_analysis.json", "w", encoding="utf-8") as f:
+            json.dump(res, f, ensure_ascii=False, indent=4)
+            
         st.session_state.optimized_resume_data = res.get("optimized_resume")
         st.session_state.changelog = res.get("changelog", "")
         st.session_state.opt_editor_key += 1
