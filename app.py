@@ -17,6 +17,22 @@ from datetime import datetime
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, predict_interview_questions, analyze_skill_gap
 
 # ---------------------------------------------------------
+# AI Prompt Builder (放在最頂部確保全域可用)
+# ---------------------------------------------------------
+def build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, resume_data):
+    """Helper to build high-impact optimization instructions"""
+    ats_block = '"keyword_analysis": {"jd_keywords": [], "original_hits": [], "optimized_hits": [], "newly_added": [], "missing_keywords": []},' if enable_ats else ""
+    visa_instr = "- Step 1: Check for visa sponsorship restrictions in the JD. If found, set 'visa_blocked': true and provide a reason." if check_visa else ""
+    return f"""
+Optimize resume for JD. 
+[COMMANDS]: {custom_prompt}
+[RULES]: 1. Return ONLY valid JSON. 2. {visa_instr}
+[Target JD]: {jd_text}
+[Original Resume]: {json.dumps(resume_data, ensure_ascii=False)}
+[FORMAT]: {{ "visa_blocked": false, "reason": "", "changelog": "", {ats_block} "optimized_resume": {{...}} }}
+"""
+
+# ---------------------------------------------------------
 # 初始化 Session State
 # ---------------------------------------------------------
 if "resume_data" not in st.session_state:
@@ -67,20 +83,18 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
         
-        ats_block = '"keyword_analysis": {"jd_keywords": [], "original_hits": [], "optimized_hits": [], "newly_added": [], "missing_keywords": []},' if enable_ats else ""
-        final_prompt = f"""Optimize resume for JD. Return ONLY JSON.
-[COMMANDS]: {custom_prompt}
-[Target JD]: {jd_text}
-[Original Resume]: {json.dumps(st.session_state.resume_data)}
-[FORMAT]: {{ "visa_blocked": false, "reason": "", "changelog": "", {ats_block} "optimized_resume": {{...}} }}"""
-
+        final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         response = model.generate_content(final_prompt)
+        
         raw_text = response.text.strip()
         if "```" in raw_text: raw_text = raw_text.split("```")[1].replace("json", "").strip()
         res = json.loads(raw_text)
         
+        if res.get("visa_blocked"): return False, f"Visa: {res.get('reason')}"
         st.session_state.optimized_resume_data = res.get("optimized_resume")
+        st.session_state.opt_editor_key += 1
         st.session_state.changelog = res.get("changelog", "")
+        
         if enable_ats and "keyword_analysis" in res:
             kw = res["keyword_analysis"]
             tot = max(1, len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", [])))
@@ -93,39 +107,20 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
     except Exception as e: return False, str(e)
 
 # ---------------------------------------------------------
-# PDF 渲染邏輯
+# PDF 渲染與生成
 # ---------------------------------------------------------
 def render_pdf_js(pdf_bytes):
-    if not pdf_bytes:
-        return
+    if not pdf_bytes: return
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_js_html = f"""
-    <!DOCTYPE html><html><head>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <style>body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:20px;}} canvas{{margin-bottom:20px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border-radius:8px;max-width:95%;}}</style>
-    </head><body><div id="p"></div><script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    var b=window.atob('{base64_pdf}');var bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);
-    pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{
-        for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{
-            var v=page.getViewport({{scale:1.5}});var c=document.createElement('canvas');c.height=v.height;c.width=v.width;
-            document.getElementById('p').appendChild(c);page.render({{canvasContext:c.getContext('2d'),viewport:v}});
-        }});
-    }});
-    </script></body></html>"""
-    # 修正：使用 components.html (或 st.html) 並設定高度，避免 TypeError
+    pdf_js_html = f"""<!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><style>body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:20px;}} canvas{{margin-bottom:20px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border-radius:8px;max-width:95%;}}</style></head><body><div id="p"></div><script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';var b=window.atob('{base64_pdf}');var bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{var v=page.getViewport({{scale:1.5}});var c=document.createElement('canvas');c.height=v.height;c.width=v.width;document.getElementById('p').appendChild(c);page.render({{canvasContext:c.getContext('2d'),viewport:v}});}});}});</script></body></html>"""
     components.html(pdf_js_html, height=800, scrolling=True)
 
-# ---------------------------------------------------------
-# LaTeX 生成邏輯 (補回 Dynamic Blocks)
-# ---------------------------------------------------------
 def generate_preview_pdf_bytes(data, template_name="main.tex", block_order=None):
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             shutil.copy(template_name, temp_dir)
             tex_path = os.path.join(temp_dir, template_name)
             with open(tex_path, "r", encoding="utf-8") as f: content = f.read()
-            
             if block_order and "BLOCKS_PLACEHOLDER" in content:
                 blocks = ""
                 for b in block_order:
@@ -135,7 +130,6 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", block_order=None)
                     elif b == "Skills": blocks += "\\section{SKILLS}\n\\directlua{printSkills()}\n"
                 content = content.replace("BLOCKS_PLACEHOLDER", blocks)
                 with open(tex_path, "w", encoding="utf-8") as f: f.write(content)
-
             with open(os.path.join(temp_dir, "ml_resume.json"), "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False)
             subprocess.run(['lualatex', '-interaction=nonstopmode', template_name], cwd=temp_dir, capture_output=True)
             out_pdf = tex_path.replace(".tex", ".pdf")
@@ -160,34 +154,21 @@ def generate_cover_letter_pdf_bytes(data):
 # UI 介面
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume", page_icon="🚀", layout="wide")
+st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');h1,h2,h3,p,label,.stText{font-family:'Inter',sans-serif!important;}div[data-testid="stVerticalBlock"]>div[style*="border"]{background-color:#ffffff05;border:1px solid rgba(255,255,255,0.1)!important;border-radius:12px!important;padding:1.5rem!important;}.stButton>button{border-radius:8px!important;height:44px!important;font-weight:500!important;}.stButton>button[kind="primary"]{background:linear-gradient(135deg,#6366f1 0%,#a855f7 100%)!important;border:none!important;color:white!important;}[data-testid="stSidebar"]{background-color:#0f172a;}</style>""", unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    h1, h2, h3, p, label, .stText { font-family: 'Inter', sans-serif !important; }
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {
-        background-color: #ffffff05; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 12px !important; padding: 1.5rem !important;
-    }
-    .stButton > button { border-radius: 8px !important; height: 44px !important; font-weight: 500 !important; }
-    .stButton > button[kind="primary"] { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important; border: none !important; color: white !important; }
-    [data-testid="stSidebar"] { background-color: #0f172a; }
-</style>
-""", unsafe_allow_html=True)
+db = init_firebase()
 
-# --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🚀 AI Resume")
     if st.session_state.logged_in:
         st.success(f"User: {st.session_state.user_email}")
-        if st.button("Push to Cloud", use_container_width=True): save_user_profile(init_firebase(), st.session_state.user_email, st.session_state.resume_data, st.session_state.custom_prompt, st.session_state.api_key)
+        if st.button("Push to Cloud", use_container_width=True): save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, st.session_state.custom_prompt, st.session_state.api_key)
         if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
     else:
         with st.form("login"):
             e = st.text_input("Email"); p = st.text_input("Password", type="password")
             if st.form_submit_button("Login", type="primary", use_container_width=True):
-                if authenticate_user(init_firebase(), e, p): 
-                    st.session_state.logged_in = True; st.session_state.user_email = e
-                    st.rerun()
+                if authenticate_user(db, e, p): st.session_state.logged_in = True; st.session_state.user_email = e; st.rerun()
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
     st.selectbox("🧠 Model", ["gemini-1.5-flash", "gemini-1.5-pro"], key="ai_model")
@@ -202,7 +183,6 @@ with tab1:
         if st.button("✨ Extract Data", type="primary", use_container_width=True) and up:
             ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
             if ok: st.session_state.resume_data = data; st.rerun()
-    
     st.markdown("#### 📝 Base Profile Editor")
     edit = st_ace.st_ace(value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500)
     if st.button("💾 Save Changes", use_container_width=True): st.session_state.resume_data = json.loads(edit); st.toast("Saved!")
@@ -221,7 +201,7 @@ with tab2:
                         if ok: st.success("Done!")
                         else: st.error(rep)
         with c2:
-            p_text = build_optimization_prompt(jd, st.session_state.cp_v2, True, True, st.session_state.resume_data)
+            p_text = build_optimization_prompt(jd if jd else "JD", st.session_state.cp_v2, True, True, st.session_state.resume_data)
             b64_p = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
             st.html(f"""<body style="margin:0;"><button onclick="navigator.clipboard.writeText(decodeURIComponent(escape(window.atob('{b64_p}')))).then(()=>{{this.innerText='✅ Copied';}})" style="width:100%;height:44px;border-radius:8px;background:#1e293b;color:white;border:1px solid #444;cursor:pointer;font-weight:500;">📋 Copy Prompt</button></body>""")
 
@@ -271,5 +251,5 @@ with tab4:
     else: st.warning("Optimize first.")
 
 with tab5:
-    if st.session_state.logged_in: render_interview_progress(init_firebase(), st.session_state.user_email); render_dashboard(init_firebase(), st.session_state.user_email)
+    if st.session_state.logged_in: render_interview_progress(db, st.session_state.user_email); render_dashboard(db, st.session_state.user_email)
     else: st.warning("Login first.")
