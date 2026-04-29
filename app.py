@@ -126,218 +126,114 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
 
     try:
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model_name = st.session_state.get("ai_model", "gemini-1.5-flash")
         model = genai.GenerativeModel(model_name)
 
         prompt = """
         You are an expert resume parser. I will provide you with a resume in PDF format.
         Extract all the relevant information and structure it STRICTLY in the following JSON format.
-        Do not make up information. If a field is missing in the resume, leave it empty or omit it gracefully.
-        Return ONLY valid JSON, without any markdown formatting like ```json.
-
-        Expected JSON Structure:
-        {
-            "heading": { "name": "", "email": "", "phone": "", "website": "", "linkedin": "" },
-            "cover_letter": "",
-            "target_company": "",
-            "target_role": "",
-            "about me more": "",
-            "summary": "",
-            "education": [ { "degree": "", "time_period": "", "school": "", "school_location": "" } ],
-            "experience": [ { "role": "", "team": "", "company": "", "company_location": "", "time_duration": "", "details": [ { "title": "", "description": "" } ] } ],
-            "projects": [ { "name": "", "time": "", "description": "" } ],
-            "patents": [ { "name": "", "time": "", "description": "" } ],
-            "skills": { "set1": { "title": "", "items": [] }, "set2": { "title": "", "items": [] } }
-        }
+        Return ONLY valid JSON.
         """
 
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
         response = model.generate_content([prompt, pdf_part])
-        raw_text = response.text.replace('```json', '').replace('```', '').strip()
-
-        parsed_json = json.loads(raw_text)
-        return True, "✅ PDF successfully parsed into JSON!", parsed_json
-    except json.JSONDecodeError as e:
-        return False, f"⚠️ Failed to parse AI response into JSON. Raw output might be malformed: {e}", None
+        raw_text = response.text.strip()
+        if "```" in raw_text:
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"): raw_text = raw_text[4:]
+        
+        parsed_json = json.loads(raw_text.strip())
+        return True, "✅ Success!", parsed_json
     except Exception as e:
         return False, f"⚠️ Error during PDF parsing: {e}", None
 
 def build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, resume_data):
-    """Helper function to build the full prompt text"""
-    visa_check_instruction = ""
-    if check_visa:
-        visa_check_instruction = """
-    - Step 1 (Visa Check): First, analyze the [Target JD] for visa sponsorship restrictions (e.g., "U.S. Citizen only", "no sponsorship"). If you find any, you MUST STOP and return ONLY this JSON: `{"visa_blocked": true, "reason": "Your reason here"}`.
-    - Step 2 (Optimization): If the visa check passes, proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
-    """
-    else:
-        visa_check_instruction = """
-    - Step 1 (Visa Check): This step is disabled. Proceed directly to Step 2.
-    - Step 2 (Optimization): Proceed with the optimization and return the full JSON structure as described below, with `"visa_blocked": false`.
-    """
-
     ats_example = ""
     if enable_ats:
-        ats_example = """"keyword_analysis": {"jd_keywords": ["AWS", "Python"], "original_hits": ["Python"], "optimized_hits": ["Python", "AWS"], "newly_added": ["AWS"], "missing_keywords": []},"""
+        ats_example = '"keyword_analysis": {"jd_keywords": [], "original_hits": [], "optimized_hits": [], "newly_added": [], "missing_keywords": []},'
 
-    final_prompt = f"""
-You are an expert resume optimizer. Follow these steps and rules precisely.
-
-{custom_prompt}
-
-{visa_check_instruction}
+    return f"""
+You are a Resume Expert. Optimize the [Original Resume] based on the [Target JD].
+[COMMANDS]: {custom_prompt}
+[RULES]: 
+1. Return ONLY valid JSON.
+2. { "- Step 1: Check visa restrictions." if check_visa else "" }
+3. Generate 'cover_letter' and 'optimized_resume'.
 
 [Target JD]: {jd_text}
 [Original Resume JSON]: {json.dumps(resume_data, ensure_ascii=False)}
 
-🔥 STRICT RULES for Step 2 (if you get here):
-1. Cover Letter:
-    - Write a complete cover letter based on the JD and place it in the "cover_letter" field.
-    - ALWAYS end with "Best regards," followed by a newline and the applicant's first name.
-2. Extraction: Extract the target company and role from the JD and put them into "target_company" and "target_role" fields.
-3. ATS Keyword Injection:
-    - Horizontal Shift: If JD requires GCP and the candidate has AWS, rewrite as "AWS/GCP" in skills or summary. Do not hallucinate unrelated skills.
-    - Concept Replacement: Cleverly replace synonyms in experience descriptions to hit ATS keywords.
-    - ⚠️ Consistency Rule: Keywords in `newly_added` MUST strictly appear in `optimized_resume`.
-
-⚠️ [Output Format Limitation]: Your entire response MUST be a single, valid JSON object. Do not use markdown ticks like ```json.
-The final JSON structure for a successful optimization (Step 2) should be:
+[FORMAT]:
 {{
-    "visa_blocked": false,
-    "changelog": "Brief explanation of modifications...",
+    "visa_blocked": false, "reason": "", "changelog": "",
     {ats_example}
-    "optimized_resume": {{...Updated full resume JSON structure...}}
+    "optimized_resume": {{ ...STRUCTURE... }}
 }}
 """
-    return final_prompt
 
 def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
     try:
         api_key = st.session_state.get("api_key", "")
-        if not api_key:
-            return False, "⚠️ Error: Please set your GEMINI API KEY in the sidebar first."
-
+        if not api_key: return False, "Missing API Key."
+        
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-1.5-flash")
-        model = genai.GenerativeModel(model_name)
-        report_md = ""
-
+        model = genai.GenerativeModel(st.session_state.get("ai_model", "gemini-1.5-flash"))
+        
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
-
-        # Single API call
-        response = model.generate_content(
-            final_prompt,
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
-            )
-        )
+        response = model.generate_content(final_prompt)
+        
         raw_text = response.text.strip()
-
-        try:
-            ai_result = json.loads(raw_text)
-        except json.JSONDecodeError as json_err:
-            return False, f"⚠️ AI output malformed JSON. Please try again!\n\n**System Error:** {json_err}"
-
-        # Handle response based on visa_blocked flag
+        if "```" in raw_text:
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"): raw_text = raw_text[4:]
+        
+        ai_result = json.loads(raw_text.strip())
+        
         if ai_result.get("visa_blocked"):
-            report_md = f"### ⛔ Visa Sponsorship Check Failed\n**Reason:** {ai_result.get('reason')}\n\n💡 Suggestion: Due to visa restrictions, AI has stopped the optimization."
-            return False, report_md
-
-        # If not blocked, proceed
-        report_md += "✅ **Visa check passed! No explicit sponsorship barriers found.**\n\n---\n" if check_visa else ""
-
-        modified_resume_data = ai_result.get("optimized_resume", {})
-        if not modified_resume_data:
-            return False, "⚠️ Parsing Error: Could not find optimized resume data."
-
-        st.session_state.optimized_resume_data = modified_resume_data
+            return False, f"Visa Restriction: {ai_result.get('reason')}"
+            
+        st.session_state.optimized_resume_data = ai_result.get("optimized_resume")
         st.session_state.opt_editor_key += 1
-        st.session_state.optimized_resume_saved_time = None
-        st.session_state.changelog = ai_result.get('changelog', '')
-
-        # Generate ATS Metrics
+        st.session_state.changelog = ai_result.get("changelog", "")
+        
         if enable_ats and "keyword_analysis" in ai_result:
             kw = ai_result["keyword_analysis"]
-            tot = len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", []))
-            orig_c = len(kw.get("original_hits", []))
-            opt_c = len(kw.get("optimized_hits", []))
-
+            tot = max(1, len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", [])))
             st.session_state.ats_metrics = {
                 "total": tot,
-                "original_count": orig_c,
-                "optimized_count": opt_c,
-                "original_pct": int((orig_c / tot) * 100) if tot > 0 else 0,
-                "optimized_pct": int((opt_c / tot) * 100) if tot > 0 else 0,
+                "original_count": len(kw.get("original_hits", [])),
+                "optimized_count": len(kw.get("optimized_hits", [])),
+                "original_pct": int((len(kw.get("original_hits", []))/tot)*100),
+                "optimized_pct": int((len(kw.get("optimized_hits", []))/tot)*100),
                 "optimized_hits": kw.get("optimized_hits", []),
                 "newly_added": kw.get("newly_added", []),
                 "missing_keywords": kw.get("missing_keywords", [])
             }
-
-        return True, report_md
+        return True, "✅ Success"
     except Exception as e:
-        return False, f"⚠️ AI execution error: {e}"
+        return False, str(e)
+
 def predict_interview_questions(jd_text, resume_data):
-    """Predict potential interview questions based on JD and Resume."""
     try:
         api_key = st.session_state.get("api_key", "")
-        if not api_key:
-            return None
-            
+        if not api_key: return None
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
-        model = genai.GenerativeModel(model_name)
-        
-        prompt = f"""
-        You are a senior interviewer. Based on the following Job Description (JD) and the candidate's Resume, 
-        predict 5 technical questions and 3 behavioral questions that are most likely to be asked.
-        Focus on the candidate's specific experiences and how they relate to the JD requirements.
-        Return ONLY valid JSON.
-        
-        Format:
-        {{
-            "technical": ["Question 1", "Question 2", ...],
-            "behavioral": ["Question 1", "Question 2", ...]
-        }}
-        
-        [JD]: {jd_text}
-        [Resume]: {json.dumps(resume_data)}
-        """
+        model = genai.GenerativeModel(st.session_state.get("ai_model", "gemini-1.5-flash"))
+        prompt = f"Predict interview questions for this JD and Resume. Return JSON with 'technical' and 'behavioral' lists. [JD]: {jd_text} [Resume]: {json.dumps(resume_data)}"
         response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
         return json.loads(response.text)
-    except Exception:
-        return None
+    except: return None
 
 def analyze_skill_gap(jd_text, resume_data):
-    """Analyze skill gap and return data for radar chart."""
     try:
         api_key = st.session_state.get("api_key", "")
-        if not api_key:
-            return None
-            
+        if not api_key: return None
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
-        model = genai.GenerativeModel(model_name)
-        
-        prompt = f"""
-        Analyze the match between the candidate's Resume and the Job Description (JD).
-        Extract 5 key categories (e.g., Programming, Cloud, Soft Skills, Tools, Domain Knowledge).
-        For each category, provide a score (0-100) for the candidate's proficiency and the job's requirement level.
-        Return ONLY valid JSON.
-        
-        Format:
-        {{
-            "categories": ["Category 1", "Category 2", ...],
-            "candidate_scores": [80, 70, ...],
-            "requirement_scores": [90, 80, ...]
-        }}
-        
-        [JD]: {jd_text}
-        [Resume]: {json.dumps(resume_data)}
-        """
+        model = genai.GenerativeModel(st.session_state.get("ai_model", "gemini-1.5-flash"))
+        prompt = f"Analyze skill gap (radar chart data). Return JSON with 'categories', 'candidate_scores', 'requirement_scores'. [JD]: {jd_text} [Resume]: {json.dumps(resume_data)}"
         response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
         return json.loads(response.text)
-    except Exception:
-        return None
+    except: return None
 
 # ---------------------------------------------------------
 # PDF 生成與預覽邏輯 (全部使用獨立的暫存目錄避免名稱衝突)
@@ -409,79 +305,43 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", custom_tex_bytes=
         return None, str(e)
 
 def generate_word_from_json(resume_data, block_order=None):
-    """Generate a simple, editable Word document from the JSON data."""
     doc = Document()
-    
-    # Adjust margins to fit more content like a resume
     for section in doc.sections:
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.5)
-        section.right_margin = Inches(0.5)
+        section.top_margin = section.bottom_margin = section.left_margin = section.right_margin = Inches(0.5)
         
-    # Heading
     heading = resume_data.get("heading", {})
     p_name = doc.add_paragraph()
-    p_name.alignment = 1  # Center
+    p_name.alignment = 1
     run_name = p_name.add_run(heading.get("name", "Name"))
     run_name.bold = True
     run_name.font.size = Pt(20)
     
     contact_info = [heading.get("email", ""), heading.get("phone", ""), heading.get("linkedin", ""), heading.get("website", "")]
-    contact_str = " | ".join([c for c in contact_info if c])
-    p_contact = doc.add_paragraph(contact_str)
-    p_contact.alignment = 1
+    doc.add_paragraph(" | ".join([c for c in contact_info if c])).alignment = 1
     
-    if not block_order:
-        block_order = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
-        
+    if not block_order: block_order = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
     for block in block_order:
         if block == "Summary" and resume_data.get("summary"):
             doc.add_heading("SUMMARY", level=1)
             doc.add_paragraph(resume_data.get("summary", ""))
-            
         elif block == "Experience" and resume_data.get("experience"):
             doc.add_heading("WORK EXPERIENCE", level=1)
             for exp in resume_data.get("experience", []):
                 p = doc.add_paragraph()
                 p.add_run(exp.get("company", "")).bold = True
                 p.add_run(f" - {exp.get('role', '')}").italic = True
-                loc_time = " | ".join([x for x in [exp.get("company_location", ""), exp.get("time_duration", "")] if x])
-                if loc_time:
-                    p.add_run(f" ({loc_time})")
-                for d in exp.get("details", []):
-                    doc.add_paragraph(d.get("description", ""), style="List Bullet")
-                    
+                for d in exp.get("details", []): doc.add_paragraph(d.get("description", ""), style="List Bullet")
         elif block == "Education" and resume_data.get("education"):
             doc.add_heading("EDUCATION", level=1)
             for edu in resume_data.get("education", []):
                 p = doc.add_paragraph()
                 p.add_run(edu.get("school", "")).bold = True
                 p.add_run(f" - {edu.get('degree', '')}")
-                loc_time = " | ".join([x for x in [edu.get("school_location", ""), edu.get("time_period", "")] if x])
-                if loc_time:
-                    p.add_run(f" ({loc_time})")
-                    
-        elif block == "Projects & Patents":
-            projects_patents = resume_data.get("projects", []) + resume_data.get("patents", [])
-            if projects_patents:
-                doc.add_heading("PROJECTS & PATENTS", level=1)
-                for item in projects_patents:
-                    p = doc.add_paragraph()
-                    p.add_run(item.get("name", "")).bold = True
-                    if item.get("time"):
-                        p.add_run(f" ({item.get('time', '')})")
-                    if item.get("description"):
-                        doc.add_paragraph(item.get("description", ""), style="List Bullet")
-                        
         elif block == "Skills" and resume_data.get("skills"):
             doc.add_heading("SKILLS", level=1)
             for key in ["set1", "set2", "set3"]:
                 s = resume_data["skills"].get(key, {})
-                if s.get("title") and s.get("items"):
-                    p = doc.add_paragraph()
-                    p.add_run(s.get("title", "") + ": ").bold = True
-                    p.add_run(", ".join(s.get("items", [])))
+                if s.get("title"): doc.add_paragraph(f"{s.get('title')}: {', '.join(s.get('items', []))}")
                 
     file_stream = io.BytesIO()
     doc.save(file_stream)
@@ -489,684 +349,180 @@ def generate_word_from_json(resume_data, block_order=None):
 
 def generate_cover_letter_pdf_bytes(resume_data):
     try:
-        company = resume_data.get('target_company', 'Company').replace(' ', '_').replace('/', '_')
-        role = resume_data.get('target_role', 'Role').replace(' ', '_').replace('/', '_')
-        pdf_filename = f"{company}_{role}_coverletter.pdf"
-
-        cl_content = resume_data.get('cover_letter', '')
-        if not cl_content:
-            return None, None, "No cover letter content found."
-            
-        clean_cl_content = cl_content.replace('**', '')
-
-        def escape_tex(text):
-            text = text.replace('\\', '\\textbackslash{}')
-            chars_to_escape = ['&', '%', '$', '#', '_', '{', '}']
-            for c in chars_to_escape:
-                text = text.replace(c, '\\' + c)
-            text = text.replace('~', '\\textasciitilde{}')
-            text = text.replace('^', '\\textasciicircum{}')
-            return text
-            
-        escaped_content = escape_tex(clean_cl_content)
-
-        # Extract and format heading info for Cover Letter
-        heading = resume_data.get('heading', {})
-        name = escape_tex(heading.get('name', ''))
-        email = escape_tex(heading.get('email', ''))
-        phone = escape_tex(heading.get('phone', ''))
-        linkedin = escape_tex(heading.get('linkedin', ''))
-        website = escape_tex(heading.get('website', ''))
-
-        header_tex = "\\begin{flushright}\n"
-        if name: header_tex += f"{{\\Large\\bfseries {name}}} \\\\[1em]\n"
-        if email: header_tex += f"{email} \\\\\n"
-        if phone: header_tex += f"{phone} \\\\\n"
-        if linkedin: header_tex += f"{linkedin} \\\\\n"
-        if website: header_tex += f"{website} \\\\\n"
-        header_tex += "\\end{flushright}\n\\vspace{1em}\n\\today\n\\vspace{2em}\n\n"
-
-        latex_template = r"""
-\documentclass[11pt]{article}
-\usepackage[margin=1in]{geometry}
-\usepackage{fontspec}
-\usepackage{setspace}
-\usepackage{parskip}
-\onehalfspacing
-\begin{document}
-""" + header_tex + escaped_content.replace("\n", "\n\n") + r"""
-\end{document}
-"""
+        cl_content = resume_data.get('cover_letter', '').replace('**', '')
+        if not cl_content: return None, None, "No content."
+        
+        latex_template = r"""\documentclass[11pt]{article}\usepackage[margin=1in]{geometry}\usepackage{fontspec}\begin{document}""" + cl_content.replace("\n", "\n\n") + r"""\end{document}"""
         with tempfile.TemporaryDirectory() as temp_dir:
-            tex_filename = "cover_letter.tex"
-            tex_path = os.path.join(temp_dir, tex_filename)
-            with open(tex_path, "w", encoding="utf-8") as f:
-                f.write(latex_template)
-
-            process = subprocess.run(
-                ['lualatex', '-interaction=nonstopmode', tex_filename],
-                cwd=temp_dir,
-                capture_output=True,
-                text=True
-            )
-            
-            gen_pdf_path = os.path.join(temp_dir, tex_filename.replace('.tex', '.pdf'))
-            if process.returncode == 0 and os.path.exists(gen_pdf_path):
-                with open(gen_pdf_path, "rb") as f:
-                    return f.read(), pdf_filename, None
-            else:
-                return None, None, process.stdout + "\n" + process.stderr
-    except Exception as e:
-        return None, None, str(e)
+            with open(os.path.join(temp_dir, "cl.tex"), "w", encoding="utf-8") as f: f.write(latex_template)
+            subprocess.run(['lualatex', '-interaction=nonstopmode', 'cl.tex'], cwd=temp_dir)
+            with open(os.path.join(temp_dir, "cl.pdf"), "rb") as f: return f.read(), "cl.pdf", None
+    except: return None, None, "Error"
 
 def generate_cover_letter_word_bytes(resume_data):
-    """Generate a simple, editable Word document for the Cover Letter."""
     doc = Document()
-    
-    for section in doc.sections:
-        section.top_margin = Inches(1)
-        section.bottom_margin = Inches(1)
-        section.left_margin = Inches(1)
-        section.right_margin = Inches(1)
-        
-    heading = resume_data.get('heading', {})
-    p_head = doc.add_paragraph()
-    p_head.alignment = 2  # Right aligned (matches flushright in LaTeX)
-    
-    run_name = p_head.add_run(heading.get('name', '') + "\n")
-    run_name.bold = True
-    run_name.font.size = Pt(16)
-    
-    contact_info = [heading.get('email', ''), heading.get('phone', ''), heading.get('linkedin', ''), heading.get('website', '')]
-    contact_str = "\n".join([c for c in contact_info if c])
-    if contact_str:
-        p_head.add_run(contact_str)
-        
-    p_date = doc.add_paragraph()
-    p_date.add_run("\n" + datetime.today().strftime('%B %d, %Y') + "\n")
-    
-    cl_content = resume_data.get('cover_letter', '').replace('**', '')
-    for para in cl_content.split('\n'):
-        if para.strip():
-            doc.add_paragraph(para.strip())
-            
+    doc.add_paragraph(resume_data.get('cover_letter', '').replace('**', ''))
     file_stream = io.BytesIO()
     doc.save(file_stream)
     return file_stream.getvalue()
 
-def render_pdf_js(pdf_bytes, height=650):
+def render_pdf_js(pdf_bytes):
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_js_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-        <style>
-            body {{ margin: 0; padding: 0; background-color: transparent; display: flex; flex-direction: column; align-items: center; }}
-            canvas {{ margin-bottom: 10px; box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15); width: 100%; border-radius: 4px; }}
-        </style>
-    </head>
-    <body>
-        <div id="pdf-container" style="width: 100%;"></div>
-        <script>
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-            
-            var binaryString = window.atob('{base64_pdf}');
-            var binaryLen = binaryString.length;
-            var bytes = new Uint8Array(binaryLen);
-            for (var i = 0; i < binaryLen; i++) {{
-                bytes[i] = binaryString.charCodeAt(i);
-            }}
-            
-            var loadingTask = pdfjsLib.getDocument({{data: bytes}});
-            loadingTask.promise.then(function(pdf) {{
-                var container = document.getElementById('pdf-container');
-                for (var pageNum = 1; pageNum <= pdf.numPages; pageNum++) {{
-                    pdf.getPage(pageNum).then(function(page) {{
-                        var scale = 1.5;
-                        var viewport = page.getViewport({{scale: scale}});
-                        var canvas = document.createElement('canvas');
-                        var context = canvas.getContext('2d');
-                        canvas.height = viewport.height;
-                        canvas.width = viewport.width;
-                        container.appendChild(canvas);
-                        var renderContext = {{ canvasContext: context, viewport: viewport }};
-                        page.render(renderContext);
-                    }});
-                }}
-            }});
-        </script>
-    </body>
-    </html>
-    """
+    pdf_js_html = f"""<html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script></head><body><div id="pdf-container"></div><script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';var binaryString=window.atob('{base64_pdf}');var bytes=new Uint8Array(binaryString.length);for(var i=0;i<binaryString.length;i++)bytes[i]=binaryString.charCodeAt(i);pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{var canvas=document.createElement('canvas');document.getElementById('pdf-container').appendChild(canvas);page.render({{canvasContext:canvas.getContext('2d'),viewport:page.getViewport({{scale:1.5}})}});}});}});</script></body></html>"""
     st.html(pdf_js_html)
 
-# ---------------------------------------------------------
-# Custom Premium UI Components (Glassmorphism & Overlays)
-# ---------------------------------------------------------
-def get_glass_overlay_html(message="AI is processing your request...", animal_emoji="🐕", theme_color="#8a2be2"):
-    return f"""<style>
-.glass-overlay-bg {{
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(10, 10, 15, 0.7);
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    z-index: 999999; display: flex; justify-content: center; align-items: center;
-}}
-.glass-dialog-box {{
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-    border-radius: 24px; padding: 50px 60px;
-    text-align: center; position: relative; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center;
-}}
-.glass-dialog-box::before {{
-    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-    background: radial-gradient(circle, {theme_color}26 0%, transparent 60%);
-    animation: pulse-glow 3s infinite alternate; z-index: 0;
-}}
-.float-container {{
-    animation: floatAnim 2.5s ease-in-out infinite;
-    margin-bottom: 10px; z-index: 2; position: relative;
-}}
-.interactive-animal {{
-    font-size: 85px; user-select: none; display: inline-block;
-    transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s ease;
-}}
-.interactive-animal:hover {{
-    filter: drop-shadow(0 0 15px {theme_color});
-}}
-@keyframes floatAnim {{ 0%, 100% {{ transform: translateY(0px); }} 50% {{ transform: translateY(-15px); }} }}
-.loading-text {{
-    color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 1.2rem;
-    font-weight: 300; letter-spacing: 1px; margin: 0;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 1; position: relative;
-}}
-@keyframes pulse-glow {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
-</style>
-<div class="glass-overlay-bg">
-    <div class="glass-dialog-box">
-        <div class="float-container">
-            <div class="interactive-animal" id="autoAnimAnimal">{animal_emoji}</div>
-        </div>
-        <h2 class="loading-text">{message}</h2>
-    </div>
-</div>
-<img src="x" style="display:none;" onerror="
-    var animal = document.getElementById('autoAnimAnimal');
-    var currentRot = 0;
-    function triggerRandomAnim() {{
-        if(!animal || !document.body.contains(animal)) return;
-        
-        var addRot = (Math.floor(Math.random() * 3) + 1) * 360 * (Math.random() > 0.5 ? 1 : -1);
-        currentRot += addRot;
-        var scale = Math.random() * 0.5 + 0.8;
-        
-        animal.style.transform = 'rotate(' + newRot + 'deg) scale(' + scale + ')';
-        setTimeout(function(){{
-            if(document.body.contains(animal))
-                animal.style.transform = 'rotate(' + currentRot + 'deg) scale(1)';
-        }}, 350);
-        
-        var nextTime = Math.random() * 1200 + 600;
-        setTimeout(triggerRandomAnim, nextTime);
-    }}
-    if(animal) setTimeout(triggerRandomAnim, 500);
-">"""
+def get_glass_overlay_html(message="Processing...", animal_emoji="🐕"):
+    return f"""<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);z-index:9999;display:flex;justify-content:center;align-items:center;color:white;flex-direction:column;"><h1>{animal_emoji}</h1><h2>{message}</h2></div>"""
 
-@st.dialog("🔍 AI Optimization Diff (Base vs Optimized)", width="large")
-def show_diff_dialog(base_json, opt_json):
-    base_lines = json.dumps(base_json, indent=4, ensure_ascii=False).splitlines()
-    opt_lines = json.dumps(opt_json, indent=4, ensure_ascii=False).splitlines()
-    
-    html_diff = difflib.HtmlDiff().make_file(
-        base_lines, opt_lines, 
-        fromdesc="Base Profile (Original)", todesc="Optimized Profile (AI Generated)",
-        context=True, numlines=5
-    )
-    
-    # Inject custom CSS for Dark Mode and better formatting
-    custom_css = """
-    <style>
-        body { font-family: 'Courier New', Courier, monospace; font-size: 13px; background-color: #0e1117; color: #fafafa; margin: 0; padding: 10px;}
-        table.diff { width: 100%; border-collapse: collapse; }
-        table.diff th { background-color: #262730; border: 1px solid #444; padding: 4px; text-align: left; }
-        table.diff td { padding: 4px; border: 1px solid #333; word-wrap: break-word; max-width: 300px; }
-        .diff_header { background-color: #262730; color: #888; text-align: center; width: 1%; }
-        .diff_add { background-color: rgba(46, 160, 67, 0.4); }
-        .diff_chg { background-color: rgba(227, 179, 65, 0.4); }
-        .diff_sub { background-color: rgba(255, 75, 75, 0.4); }
-        .diff_next { display: none; }
-    </style>
-    """
-    html_diff = html_diff.replace("</head>", custom_css + "</head>")
-    st.html(html_diff)
+@st.dialog("Base Content", width="large")
+def preview_base_profile(): st.json(st.session_state.resume_data)
 
 # ---------------------------------------------------------
 # Streamlit UI 介面
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume Builder", page_icon="🚀", layout="wide")
 
-# 🎨 CLEAN MODERN UI (Removed font-family overrides that break icons)
-st.markdown("""
-<style>
-    /* 1. Main Layout */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
-
-    /* 2. Professional Cards */
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {
-        background-color: #ffffff05;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 12px !important;
-        padding: 1.5rem !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-
-    /* 3. Enhanced Buttons (Keep shapes/colors, avoid font changes) */
-    .stButton > button {
-        border-radius: 8px !important;
-        height: 44px !important;
-        transition: all 0.2s ease !important;
-        text-transform: none !important;
-    }
-    
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
-        border: none !important;
-        color: white !important;
-    }
-
-    .stButton > button[kind="primary"]:hover {
-        opacity: 0.9;
-        transform: translateY(-1px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
-    }
-
-    /* 4. Tabs & Sidebar */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #1e293b;
-        border-radius: 8px 8px 0px 0px;
-        padding: 0px 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        border-bottom: 2px solid #6366f1 !important;
-    }
-    [data-testid="stSidebar"] { background-color: #0f172a; }
-
-</style>
-""", unsafe_allow_html=True)
+st.markdown("""<style>
+.block-container { padding-top: 2rem; max-width: 1200px; }
+div[data-testid="stVerticalBlock"] > div[style*="border"] { background-color: #ffffff05; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px !important; padding: 1.5rem !important; }
+.stButton > button { border-radius: 8px !important; height: 44px !important; transition: all 0.2s ease !important; }
+.stButton > button[kind="primary"] { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important; border: none !important; color: white !important; }
+.stTabs [data-baseweb="tab-list"] { gap: 8px; }
+.stTabs [data-baseweb="tab"] { background-color: #1e293b; border-radius: 8px 8px 0px 0px; padding: 0px 20px; }
+.stTabs [aria-selected="true"] { border-bottom: 2px solid #6366f1 !important; }
+[data-testid="stSidebar"] { background-color: #0f172a; }
+</style>""", unsafe_allow_html=True)
 
 db = init_firebase()
 
-@st.dialog("Base Profile Content", width="large")
-def preview_base_profile():
-    st.json(st.session_state.resume_data)
-
-# --- Sidebar Settings ---
 with st.sidebar:
-    st.markdown("### 🚀 AI Resume Generator")
+    st.markdown("### 🚀 AI Resume Gen")
     st.markdown("---")
-    
     if st.session_state.logged_in:
-        st.success(f"**Logged in:**\n`{st.session_state.user_email}`")
-        
-        with st.expander("☁️ Cloud Sync"):
-            col_s1, col_s2 = st.columns(2)
-            if col_s1.button("Push", help="Sync to Cloud", use_container_width=True):
-                if db:
-                    current_prompt = st.session_state.get("custom_prompt_v2", st.session_state.get("custom_prompt", ""))
-                    current_api_key = st.session_state.get("api_key", "")
-                    success, msg = save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, current_prompt, current_api_key)
-                    if success: st.toast(msg)
-                    else: st.error(msg)
-            
-            if col_s2.button("Pull", help="Load from Cloud", use_container_width=True):
-                if db:
-                    loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, st.session_state.user_email)
-                    if loaded_resume:
-                        st.session_state.resume_data = loaded_resume
-                        st.session_state.base_editor_key += 1
-                    if loaded_prompt:
-                        st.session_state.custom_prompt = loaded_prompt
-                    if loaded_key:
-                        st.session_state.api_key = loaded_key
-                    st.rerun()
-
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.user_email = ""
-            st.rerun()
+        st.success(f"Logged in: {st.session_state.user_email}")
+        if st.button("Push to Cloud", use_container_width=True):
+            save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, st.session_state.custom_prompt, st.session_state.api_key)
+        if st.button("Pull from Cloud", use_container_width=True):
+            r, p, k = load_user_profile(db, st.session_state.user_email)
+            if r: st.session_state.resume_data = r; st.session_state.custom_prompt = p; st.session_state.api_key = k; st.rerun()
+        if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
     else:
-        st.info("Log in to sync data.")
-        with st.form("sidebar_login_form"):
-            login_email = st.text_input("Email", key="login_email").strip()
-            login_pwd = st.text_input("Password", type="password", key="login_pwd")
-            login_btn = st.form_submit_button("Login", type="primary", use_container_width=True)
-            if login_btn:
-                if db:
-                    success, msg = authenticate_user(db, login_email, login_pwd)
-                    if success:
-                        st.session_state.logged_in = True
-                        st.session_state.user_email = login_email
-                        
-                        # 🔄 自動載入雲端資料
-                        loaded_resume, loaded_prompt, loaded_key = load_user_profile(db, login_email)
-                        if loaded_resume:
-                            st.session_state.resume_data = loaded_resume
-                            st.session_state.base_editor_key += 1
-                        if loaded_prompt:
-                            st.session_state.custom_prompt = loaded_prompt
-                            st.session_state.custom_prompt_v2 = loaded_prompt
-                        if loaded_key:
-                            st.session_state.api_key = loaded_key
-                            
-                        st.toast("Welcome! Your profile has been synchronized.")
-                        st.rerun()
-                    else: st.error(msg)
-
-        with st.expander("📝 Register New Account"):
-            with st.form("register_form"):
-                reg_email = st.text_input("Email", key="reg_email").strip()
-                reg_pwd = st.text_input("Password", type="password", key="reg_pwd")
-                reg_btn = st.form_submit_button("Register", use_container_width=True)
-                if reg_btn:
-                    if db:
-                        success, msg = register_user(db, reg_email, reg_pwd)
-                        if success: st.success(msg)
-                        else: st.error(msg)
-
+        with st.form("login"):
+            e = st.text_input("Email").strip(); p = st.text_input("Password", type="password")
+            if st.form_submit_button("Login", type="primary", use_container_width=True):
+                if authenticate_user(db, e, p): 
+                    st.session_state.logged_in = True; st.session_state.user_email = e
+                    r, pr, k = load_user_profile(db, e)
+                    if r: st.session_state.resume_data = r; st.session_state.custom_prompt = pr; st.session_state.api_key = k
+                    st.rerun()
     st.markdown("---")
-    with st.expander("⚙️ Advanced Settings"):
-        st.text_input("🔑 Gemini API Key", type="password", key="api_key")
-        st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
-        st.color_picker("Brand Color", "#8a2be2", key="theme_color")
-        st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
-        st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
+    st.text_input("🔑 Gemini API Key", type="password", key="api_key")
+    st.selectbox("🧠 Model", ["gemini-1.5-flash", "gemini-1.5-pro"], key="ai_model")
+    st.color_picker("Brand Color", "#8a2be2", key="theme_color")
+    st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
+    st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
 
-    st.markdown("---")
-    st.caption("Developed by NSYSUHermit")
-
-# --- Main UI ---
 st.title("🚀 Professional AI Resume")
+s1, s2, s3, s4, s5 = len(st.session_state.resume_data.get("experience", [])) > 0, len(st.session_state.get("jd_input_v2", "")) > 50, st.session_state.optimized_resume_data is not None, st.session_state.resume_preview_bytes is not None, st.session_state.logged_in
+steps = [{"l": "1. Source", "d": s1}, {"l": "2. Target", "d": s2}, {"l": "3. Analysis", "d": s3}, {"l": "4. Review", "d": s4}, {"l": "5. Tracker", "d": s5}]
+cols = st.columns(5)
+for i, s in enumerate(steps):
+    with cols[i]:
+        c = "#10b981" if s["d"] else "#6366f1"
+        st.markdown(f"<div style='text-align:center;padding:10px;border-radius:10px;background:{c}15;border:1px solid {c}40;color:{c};font-weight:bold;'>{'✅' if s['d'] else '🔵'} {s['l']}</div>", unsafe_allow_html=True)
 
-# --- 動態進度指示器邏輯 ---
-s1_done = len(st.session_state.resume_data.get("experience", [])) > 0
-s2_done = len(st.session_state.get("jd_input_v2", "")) > 50
-s3_done = st.session_state.optimized_resume_data is not None
-s4_done = st.session_state.resume_preview_bytes is not None
-s5_done = st.session_state.logged_in
+t1, t2, t3, t4, t5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS Analysis ", " 📝 Editor & Export ", " 📈 Job Tracker "])
 
-steps = [
-    {"label": "1. Source", "done": s1_done, "msg": "Profile Ready" if s1_done else "Import Resume"},
-    {"label": "2. Target", "done": s2_done, "msg": "JD Linked" if s2_done else "Paste JD"},
-    {"label": "3. Analysis", "done": s3_done, "msg": "AI Optimized" if s3_done else "Run AI"},
-    {"label": "4. Review", "done": s4_done, "msg": "PDF Ready" if s4_done else "Export PDF"},
-    {"label": "5. Tracker", "done": s5_done, "msg": "Synced" if s5_done else "Login to Track"}
-]
-
-step_cols = st.columns(len(steps))
-for i, step in enumerate(steps):
-    with step_cols[i]:
-        color = "#10b981" if step["done"] else ("#6366f1" if (i == 0 or steps[i-1]["done"]) else "#334155")
-        icon = "✅" if step["done"] else "🔵"
-        st.markdown(f"""
-            <div style='text-align: center; padding: 10px; border-radius: 10px; background: {color}15; border: 1px solid {color}40;'>
-                <p style='margin:0; font-size: 0.8rem; color: {color}; font-weight: bold;'>{icon} {step['label']}</p>
-                <p style='margin:0; font-size: 0.7rem; color: #94a3b8;'>{step['msg']}</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-st.markdown("---")
-
-tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS Analysis ", " 📝 Editor & Export ", " 📈 Job Tracker "])
-
-# --- 1. Base Profile Tab ---
-with tab1:
+with t1:
     with st.container(border=True):
         st.subheader("📥 Quick Import")
-        uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-        if st.button("✨ Extract with AI", type="primary", key="extract_btn", use_container_width=True):
-            if uploaded_pdf:
-                with st.status("Parsing PDF...", expanded=True):
-                    success, msg, parsed_json = parse_pdf_resume_to_json(uploaded_pdf.getvalue(), st.session_state.get("api_key", ""))
-                    if success:
-                        st.session_state.resume_data = parsed_json
-                        st.session_state.base_editor_key += 1
-                        st.rerun()
-                    else: st.error(msg)
-            else: st.warning("Please upload a PDF.")
+        up = st.file_uploader("Upload PDF", type=["pdf"], key="up1")
+        if st.button("✨ Extract", type="primary", use_container_width=True) and up:
+            with st.status("Parsing..."):
+                ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
+                if ok: st.session_state.resume_data = data; st.rerun()
+    st.markdown("#### 📝 Editor")
+    edit = st_ace.st_ace(value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500, key="base_ed")
+    if st.button("💾 Save Base", use_container_width=True): st.session_state.resume_data = json.loads(edit); st.toast("Saved!")
 
-    st.markdown("#### 📝 Base Profile Editor")
-    edited_json = st_ace.st_ace(
-        value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False),
-        language="json", theme="dracula", height=500,
-        key=f"base_resume_editor_{st.session_state.base_editor_key}",
-    )
-    if st.button("💾 Save Base Changes", key="save_base_btn", use_container_width=True):
-        try:
-            st.session_state.resume_data = json.loads(edited_json)
-            st.toast("✅ Base profile updated!")
-        except: st.error("Invalid JSON format.")
-
-# --- 2. Target Job Tab ---
-with tab2:
+with t2:
     with st.container(border=True):
         st.subheader("🎯 Job Details")
-        jd_input = st.text_area("Job Description (JD)", height=300, placeholder="Paste the job description here...", key="jd_input_v2")
-        
-        st.markdown("#### 🗣️ Optimization Strategy")
-        st.text_area("Custom Instructions", 
-                    value=st.session_state.get("custom_prompt", "Focus on system optimization and microservices keywords."),
-                    key="custom_prompt_v2")
-        
-        col1, col2 = st.columns(2)
-        with col1: st.checkbox("ATS Analysis", value=True, key="enable_ats_v2")
-        with col2: st.checkbox("Visa Check", value=True, key="check_visa_v2")
-
+        jd = st.text_area("JD", height=300, key="jd_input_v2")
+        st.text_area("Prompt", value=st.session_state.custom_prompt, key="custom_prompt_v2")
+        c1, c2 = st.columns(2)
+        with c1: ats = st.checkbox("ATS", value=True, key="ats_v2")
+        with c2: visa = st.checkbox("Visa", value=True, key="visa_v2")
         st.markdown("---")
-        c_opt, c_copy = st.columns(2)
-        
-        with c_opt:
-            if st.button("🚀 Start AI Optimization", type="primary", use_container_width=True):
-                if not jd_input.strip():
-                    st.warning("Please paste the JD first!")
-                else:
-                    loading_overlay = st.empty()
-                    loading_overlay.markdown(get_glass_overlay_html("AI is crafting your resume...", st.session_state.animal_emoji, st.session_state.get('theme_color', '#8a2be2')), unsafe_allow_html=True)
-                    success, report = ai_optimize_and_update(jd_input, st.session_state.custom_prompt_v2, st.session_state.enable_ats_v2, st.session_state.check_visa_v2)
-                    st.session_state.ai_report = report
-                    loading_overlay.empty()
-                    if success: st.success("Done! Check 'ATS Analysis' tab.")
-                    else: st.error(f"❌ Optimization Failed: {report}")
+        co1, co2 = st.columns(2)
+        with co1:
+            if st.button("🚀 Start Optimization", type="primary", use_container_width=True):
+                if jd:
+                    l = st.empty(); l.markdown(get_glass_overlay_html("Optimizing...", st.session_state.animal_emoji), unsafe_allow_html=True)
+                    ok, rep = ai_optimize_and_update(jd, st.session_state.custom_prompt_v2, ats, visa)
+                    l.empty()
+                    if ok: st.success("Done!")
+                    else: st.error(f"Failed: {rep}")
+        with co2:
+            prompt = build_optimization_prompt(jd, st.session_state.custom_prompt_v2, ats, visa, st.session_state.resume_data)
+            b64 = base64.b64encode(prompt.encode('utf-8')).decode('utf-8')
+            st.html(f"""<button id="cp" onclick="navigator.clipboard.writeText(decodeURIComponent(escape(window.atob('{b64}')))).then(()=>{{this.innerText='✅ Copied';}})" style="width:100%;height:44px;border-radius:8px;background:#1e293b;color:white;border:1px solid #444;cursor:pointer;">📋 Copy Prompt</button>""")
 
-        with c_copy:
-            # 準備 Prompt 文字
-            jd_for_prompt = jd_input if jd_input else "[PLEASE PASTE JOB DESCRIPTION HERE]"
-            prompt_text = build_optimization_prompt(jd_for_prompt, st.session_state.custom_prompt_v2, st.session_state.enable_ats_v2, st.session_state.check_visa_v2, st.session_state.resume_data)
-            b64_text = base64.b64encode(prompt_text.encode('utf-8')).decode('utf-8')
-            jd_is_empty = "true" if not jd_input.strip() else "false"
-            
-            html_code = f"""
-            <body style="margin:0; padding:0;">
-                <button id="copyBtn" onclick="copy()" style="
-                    width:100%; height:44px; border-radius:8px; 
-                    background:#1e293b; color:white; border:1px solid #444; 
-                    cursor:pointer; font-weight:500; font-family: sans-serif;
-                    display: flex; align-items: center; justify-content: center;">
-                    📋 Copy Prompt
-                </button>
-            </body>
-            <script>
-            function copy() {{
-                if ({jd_is_empty}) {{ alert("⚠️ Paste JD first!"); return; }}
-                const b64 = "{b64_text}";
-                const text = decodeURIComponent(escape(window.atob(b64)));
-                navigator.clipboard.writeText(text).then(() => {{
-                    const btn = document.getElementById('copyBtn');
-                    btn.innerText = '✅ Copied!';
-                    btn.style.borderColor = '#059669';
-                    btn.style.color = '#34d399';
-                    setTimeout(() => {{ 
-                        btn.innerText = '📋 Copy Prompt'; 
-                        btn.style.borderColor = '#444';
-                        btn.style.color = 'white';
-                    }}, 2000);
-                }});
-            }}
-            </script>
-            """
-            st.html(html_code)
-
-
-# --- 3. ATS Analysis Tab ---
-with tab3:
-    st.header("📊 ATS Analysis & Import")
-    with st.expander("📥 Import Result from External AI", expanded=not st.session_state.optimized_resume_data):
-        ext_json = st.text_area("Paste JSON here", height=300, key="external_json_tab3")
-        if st.button("🚀 Apply External JSON", use_container_width=True):
+with t3:
+    st.header("📊 ATS Analysis")
+    with st.expander("📥 Import External JSON"):
+        ext = st.text_area("Paste JSON", height=200)
+        if st.button("Apply"):
             try:
-                clean_str = ext_json.replace('```json', '').replace('```', '').strip()
-                data = json.loads(clean_str)
-                st.session_state.optimized_resume_data = data.get("optimized_resume", data)
-                st.session_state.opt_editor_key += 1
-                st.session_state.changelog = data.get("changelog", "Imported.")
+                d = json.loads(ext.strip('`json \n'))
+                st.session_state.optimized_resume_data = d.get("optimized_resume", d)
                 st.rerun()
-            except: st.error("Invalid JSON.")
-
+            except: st.error("Invalid")
     if st.session_state.optimized_resume_data:
-        if st.session_state.changelog:
-            with st.container(border=True):
-                st.subheader("📝 Optimization Summary")
-                st.info(st.session_state.changelog)
-            st.markdown("---")
-
+        if st.session_state.changelog: st.info(st.session_state.changelog)
         m = st.session_state.ats_metrics
         if m:
             c1, c2, c3 = st.columns(3)
-            c1.metric("Match Rate", f"{m['optimized_pct']}%", f"+{m['optimized_pct'] - m['original_pct']}%")
-            c2.metric("Keywords Hit", f"{m['optimized_count']} / {m['total']}")
-            c3.metric("New Added", f"{len(m['newly_added'])}")
-            st.progress(m['optimized_pct'] / 100)
-            
-            st.markdown("---")
-            k1, k2 = st.columns(2)
-            with k1:
-                st.success("✅ Hit Keywords")
-                for k in m['optimized_hits']: st.markdown(f"- `{k}`")
-            with k2:
-                st.error("❌ Missing")
-                for k in m['missing_keywords']: st.markdown(f"- `{k}`")
+            c1.metric("Match", f"{m['optimized_pct']}%")
+            c2.metric("Hit", f"{m['optimized_count']}/{m['total']}")
+            c3.metric("New", len(m['newly_added']))
+            st.progress(m['optimized_pct']/100)
 
-# --- Dialog: 最終微調編輯器 ---
-@st.dialog("🛠️ Final Tweaks (Edit Optimized JSON)", width="large")
-def edit_optimized_dialog():
-    st.write("Adjust the AI-generated content below. Click 'Save' to update the data, then use the main 'Generate' button to refresh the PDF.")
-    edited_opt_json = st_ace.st_ace(
-        value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
-        language="json", theme="dracula", height=500,
-        auto_update=True,
-        key=f"opt_editor_dialog_{st.session_state.opt_editor_key}"
-    )
-    if st.button("💾 Save Changes", use_container_width=True):
-        try:
-            st.session_state.optimized_resume_data = json.loads(edited_opt_json)
-            st.session_state.opt_editor_key += 1
-            st.success("✅ Changes saved locally!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Format error: {e}")
+@st.dialog("🛠️ Tweak Data", width="large")
+def edit_opt_dialog():
+    edit = st_ace.st_ace(value=json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500, auto_update=True)
+    if st.button("💾 Save", use_container_width=True): 
+        st.session_state.optimized_resume_data = json.loads(edit); st.rerun()
 
-# --- 4. Review & Export Tab ---
-with tab4:
-    if not st.session_state.optimized_resume_data:
-        st.warning("⚠️ Run AI Optimization in Step 2 first.")
-    else:
-        col_preview_left, col_preview_right = st.columns([4, 6])
-        with col_preview_left:
+with t4:
+    if st.session_state.optimized_resume_data:
+        cl1, cl2 = st.columns([4, 6])
+        with cl1:
             with st.container(border=True):
-                st.subheader("🛠️ Settings & Export")
-                
-                # --- 📝 修改資料入口 ---
-                if st.button("📝 Edit Optimized Data", use_container_width=True, help="Open pop-out editor to modify data."):
-                    edit_optimized_dialog()
-                
-                st.markdown("---")
-                st.subheader("🎨 PDF Style")
-                st.selectbox("Template", ["💻 Tech (Modern)", "📈 Consulting (Classic)"], key="tmpl_select")
-                st.multiselect("Block Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"], key="block_order_v2")
-                
-                st.markdown("---")
-                # --- 🚀 獨立生成按鈕 ---
-                if st.button("🚀 Generate & Refresh Preview", type="primary", use_container_width=True, help="Compile LaTeX to generate the latest PDF and Cover Letter."):
-                    data_to_use = st.session_state.optimized_resume_data
-                    selected_tex = "main.tex" if "Tech" in st.session_state.tmpl_select else "elsa_main.tex"
-                    
-                    with st.spinner("Compiling documents..."):
-                        resume_bytes, _ = generate_preview_pdf_bytes(data_to_use, selected_tex, block_order=st.session_state.block_order_v2)
-                        if resume_bytes:
-                            st.session_state.resume_preview_bytes = resume_bytes
-                            clean_company = data_to_use.get('target_company', 'Company').replace(' ', '_')
-                            clean_role = data_to_use.get('target_role', 'Role').replace(' ', '_')
-                            st.session_state.resume_dl_data = {"bytes": resume_bytes, "name": f"{clean_company}_{clean_role}_Resume.pdf", "word_bytes": generate_word_from_json(data_to_use, st.session_state.block_order_v2)}
-                        
-                        cl_bytes, _, _ = generate_cover_letter_pdf_bytes(data_to_use)
-                        if cl_bytes:
-                            st.session_state.cover_letter_preview_bytes = cl_bytes
-                            st.session_state.cl_dl_data = {"bytes": cl_bytes, "name": f"{clean_company}_{clean_role}_Coverletter.pdf", "word_bytes": generate_cover_letter_word_bytes(data_to_use)}
-                        st.toast("✅ Documents successfully generated!")
+                if st.button("📝 Edit Data", use_container_width=True): edit_opt_dialog()
+                tmpl = st.selectbox("Template", ["💻 Tech", "📈 Classic"], key="tmpl")
+                order = st.multiselect("Order", ["Summary", "Experience", "Education", "Skills"], default=["Summary", "Experience", "Education", "Skills"])
+                if st.button("🚀 Generate PDF", type="primary", use_container_width=True):
+                    with st.spinner("Generating..."):
+                        tex = "main.tex" if "Tech" in tmpl else "elsa_main.tex"
+                        rb, _ = generate_preview_pdf_bytes(st.session_state.optimized_resume_data, tex, block_order=order)
+                        if rb:
+                            st.session_state.resume_preview_bytes = rb
+                            c = st.session_state.optimized_resume_data.get('target_company','Company').replace(' ','_')
+                            r = st.session_state.optimized_resume_data.get('target_role','Role').replace(' ','_')
+                            st.session_state.resume_dl_data = {"bytes": rb, "name": f"{c}_{r}_Resume.pdf"}
+                        cb, cn, _ = generate_cover_letter_pdf_bytes(st.session_state.optimized_resume_data)
+                        if cb: st.session_state.cover_letter_preview_bytes = cb; st.session_state.cl_dl_data = {"bytes": cb, "name": f"{c}_{r}_CL.pdf"}
+        with cl2:
+            if st.session_state.resume_preview_bytes:
+                type = st.radio("Display", ["Resume", "CL"], horizontal=True)
+                data = st.session_state.resume_dl_data if type == "Resume" else st.session_state.cl_dl_data
+                sync = st.checkbox("📈 Sync to Tracker", value=True) if st.session_state.logged_in else False
+                if st.download_button(f"📥 Download {data['name']}", data["bytes"], data["name"], use_container_width=True):
+                    if sync and type == "Resume": save_application(db, st.session_state.user_email, st.session_state.optimized_resume_data.get('target_company'), st.session_state.optimized_resume_data, st.session_state.get('jd_input_v2'))
+                render_pdf_js(st.session_state.resume_preview_bytes if type == "Resume" else st.session_state.cover_letter_preview_bytes)
+    else: st.warning("Optimize first.")
 
-        with col_preview_right:
-            st.subheader("📄 Preview")
-            
-            # --- 🔄 Job Tracker 同步選項 (僅針對 Resume) ---
-            do_sync = False
-            if st.session_state.logged_in:
-                do_sync = st.checkbox("📈 Sync to Tracker (Resume only)", value=True, help="Automatically log this application when you download the Resume.")
-
-            def trigger_resume_sync():
-                if do_sync and db and st.session_state.logged_in:
-                    data = st.session_state.optimized_resume_data
-                    company = data.get("target_company", "Unknown")
-                    jd_text = st.session_state.get("jd_input_v2", "")
-                    if save_application(db, st.session_state.user_email, company, data, jd_text):
-                        st.toast(f"🚀 Synced application for {company} to Tracker!")
-
-            prev_type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
-            
-            if prev_type == "Resume" and st.session_state.resume_preview_bytes:
-                # 動態顯示 Resume 檔名
-                resume_filename = st.session_state.resume_dl_data["name"]
-                st.download_button(
-                    f"📥 Download: {resume_filename}", 
-                    st.session_state.resume_dl_data["bytes"], 
-                    resume_filename, 
-                    use_container_width=True,
-                    on_click=trigger_resume_sync
-                )
-                render_pdf_js(st.session_state.resume_preview_bytes, height=750)
-            elif prev_type == "Cover Letter" and st.session_state.cover_letter_preview_bytes:
-                # 動態顯示 Cover Letter 檔名
-                cl_filename = st.session_state.cl_dl_data["name"]
-                st.download_button(
-                    f"📥 Download: {cl_filename}", 
-                    st.session_state.cl_dl_data["bytes"], 
-                    cl_filename, 
-                    use_container_width=True
-                )
-                render_pdf_js(st.session_state.cover_letter_preview_bytes, height=750)
-            else:
-                st.info("Click '📝 Tweak Content & Refresh' to generate documents.")
-
-# --- 5. Tracker Tab ---
-with tab5:
-    if st.session_state.logged_in and db:
-        render_interview_progress(db, st.session_state.user_email)
-        st.markdown("---")
-        render_dashboard(db, st.session_state.user_email)
-    else:
-        st.warning("Please log in.")
+with t5:
+    if st.session_state.logged_in: render_interview_progress(db, st.session_state.user_email); render_dashboard(db, st.session_state.user_email)
+    else: st.warning("Login first.")
