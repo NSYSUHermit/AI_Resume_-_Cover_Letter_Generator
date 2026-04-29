@@ -324,6 +324,7 @@ t1, t2, t3, t4, t5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS ", " 
 with t1:
     with st.container(border=True):
         st.subheader("📥 Quick Import")
+        st.caption("Upload your own resume PDF to automatically extract data and populate the structure below.")
         up = st.file_uploader("Upload PDF", type=["pdf"], key="up1", label_visibility="collapsed")
         if st.button("✨ Extract Data", type="primary", use_container_width=True) and up:
             loading = st.empty(); loading.markdown(get_glass_overlay_html("Extracting...", st.session_state.animal_emoji), unsafe_allow_html=True)
@@ -337,6 +338,7 @@ with t1:
             else: st.error(msg)
     
     st.markdown("#### 📝 Profile Editor")
+    st.info("💡 **Tip:** This is your 'Ground Truth' profile. AI will always use this version as the base for optimizations.")
     edit = st_ace.st_ace(value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500, key=f"base_ed_{st.session_state.base_editor_key}")
     if st.button("💾 Save Base Changes", use_container_width=True): 
         st.session_state.resume_data = json.loads(edit)
@@ -345,8 +347,9 @@ with t1:
 with t2:
     with st.container(border=True):
         st.subheader("🎯 Job Details")
-        jd = st.text_area("JD Content", height=300, key="jd_v2")
-        st.text_area("Strategy", value=st.session_state.custom_prompt, key="cp_v2", height=150)
+        st.caption("Paste the Job Description (JD) and describe your optimization goals.")
+        jd = st.text_area("JD Content", height=300, key="jd_v2", placeholder="Paste the target JD here...")
+        st.text_area("Strategy", value=st.session_state.custom_prompt, key="cp_v2", height=150, help="Tell AI what to prioritize (e.g. 'Focus on my backend experience' or 'Make it sound more professional')")
         c1, c2 = st.columns(2)
         with c1:
             if st.button("🚀 Optimize Resume", type="primary", use_container_width=True):
@@ -359,6 +362,7 @@ with t2:
                         st.rerun()
                     else: st.error(rep)
         with c2:
+            st.caption("Need the full prompt for manual use? Click below to copy.")
             p_text = build_optimization_prompt(jd if jd else "JD", st.session_state.cp_v2, True, True, st.session_state.resume_data)
             b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
             components.html(f"""
@@ -399,9 +403,11 @@ with t2:
 
 with t3:
     st.header("📊 ATS Analysis")
+    st.caption("See how well your resume matches the JD and identify missing keywords.")
     
     # 📥 手動匯入外部推論結果 (由使用者要求)
     with st.expander("📥 Manual Result Import (Paste JSON)"):
+        st.caption("If you ran the AI optimization elsewhere, paste the resulting JSON here to update the dashboard.")
         manual_json = st.text_area("Paste the externally inferred JSON here:", height=200, key="manual_ats_json")
         if st.button("Apply Manual Result", use_container_width=True):
             try:
@@ -453,6 +459,7 @@ with t4:
         with cl1:
             with st.container(border=True):
                 st.subheader("🛠️ Export Settings")
+                st.caption("Select your preferred template and section order, then generate the final PDFs.")
                 if st.button("📝 Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
                 tmpl = st.selectbox("Template", ["💻 Tech", "📈 Business"], key="tm")
                 order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
