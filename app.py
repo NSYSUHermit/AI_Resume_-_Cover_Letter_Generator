@@ -127,7 +127,7 @@ def render_pdf_js(pdf_bytes):
         }});
     }});
     </script></body></html>"""
-    st.components.v1.iframe(srcdoc=pdf_js_html, height=800, scrolling=True)
+    components.html(pdf_js_html, height=800, scrolling=True)
 
 def generate_preview_pdf_bytes(data, template_name, block_order):
     try:
