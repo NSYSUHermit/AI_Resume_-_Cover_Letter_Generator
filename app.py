@@ -397,15 +397,30 @@ with tab4:
                         st.toast("✅ Ready!")
         with r:
             st.subheader("📄 Preview & Download")
-            if st.session_state.resume_preview_bytes:
-                ch = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
-                target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
+            
+            # 只有在至少有一份文件生成後才顯示切換與下載
+            if st.session_state.resume_preview_bytes or st.session_state.cover_letter_preview_bytes:
+                ch = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed", key="preview_target_radio")
+                
+                target_bytes = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
                 dl_info = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
-                sync = st.checkbox("📈 Sync to Tracker upon download", value=True) if st.session_state.logged_in else False
-                if st.download_button(f"📥 Download: {dl_info['name']}", dl_info["bytes"], dl_info["name"], use_container_width=True):
-                    if sync and ch == "Resume": save_application(db, st.session_state.user_email, st.session_state.optimized_resume_data.get('target_company'), st.session_state.optimized_resume_data, st.session_state.get('jd_v2'))
-                render_pdf_js(target)
-            else: st.info("Click '🚀 Generate PDF' to preview.")
+                
+                if dl_info:
+                    sync = st.checkbox("📈 Sync to Tracker upon download", value=True) if st.session_state.logged_in else False
+                    st.download_button(
+                        f"📥 Download: {dl_info['name']}", 
+                        dl_info["bytes"], 
+                        dl_info["name"], 
+                        use_container_width=True,
+                        on_click=lambda: save_application(db, st.session_state.user_email, st.session_state.optimized_resume_data.get('target_company'), st.session_state.optimized_resume_data, st.session_state.get('jd_v2')) if (sync and ch == "Resume") else None
+                    )
+                
+                if target_bytes:
+                    render_pdf_js(target_bytes)
+                else:
+                    st.info(f"The {ch} has not been generated yet.")
+            else:
+                st.info("Click '🚀 Generate PDF' to preview.")
     else: st.warning("⚠️ No optimized data. Run AI in **Step 2** first.")
 
 with tab5:
