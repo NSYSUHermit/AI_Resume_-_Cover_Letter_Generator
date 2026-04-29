@@ -30,7 +30,24 @@ def build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, re
 [RULES]: 1. Return ONLY valid JSON. 2. {visa_instr}
 [Target JD]: {jd_text}
 [Original Resume]: {json.dumps(resume_data, ensure_ascii=False)}
-[FORMAT]: {{ "visa_blocked": false, "reason": "", "changelog": "", {ats_block} "optimized_resume": {{...}} }}"""
+[FORMAT]: {{ 
+  "visa_blocked": false, 
+  "reason": "", 
+  "changelog": "", 
+  {ats_block} 
+  "optimized_resume": {{
+    "target_company": "Extract target company name from JD",
+    "target_role": "Extract target job title from JD",
+    "cover_letter": "Generate a professional 3-paragraph cover letter tailored to this JD",
+    "heading": {{ "name": "...", "email": "...", "phone": "...", "website": "...", "linkedin": "..." }},
+    "summary": "...",
+    "education": [],
+    "experience": [],
+    "projects": [],
+    "patents": [],
+    "skills": {{ "set1": {{ "title": "...", "items": [] }} }}
+  }} 
+}}"""
 
 # ---------------------------------------------------------
 # 初始化 Session State
@@ -445,7 +462,7 @@ with t4:
                         rb = generate_preview_pdf_bytes(d, "main.tex" if "Tech" in tmpl else "elsa_main.tex", order)
                         if rb:
                             st.session_state.resume_preview_bytes = rb
-                            c, r = d.get('target_company','Co').replace(' ','_'), d.get('target_role','Role').replace(' ','_')
+                            c, r = d.get('target_company'), d.get('target_role')
                             st.session_state.resume_dl_data = {"bytes": rb, "name": f"{c}_{r}_Resume.pdf"}
                         cb = generate_cover_letter_pdf_bytes(d)
                         if cb: 
