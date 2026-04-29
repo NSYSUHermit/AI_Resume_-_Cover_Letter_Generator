@@ -76,7 +76,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         api_key = st.session_state.get("api_key")
         if not api_key: return False, "Missing API Key."
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-pro") # 使用 Pro 版本
+        model = genai.GenerativeModel("gemini-2.5-flash")
         prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         response = model.generate_content(prompt)
         raw = response.text.strip()
@@ -257,6 +257,26 @@ with t2:
 
 with t3:
     st.header("📊 ATS Analysis")
+    
+    # 📥 手動匯入外部推論結果 (由使用者要求)
+    with st.expander("📥 Manual Result Import (Paste JSON)"):
+        manual_json = st.text_area("Paste the externally inferred JSON here:", height=200, key="manual_ats_json")
+        if st.button("Apply Manual Result", use_container_width=True):
+            try:
+                res = json.loads(manual_json)
+                st.session_state.optimized_resume_data = res.get("optimized_resume")
+                st.session_state.changelog = res.get("changelog", "")
+                if "keyword_analysis" in res:
+                    kw = res["keyword_analysis"]
+                    tot = max(1, len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", [])))
+                    st.session_state.ats_metrics = { "total": tot, "original_count": len(kw.get("original_hits", [])), "optimized_count": len(kw.get("optimized_hits", [])), "original_pct": int((len(kw.get("original_hits", []))/tot)*100), "optimized_pct": int((len(kw.get("optimized_hits", []))/tot)*100), "optimized_hits": kw.get("optimized_hits", []), "newly_added": kw.get("newly_added", []), "missing_keywords": kw.get("missing_keywords", []) }
+                    st.success("Manual result applied!")
+                    st.rerun()
+                else:
+                    st.error("JSON structure missing 'keyword_analysis'.")
+            except Exception as e:
+                st.error(f"Invalid JSON: {e}")
+
     if st.session_state.optimized_resume_data:
         m = st.session_state.ats_metrics
         if m:
