@@ -64,7 +64,15 @@ if "opt_editor_key" not in st.session_state: st.session_state.opt_editor_key = 0
 if "ats_metrics" not in st.session_state: st.session_state.ats_metrics = None
 if "changelog" not in st.session_state: st.session_state.changelog = ""
 if "custom_prompt" not in st.session_state:
-    st.session_state.custom_prompt = "Overhaul focusing on quantifiable metrics and high-ownership action verbs."
+    st.session_state.custom_prompt = """You are an elite Career Strategist and ATS Architect. Overhaul the resume and cover letter based on the JD:
+1. **Resume (STAR Method)**: Rewrite every experience bullet point using the STAR method (Situation, Task, Action, Result). Keep them concise (1-2 lines) but highly impactful. Every point MUST include a quantifiable metric (%, $, time saved, or scale).
+2. **Aggressive Action Verbs**: Use high-ownership verbs like 'Spearheaded', 'Engineered', 'Orchestrated', 'Pioneered'.
+3. **ATS Semantic Mapping**: Naturally inject keywords from the JD. Perform 'Horizontal Shifts' (e.g., if they ask for GCP and you have AWS, write 'AWS/GCP').
+4. **Cover Letter**: Generate a compelling 3-paragraph letter. 
+   - Para 1: Strong hook and immediate value proposition.
+   - Para 2: Concrete evidence of 2-3 skills matching the JD's 'Required' section.
+   - Para 3: Passion for the company's mission and a clear call to action.
+5. **Formatting**: Return ONLY valid JSON. Do NOT use markdown like '**' inside the strings."""
 if "api_key" not in st.session_state: st.session_state.api_key = ""
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
