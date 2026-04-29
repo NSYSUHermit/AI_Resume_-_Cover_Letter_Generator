@@ -261,7 +261,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### 🚀 AI Resume Gen")
+    st.markdown("### 🚀 AI Resume Generator")
     if st.session_state.logged_in:
         st.success(f"**User:** `{st.session_state.user_email}`")
         if st.button("Push to Cloud", use_container_width=True): 
@@ -369,9 +369,10 @@ with t1:
 with t2:
     with st.container(border=True):
         st.subheader("🎯 Job Details")
-        st.caption("Paste the Job Description (JD) and describe your optimization goals.")
+        st.caption("Paste the Job Description (JD) and describe your optimization goals. You can run the optimization here or copy the prompt for manual use.")
         jd = st.text_area("JD Content", height=300, key="jd_v2", placeholder="Paste the target JD here...")
         st.text_area("Strategy", value=st.session_state.custom_prompt, key="cp_v2", height=150, help="Tell AI what to prioritize (e.g. 'Focus on my backend experience' or 'Make it sound more professional')")
+        
         c1, c2 = st.columns(2)
         with c1:
             if st.button("🚀 Optimize Resume", type="primary", use_container_width=True):
@@ -384,7 +385,6 @@ with t2:
                         st.rerun()
                     else: st.error(rep)
         with c2:
-            st.caption("Need the full prompt for manual use? Click below to copy.")
             p_text = build_optimization_prompt(jd if jd else "JD", st.session_state.cp_v2, True, True, st.session_state.resume_data)
             b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
             components.html(f"""
@@ -421,7 +421,7 @@ with t2:
                 }} catch (err) {{ console.error(err); }}
             }}
             </script>
-            """, height=45)
+            """, height=44)
 
 with t3:
     st.header("📊 ATS Analysis")
