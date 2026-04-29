@@ -415,7 +415,7 @@ def render_dashboard(db, email: str):
                             
                             html_copy_json = f"""
                             <body style="margin:0; padding:0; background:transparent;">
-                                <button id="copyJsonBtn_{doc_id}" onclick="copyJson()" style="
+                                <button id="copyJsonBtn_{doc_id}" style="
                                     width:100%; height:38px; border-radius:8px; 
                                     background:#1e293b; color:white; border:1px solid rgba(255,255,255,0.2); 
                                     cursor:pointer; font-weight:400; font-size: 14px;
@@ -426,23 +426,33 @@ def render_dashboard(db, email: str):
                                 </button>
                             </body>
                             <script>
-                            function copyJson() {{
-                                const b64 = "{b64_resume}";
-                                const text = decodeURIComponent(escape(window.atob(b64)));
-                                navigator.clipboard.writeText(text).then(() => {{
-                                    const btn = document.getElementById('copyJsonBtn_{doc_id}');
-                                    btn.innerText = '✅ Copied!';
-                                    btn.style.borderColor = '#059669';
-                                    btn.style.color = '#34d399';
-                                    btn.style.backgroundColor = '#064e3b10';
-                                    setTimeout(() => {{
-                                        btn.innerText = '📋 Copy JSON';
-                                        btn.style.borderColor = 'rgba(255,255,255,0.2)';
-                                        btn.style.color = 'white';
-                                        btn.style.backgroundColor = '#1e293b';
-                                    }}, 2000);
-                                }});
-                            }}
+                            document.getElementById('copyJsonBtn_{doc_id}').addEventListener('click', function() {{
+                                try {{
+                                    const b64 = "{b64_resume}";
+                                    const binStr = window.atob(b64);
+                                    const len = binStr.length;
+                                    const bytes = new Uint8Array(len);
+                                    for (let i = 0; i < len; i++) {{
+                                        bytes[i] = binStr.charCodeAt(i);
+                                    }}
+                                    const text = new TextDecoder('utf-8').decode(bytes);
+                                    navigator.clipboard.writeText(text).then(() => {{
+                                        const btn = document.getElementById('copyJsonBtn_{doc_id}');
+                                        btn.innerText = '✅ Copied!';
+                                        btn.style.borderColor = '#059669';
+                                        btn.style.color = '#34d399';
+                                        btn.style.backgroundColor = '#064e3b10';
+                                        setTimeout(() => {{
+                                            btn.innerText = '📋 Copy JSON';
+                                            btn.style.borderColor = 'rgba(255,255,255,0.2)';
+                                            btn.style.color = 'white';
+                                            btn.style.backgroundColor = '#1e293b';
+                                        }}, 2000);
+                                    }});
+                                }} catch (e) {{
+                                    console.error('Copy JSON failed:', e);
+                                }}
+                            }});
                             </script>
                             """
                             st.html(html_copy_json)
