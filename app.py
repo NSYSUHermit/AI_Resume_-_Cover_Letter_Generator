@@ -127,6 +127,7 @@ def generate_preview_pdf_bytes(data, template_name="main.tex", block_order=None)
                     if b == "Summary": blocks += "\\directlua{printSummary()}\n"
                     elif b == "Experience": blocks += "\\section{WORK EXPERIENCE}\n\\directlua{printExperience()}\n"
                     elif b == "Education": blocks += "\\section{EDUCATION}\n\\directlua{printEducation()}\n"
+                    elif b == "Projects & Patents": blocks += "\\directlua{printProjectsAndPatents()}\n"
                     elif b == "Skills": blocks += "\\section{SKILLS}\n\\directlua{printSkills()}\n"
                 content = content.replace("BLOCKS_PLACEHOLDER", blocks)
                 with open(tex_path, "w", encoding="utf-8") as f: f.write(content)
@@ -269,7 +270,25 @@ with tab3:
             mc2.metric("Keywords", f"{m['optimized_count']}/{m['total']}")
             mc3.metric("New Added", len(m['newly_added']))
             st.progress(m['optimized_pct']/100)
-        if st.session_state.changelog: st.info(st.session_state.changelog)
+            
+            # --- 🚀 補回：關鍵字詳細列點 ---
+            st.markdown("---")
+            k_col1, k_col2 = st.columns(2)
+            with k_col1:
+                st.success("✅ **Hit Keywords**")
+                for k in m.get('optimized_hits', []):
+                    # 如果是新加入的，加個星星標記
+                    star = " 🌟" if k in m.get('newly_added', []) else ""
+                    st.markdown(f"- `{k}`{star}")
+            with k_col2:
+                st.error("❌ **Missing Keywords**")
+                for k in m.get('missing_keywords', []):
+                    st.markdown(f"- `{k}`")
+
+        if st.session_state.changelog:
+            st.markdown("---")
+            st.subheader("📝 Optimization Summary")
+            st.info(st.session_state.changelog)
     else: st.info("Run optimization first.")
 
 @st.dialog("🛠️ Tweak Data", width="large")
