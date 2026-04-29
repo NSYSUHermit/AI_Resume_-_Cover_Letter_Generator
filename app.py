@@ -130,14 +130,48 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
 
 def generate_cover_letter_pdf_bytes(data):
     try:
+        # 獲取內容與標頭資訊 (由使用者要求恢復專業版面)
         txt = data.get('cover_letter') or data.get('coverLetter') or data.get('Cover Letter', '')
         if not txt: return None
-        lat = r"""\documentclass[11pt]{article}\usepackage[margin=1in]{geometry}\usepackage{fontspec}\begin{document}""" + txt.replace("\n", "\n\n").replace('**','') + r"""\end{document}"""
+        
+        heading = data.get('heading', {})
+        name = heading.get('name', 'Your Name')
+        email = heading.get('email', '')
+        phone = heading.get('phone', '')
+        linkedin = heading.get('linkedin', '')
+        website = heading.get('website', '')
+
+        # 使用 Jinja2 渲染外部模板
+        latex_jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(os.path.abspath('.')),
+            autoescape=False
+        )
+        template = latex_jinja_env.get_template('cover_letter.tex')
+        
+        # 準備資料
+        template_data = {
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "linkedin": linkedin,
+            "website": website,
+            "body": txt.replace("\n", "\n\n").replace('**', '')
+        }
+        
+        rendered_tex = template.render(template_data)
+
         with tempfile.TemporaryDirectory() as td:
-            with open(os.path.join(td, "c.tex"), "w", encoding="utf-8") as f: f.write(lat)
-            subprocess.run(['lualatex', '-interaction=nonstopmode', 'c.tex'], cwd=td)
-            if os.path.exists(os.path.join(td, "c.pdf")): return open(os.path.join(td, "c.pdf"), "rb").read()
-    except: return None
+            tex_path = os.path.join(td, "c.tex")
+            with open(tex_path, "w", encoding="utf-8") as f:
+                f.write(rendered_tex)
+            
+            subprocess.run(['lualatex', '-interaction=nonstopmode', 'c.tex'], cwd=td, capture_output=True)
+            pdf_path = os.path.join(td, "c.pdf")
+            if os.path.exists(pdf_path):
+                return open(pdf_path, "rb").read()
+    except Exception as e:
+        st.error(f"Cover Letter generation error: {e}")
+        return None
 
 def get_glass_overlay_html(message, animal):
     return f"""
