@@ -290,19 +290,33 @@ with st.sidebar:
                 st.rerun()
         if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
     else:
-        with st.form("l"):
-            e = st.text_input("Email"); p = st.text_input("Password", type="password")
-            if st.form_submit_button("Login", type="primary", use_container_width=True):
-                if authenticate_user(db, e, p): 
-                    st.session_state.logged_in = True; st.session_state.user_email = e
-                    r, pr, k = load_user_profile(db, e)
-                    if r: 
-                        st.session_state.resume_data = r
-                        st.session_state.custom_prompt = pr
-                        st.session_state.cp_v2 = pr # 同步更新 Strategy 欄位
-                        st.session_state.api_key = k
-                        st.session_state.base_editor_key += 1
-                    st.rerun()
+        # 🟢 登入/註冊 切換 (由使用者要求)
+        auth_mode = st.radio("Auth Mode", ["Login", "Register"], horizontal=True, label_visibility="collapsed")
+        
+        with st.form("auth_form"):
+            e = st.text_input("Email")
+            p = st.text_input("Password", type="password")
+            
+            if auth_mode == "Login":
+                if st.form_submit_button("Login", type="primary", use_container_width=True):
+                    if authenticate_user(db, e, p): 
+                        st.session_state.logged_in = True; st.session_state.user_email = e
+                        r, pr, k = load_user_profile(db, e)
+                        if r: 
+                            st.session_state.resume_data = r
+                            st.session_state.custom_prompt = pr
+                            st.session_state.cp_v2 = pr
+                            st.session_state.api_key = k
+                            st.session_state.base_editor_key += 1
+                        st.rerun()
+            else:
+                if st.form_submit_button("Create Account", type="primary", use_container_width=True):
+                    if not e or not p:
+                        st.error("Please fill in both fields.")
+                    else:
+                        ok, msg = register_user(db, e, p)
+                        if ok: st.success(msg)
+                        else: st.error(msg)
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
     st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-flash"], key="ai_model")
