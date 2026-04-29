@@ -462,12 +462,15 @@ with t4:
                         rb = generate_preview_pdf_bytes(d, "main.tex" if "Tech" in tmpl else "elsa_main.tex", order)
                         if rb:
                             st.session_state.resume_preview_bytes = rb
-                            c, r = d.get('target_company'), d.get('target_role')
-                            st.session_state.resume_dl_data = {"bytes": rb, "name": f"{c}_{r}_Resume.pdf"}
+                            # 統一檔名格式 (由使用者要求)
+                            co = d.get('target_company', 'Company').replace(' ', '_')
+                            ro = d.get('target_role', 'Role').replace(' ', '_')
+                            st.session_state.resume_dl_data = {"bytes": rb, "name": f"{co}_{ro}_Resume.pdf"}
                         cb = generate_cover_letter_pdf_bytes(d)
                         if cb: 
                             st.session_state.cover_letter_preview_bytes = cb
-                            st.session_state.cl_dl_data = {"bytes": cb, "name": f"{c}_{r}_CL.pdf"}
+                            # 確保與履歷檔名格式一致
+                            st.session_state.cl_dl_data = {"bytes": cb, "name": f"{co}_{ro}_CL.pdf"}
                         st.toast("✅ PDF Generated Successfully!")
         with cl2:
             st.subheader("📄 Preview")
