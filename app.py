@@ -368,8 +368,48 @@ def generate_cover_letter_word_bytes(resume_data):
 
 def render_pdf_js(pdf_bytes):
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_js_html = f"""<html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script></head><body><div id="pdf-container"></div><script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';var binaryString=window.atob('{base64_pdf}');var bytes=new Uint8Array(binaryString.length);for(var i=0;i<binaryString.length;i++)bytes[i]=binaryString.charCodeAt(i);pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{var canvas=document.createElement('canvas');document.getElementById('pdf-container').appendChild(canvas);page.render({{canvasContext:canvas.getContext('2d'),viewport:page.getViewport({{scale:1.5}})}});}});}});</script></body></html>"""
-    st.html(pdf_js_html)
+    pdf_js_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+        <style>
+            body {{ margin: 0; padding: 0; background-color: #1e1e1e; display: flex; flex-direction: column; align-items: center; }}
+            #pdf-container {{ width: 100%; display: flex; flex-direction: column; align-items: center; padding: 20px 0; }}
+            canvas {{ margin-bottom: 20px; box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.5); border-radius: 4px; max-width: 95%; }}
+        </style>
+    </head>
+    <body>
+        <div id="pdf-container"></div>
+        <script>
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            var binaryString = window.atob('{base64_pdf}');
+            var bytes = new Uint8Array(binaryString.length);
+            for (var i = 0; i < binaryString.length; i++) {{
+                bytes[i] = binaryString.charCodeAt(i);
+            }}
+            var loadingTask = pdfjsLib.getDocument({{data: bytes}});
+            loadingTask.promise.then(function(pdf) {{
+                var container = document.getElementById('pdf-container');
+                for (var i = 1; i <= pdf.numPages; i++) {{
+                    pdf.getPage(i).then(function(page) {{
+                        var scale = 1.5;
+                        var viewport = page.getViewport({{scale: scale}});
+                        var canvas = document.createElement('canvas');
+                        var context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        container.appendChild(canvas);
+                        page.render({{ canvasContext: context, viewport: viewport }});
+                    }});
+                }}
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    # 使用 iframe 確保高度與腳本執行穩定
+    st.components.v1.iframe(srcdoc=pdf_js_html, height=800, scrolling=True)
 
 def get_glass_overlay_html(message="Processing...", animal_emoji="🐕"):
     return f"""<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);z-index:9999;display:flex;justify-content:center;align-items:center;color:white;flex-direction:column;"><h1>{animal_emoji}</h1><h2>{message}</h2></div>"""
