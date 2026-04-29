@@ -155,6 +155,8 @@ def generate_cover_letter_pdf_bytes(data):
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume", page_icon="🚀", layout="wide")
 st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');h1,h2,h3,p,label,.stText{font-family:'Inter',sans-serif!important;}div[data-testid="stVerticalBlock"]>div[style*="border"]{background-color:#ffffff05;border:1px solid rgba(255,255,255,0.1)!important;border-radius:12px!important;padding:1.5rem!important;}.stButton>button{border-radius:8px!important;height:44px!important;font-weight:500!important;}.stButton>button[kind="primary"]{background:linear-gradient(135deg,#6366f1 0%,#a855f7 100%)!important;border:none!important;color:white!important;}[data-testid="stSidebar"]{background-color:#0f172a;}</style>""", unsafe_allow_html=True)
+db = init_firebase()
+
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🚀 AI Resume")
@@ -234,6 +236,31 @@ with tab2:
 
 with tab3:
     st.header("📊 ATS Analysis")
+    
+    # --- 📥 外部 JSON 匯入區域 ---
+    with st.expander("📥 Import Result from External AI (ChatGPT/Claude)", expanded=not st.session_state.optimized_resume_data):
+        ext_json = st.text_area("Paste the JSON response from other AIs here", height=200, key="ext_json_tab3")
+        if st.button("🚀 Apply JSON", use_container_width=True):
+            if ext_json.strip():
+                try:
+                    clean_str = ext_json.replace('```json', '').replace('```', '').strip()
+                    data = json.loads(clean_str)
+                    st.session_state.optimized_resume_data = data.get("optimized_resume", data)
+                    st.session_state.opt_editor_key += 1
+                    st.session_state.changelog = data.get("changelog", "Imported from external AI.")
+                    
+                    if "keyword_analysis" in data:
+                        kw = data["keyword_analysis"]
+                        tot = max(1, len(kw.get("optimized_hits", [])) + len(kw.get("missing_keywords", [])))
+                        st.session_state.ats_metrics = {
+                            "total": tot, "original_count": len(kw.get("original_hits", [])), "optimized_count": len(kw.get("optimized_hits", [])),
+                            "original_pct": int((len(kw.get("original_hits", []))/tot)*100), "optimized_pct": int((len(kw.get("optimized_hits", []))/tot)*100),
+                            "optimized_hits": kw.get("optimized_hits", []), "newly_added": kw.get("newly_added", []), "missing_keywords": kw.get("missing_keywords", [])
+                        }
+                    st.success("✅ JSON applied!")
+                    st.rerun()
+                except Exception as e: st.error(f"Invalid JSON: {e}")
+
     if st.session_state.optimized_resume_data:
         m = st.session_state.ats_metrics
         if m:
