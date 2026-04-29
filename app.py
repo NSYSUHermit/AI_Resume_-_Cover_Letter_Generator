@@ -239,17 +239,42 @@ for i, s in enumerate(steps):
 st.markdown("---")
 tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS Analysis ", " 📝 Editor & Export ", " 📈 Job Tracker "])
 
-with tab1:
+with t1:
     with st.container(border=True):
         st.subheader("📥 Quick Import")
-        up = st.file_uploader("PDF Resume", type=["pdf"], key="up1")
-        if st.button("✨ Extract Data", type="primary", use_container_width=True) and up:
-            with st.status("Parsing..."):
+        st.write("Upload your existing PDF resume to bootstrap your profile with AI.")
+        up = st.file_uploader("Upload PDF", type=["pdf"], key="up1", label_visibility="collapsed")
+        if st.button("✨ Extract with AI", type="primary", use_container_width=True):
+            if up:
+                loading_overlay = st.empty()
+                loading_overlay.markdown(get_glass_overlay_html("Extracting profile...", st.session_state.animal_emoji), unsafe_allow_html=True)
                 ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
-                if ok: st.session_state.resume_data = data; st.rerun()
-    st.markdown("#### 📝 Editor")
-    edit = st_ace.st_ace(value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500)
-    if st.button("💾 Save Base", use_container_width=True): st.session_state.resume_data = json.loads(edit); st.toast("Saved!")
+                loading_overlay.empty()
+                if ok:
+                    st.session_state.resume_data = data
+                    st.session_state.base_editor_key += 1
+                    st.success("✅ Profile successfully extracted!")
+                    st.rerun()
+                else:
+                    st.error(msg)
+            else:
+                st.warning("Please upload a PDF file first.")
+
+    st.markdown("#### 📝 Base Profile Editor")
+    edit = st_ace.st_ace(
+        value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), 
+        language="json", 
+        theme="dracula", 
+        height=500,
+        key=f"base_ed_{st.session_state.base_editor_key}"
+    )
+    if st.button("💾 Save Base Changes", use_container_width=True):
+        try:
+            st.session_state.resume_data = json.loads(edit)
+            st.toast("✅ Base profile updated!")
+        except:
+            st.error("Invalid JSON format.")
+
 
 with tab2:
     with st.container(border=True):
@@ -316,13 +341,27 @@ with tab4:
         with cl2:
             st.subheader("📄 Preview")
             if st.session_state.resume_preview_bytes:
-                type = st.radio("Display", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed")
-                data = st.session_state.resume_dl_data if type == "Resume" else st.session_state.cl_dl_data
-                sync = st.checkbox("📈 Sync to Tracker upon download", value=True) if st.session_state.logged_in else False
-                # Fixed: Dynamically show filename on button
-                st.download_button(f"📥 Download: {data['name']}", data["bytes"], data["name"], use_container_width=True, on_click=lambda: save_application(db, st.session_state.user_email, st.session_state.optimized_resume_data.get('target_company'), st.session_state.optimized_resume_data, st.session_state.get('jd_input_v2')) if sync and type == "Resume" else None)
-                render_pdf_js(st.session_state.resume_preview_bytes if type == "Resume" else st.session_state.cover_letter_preview_bytes)
-            else: st.info("Click 'Generate PDF' to see preview.")
+                # 修正：將 type 變數更名為 display_choice，避免與內建函式衝突
+                display_choice = st.radio("Display Target", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed", key="display_choice_radio")
+
+                target_bytes = st.session_state.resume_preview_bytes if display_choice == "Resume" else st.session_state.cover_letter_preview_bytes
+                target_data = st.session_state.resume_dl_data if display_choice == "Resume" else st.session_state.cl_dl_data
+
+                if target_data:
+                    sync = st.checkbox("📈 Sync to Tracker upon download", value=True) if st.session_state.logged_in else False
+                    st.download_button(
+                        f"📥 Download: {target_data['name']}", 
+                        target_data["bytes"], 
+                        target_data["name"], 
+                        use_container_width=True, 
+                        on_click=lambda: save_application(db, st.session_state.user_email, st.session_state.optimized_resume_data.get('target_company'), st.session_state.optimized_resume_data, st.session_state.get('jd_input_v2')) if (sync and display_choice == "Resume") else None
+                    )
+
+                # 執行預覽渲染
+                render_pdf_js(target_bytes)
+            else:
+                st.info("Click '🚀 Generate PDF' to see preview.")
+
     else: st.warning("Optimize first.")
 
 with tab5:
