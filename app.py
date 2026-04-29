@@ -191,7 +191,28 @@ with st.sidebar:
     st.markdown("### 🚀 AI Resume Gen")
     if st.session_state.logged_in:
         st.success(f"**User:** `{st.session_state.user_email}`")
-        if st.button("Push to Cloud", use_container_width=True): save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, st.session_state.custom_prompt, st.session_state.api_key)
+        if st.button("Push to Cloud", use_container_width=True): 
+            # 確保獲取 UI 上的最新資料 (由使用者強烈要求修復)
+            # 1. 獲取 Prompt (優先使用 Target 頁籤的 cp_v2)
+            current_prompt = st.session_state.get("cp_v2", st.session_state.custom_prompt)
+            
+            # 2. 獲取 Resume JSON (從 Ace 編輯器的 Session State Key 獲取)
+            ace_key = f"base_ed_{st.session_state.base_editor_key}"
+            current_resume = st.session_state.resume_data
+            if ace_key in st.session_state:
+                try:
+                    # Ace 編輯器會將當前內容存入 session_state[key]
+                    current_resume = json.loads(st.session_state[ace_key])
+                    st.session_state.resume_data = current_resume # 同步回 session_state
+                except Exception as e:
+                    st.warning(f"Note: Using last saved JSON because of format error: {e}")
+            
+            st.session_state.custom_prompt = current_prompt # 同步回 session_state
+            
+            ok, msg = save_user_profile(db, st.session_state.user_email, current_resume, current_prompt, st.session_state.api_key)
+            if ok: st.success(msg)
+            else: st.error(msg)
+            
         if st.button("Pull from Cloud", use_container_width=True):
             r, pr, k = load_user_profile(db, st.session_state.user_email)
             if r: 
