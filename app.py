@@ -141,10 +141,19 @@ def generate_cover_letter_pdf_bytes(data):
         linkedin = heading.get('linkedin', '')
         website = heading.get('website', '')
 
-        # 使用 Jinja2 渲染外部模板
+        # 使用自定義 Jinja2 環境，避免與 LaTeX 的 {} 衝突 (由使用者回報錯誤修復)
         latex_jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(os.path.abspath('.')),
-            autoescape=False
+            block_start_string='<%-',
+            block_end_string='%>',
+            variable_start_string='<<',
+            variable_end_string='>>',
+            comment_start_string='<#',
+            comment_end_string='#>',
+            line_statement_prefix='%%',
+            line_comment_prefix='%#',
+            trim_blocks=True,
+            autoescape=False,
+            loader=jinja2.FileSystemLoader(os.path.abspath('.'))
         )
         template = latex_jinja_env.get_template('cover_letter.tex')
         
