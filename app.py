@@ -327,9 +327,17 @@ with st.sidebar:
                         else: st.error(msg)
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-flash"], key="ai_model")
+    st.selectbox("🧠 Model", ["gemini-2.5-pro", "gemini-2.5-flash"], key="ai_model")
     st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
     st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
+    
+    st.markdown("---")
+    st.markdown("### 👨‍💻 Developed by NSYSUHermit")
+    col_gh, col_li = st.columns(2)
+    with col_gh:
+        st.markdown("[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/NSYSUHermit)")
+    with col_li:
+        st.markdown("[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/henry-lin-05a1b31b3/)")
 
 # --- Stepper ---
 s1, s2, s3, s4 = len(st.session_state.resume_data.get("experience", [])) > 0, len(st.session_state.get("jd_v2", "")) > 50, st.session_state.optimized_resume_data is not None, st.session_state.resume_preview_bytes is not None
@@ -424,7 +432,7 @@ with t2:
             """, height=44)
 
 with t3:
-    st.header("📊 ATS Analysis")
+    st.subheader("📊 ATS Analysis")
     st.caption("See how well your resume matches the JD and identify missing keywords.")
     
     # 📥 手動匯入外部推論結果 (由使用者要求)
@@ -448,9 +456,10 @@ with t3:
                 st.error(f"Invalid JSON: {e}")
 
     if st.session_state.optimized_resume_data:
-        # 📝 修改日誌 (移至最上方由使用者要求)
+        # 📝 修改日誌 (獨立小標題由使用者要求)
         if st.session_state.changelog:
-            st.info(f"**Changelog:** {st.session_state.changelog}")
+            st.markdown("### 📝 Optimization Changelog")
+            st.info(st.session_state.changelog)
 
         m = st.session_state.ats_metrics
         if m:
