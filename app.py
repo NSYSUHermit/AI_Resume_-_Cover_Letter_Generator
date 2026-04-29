@@ -155,23 +155,50 @@ def generate_cover_letter_pdf_bytes(data):
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume", page_icon="🚀", layout="wide")
 st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');h1,h2,h3,p,label,.stText{font-family:'Inter',sans-serif!important;}div[data-testid="stVerticalBlock"]>div[style*="border"]{background-color:#ffffff05;border:1px solid rgba(255,255,255,0.1)!important;border-radius:12px!important;padding:1.5rem!important;}.stButton>button{border-radius:8px!important;height:44px!important;font-weight:500!important;}.stButton>button[kind="primary"]{background:linear-gradient(135deg,#6366f1 0%,#a855f7 100%)!important;border:none!important;color:white!important;}[data-testid="stSidebar"]{background-color:#0f172a;}</style>""", unsafe_allow_html=True)
-
-db = init_firebase()
-
+# --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🚀 AI Resume")
     if st.session_state.logged_in:
         st.success(f"User: {st.session_state.user_email}")
-        if st.button("Push to Cloud", use_container_width=True): save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, st.session_state.custom_prompt, st.session_state.api_key)
-        if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
+        if st.button("Push to Cloud", use_container_width=True): 
+            save_user_profile(db, st.session_state.user_email, st.session_state.resume_data, st.session_state.custom_prompt, st.session_state.api_key)
+        if st.button("Logout", use_container_width=True): 
+            st.session_state.logged_in = False
+            st.rerun()
     else:
-        with st.form("login"):
-            e = st.text_input("Email"); p = st.text_input("Password", type="password")
+        # --- 登入區塊 ---
+        with st.form("login_form"):
+            st.subheader("🔑 Login")
+            e = st.text_input("Email").strip()
+            p = st.text_input("Password", type="password")
             if st.form_submit_button("Login", type="primary", use_container_width=True):
-                if authenticate_user(db, e, p): st.session_state.logged_in = True; st.session_state.user_email = e; st.rerun()
+                if authenticate_user(db, e, p): 
+                    st.session_state.logged_in = True
+                    st.session_state.user_email = e
+                    # 自動 Pull
+                    r, pr, k = load_user_profile(db, e)
+                    if r: st.session_state.resume_data = r; st.session_state.custom_prompt = pr; st.session_state.api_key = k
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials.")
+
+        # --- 補回：註冊區塊 ---
+        with st.expander("📝 Register New Account"):
+            with st.form("register_form"):
+                reg_email = st.text_input("New Email").strip()
+                reg_pwd = st.text_input("New Password", type="password")
+                if st.form_submit_button("Register", use_container_width=True):
+                    if reg_email and reg_pwd:
+                        ok, msg = register_user(db, reg_email, reg_pwd)
+                        if ok: st.success(msg)
+                        else: st.error(msg)
+                    else:
+                        st.warning("Please fill all fields.")
+
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
+    st.selectbox("🧠 Model", ["gemini-1.5-flash", "gemini-1.5-pro"], key="ai_model")
+
 
 # --- Tabs ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS ", " 📝 Export ", " 📈 Tracker "])
