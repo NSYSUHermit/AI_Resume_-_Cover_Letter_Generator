@@ -291,7 +291,7 @@ with t2:
         with c1:
             if st.button("🚀 Optimize Resume", type="primary", use_container_width=True):
                 if jd:
-                    l = st.empty(); l.markdown(get_glass_overlay_html("Gemini 2.5 Pro Crafting...", st.session_state.animal_emoji), unsafe_allow_html=True)
+                    l = st.empty(); l.markdown(get_glass_overlay_html("Gemini Crafting...", st.session_state.animal_emoji), unsafe_allow_html=True)
                     ok, rep = ai_optimize_and_update(jd, st.session_state.cp_v2, True, True)
                     l.empty()
                     if ok: 
