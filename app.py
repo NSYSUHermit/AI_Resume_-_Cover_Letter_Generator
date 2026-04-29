@@ -67,7 +67,7 @@ def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "API Key missing.", None
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         prompt = "Parse this PDF resume into JSON format. Return ONLY valid JSON."
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
         response = model.generate_content([prompt, pdf_part])
@@ -81,7 +81,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         api_key = st.session_state.get("api_key")
         if not api_key: return False, "API Key missing."
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         
         final_prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         response = model.generate_content(final_prompt)
@@ -200,7 +200,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    st.selectbox("🧠 Model", ["gemini-1.5-flash", "gemini-1.5-pro"], key="ai_model")
+    st.selectbox("🧠 Model", ["gemini-2.5-flash", "gemini-2.5-pro"], key="ai_model")
 
 
 # --- Tabs ---
@@ -264,6 +264,11 @@ with tab3:
 
     if st.session_state.optimized_resume_data:
         m = st.session_state.ats_metrics
+        if st.session_state.changelog:
+            st.markdown("---")
+            st.subheader("📝 Optimization Summary")
+            st.info(st.session_state.changelog)
+            
         if m:
             mc1, mc2, mc3 = st.columns(3)
             mc1.metric("Match Rate", f"{m['optimized_pct']}%")
@@ -285,10 +290,6 @@ with tab3:
                 for k in m.get('missing_keywords', []):
                     st.markdown(f"- `{k}`")
 
-        if st.session_state.changelog:
-            st.markdown("---")
-            st.subheader("📝 Optimization Summary")
-            st.info(st.session_state.changelog)
     else: st.info("Run optimization first.")
 
 @st.dialog("🛠️ Tweak Data", width="large")
