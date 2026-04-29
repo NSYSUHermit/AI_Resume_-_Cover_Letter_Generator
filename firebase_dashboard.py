@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import firebase_admin
 import numpy as np
 import json
@@ -427,7 +428,7 @@ def render_dashboard(db, email: str):
                                 </button>
                             </body>
                             """
-                            st.html(html_copy_json)
+                            st.components.v1.html(html_copy_json, height=45)
                             
                     with c_actions:
                         current_notes = app_data.get("notes", "")

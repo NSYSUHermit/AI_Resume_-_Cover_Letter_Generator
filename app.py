@@ -301,12 +301,41 @@ with t2:
         with c2:
             p_text = build_optimization_prompt(jd if jd else "JD", st.session_state.cp_v2, True, True, st.session_state.resume_data)
             b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
-            js_code = f"""try{{var b=window.atob("{b64}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="✅ Copied!";btn.style.borderColor="#059669";btn.style.color="#34d399";setTimeout(function(){{btn.innerText="📋 Copy Prompt";btn.style.borderColor="rgba(255,255,255,0.2)";btn.style.color="white";}},2000);}});}}catch(e){{console.error(e);this.innerText="❌ Error";}}"""
-            st.html(f"""
-            <body style="margin:0;">
-                <button onclick='{js_code}' style="width:100%;height:44px;border-radius:8px;background:#1e293b;color:white;border:1px solid rgba(255,255,255,0.2);cursor:pointer;font-weight:500;font-family:sans-serif;display:flex;align-items:center;justify-content:center;transition:all 0.2s;">📋 Copy Prompt</button>
+            components.html(f"""
+            <body style="margin:0; padding:0;">
+                <button id="copyPromptBtn" onclick="copyPrompt()" style="
+                    width:100%; height:44px; border-radius:8px; 
+                    background:#1e293b; color:white; border:1px solid rgba(255,255,255,0.2); 
+                    cursor:pointer; font-weight:500; font-family:sans-serif; 
+                    display:flex; align-items:center; justify-content:center; transition:all 0.2s;">
+                    📋 Copy Prompt
+                </button>
             </body>
-            """)
+            <script>
+            function copyPrompt() {{
+                try {{
+                    const b64 = "{b64}";
+                    const text = decodeURIComponent(escape(window.atob(b64)));
+                    const textArea = document.createElement("textarea");
+                    textArea.value = text;
+                    textArea.style.position = "fixed"; textArea.style.left = "-9999px"; textArea.style.top = "0";
+                    document.body.appendChild(textArea);
+                    textArea.focus(); textArea.select();
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    if (successful) {{
+                        const btn = document.getElementById('copyPromptBtn');
+                        btn.innerText = '✅ Copied';
+                        btn.style.borderColor = '#059669'; btn.style.color = '#34d399';
+                        setTimeout(() => {{ 
+                            btn.innerText = '📋 Copy Prompt'; 
+                            btn.style.borderColor = 'rgba(255,255,255,0.2)'; btn.style.color = 'white';
+                        }}, 2000);
+                    }}
+                }} catch (err) {{ console.error(err); }}
+            }}
+            </script>
+            """, height=45)
 
 with t3:
     st.header("📊 ATS Analysis")
