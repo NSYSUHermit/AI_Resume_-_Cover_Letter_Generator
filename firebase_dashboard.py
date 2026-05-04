@@ -171,6 +171,7 @@ def save_application(db, email: str, company_name: str, resume_json: dict, jd_te
             "resume_json": resume_json,
             "jd_text": jd_text,
             "interview_date": None,
+            "offered_date": None,
             "rejected_date": None,
             "notes": ""
         }
@@ -205,6 +206,8 @@ def update_application_status(db, email: str, doc_id: str, new_status: str, note
         
         if new_status == "Interviewing":
             update_data["interview_date"] = firestore.SERVER_TIMESTAMP
+        elif new_status == "Offered":
+            update_data["offered_date"] = firestore.SERVER_TIMESTAMP
         elif new_status == "Rejected":
             update_data["rejected_date"] = firestore.SERVER_TIMESTAMP
             
@@ -308,20 +311,38 @@ def render_interview_progress(db, email: str):
             
             total_applied = len(filtered_records)
             interviews = sum(1 for r in filtered_records if r["Status"] == "Interviewing")
+            offers = sum(1 for r in filtered_records if r["Status"] == "Offered")
             rejections = sum(1 for r in filtered_records if r["Status"] == "Rejected")
             
-            conversion_rate = (interviews / total_applied * 100) if total_applied > 0 else 0.0
+            # 累積計算漏斗層級，假設拿到 Offer 或正在面試都算進入了「面試階段」
+            total_interviewed = interviews + offers
+            offer_rate = (offers / total_applied * 100) if total_applied > 0 else 0.0
             
             with col_metrics:
                 st.caption("Conversion Metrics")
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("Applied", total_applied)
                 c2.metric("Interviewing", interviews)
-                c3.metric("Rejected", rejections)
-                c4.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+                c3.metric("Offered", offers)
+                c4.metric("Rejected", rejections)
+                c5.metric("Offer Rate", f"{offer_rate:.1f}%")
                 
         if total_applied > 0:
-            st.progress(min(conversion_rate / 100.0, 1.0), text=f"Conversion Rate: {conversion_rate:.1f}%")
+            # 使用 Plotly 繪製轉換漏斗圖
+            fig = go.Figure(go.Funnel(
+                y=["Applied", "Interviewed", "Offered"],
+                x=[total_applied, total_interviewed, offers],
+                textinfo="value+percent initial",
+                marker={"color": ["#3b82f6", "#f59e0b", "#10b981"]}
+            ))
+            fig.update_layout(
+                margin=dict(l=20, r=20, t=30, b=20), 
+                height=300, 
+                paper_bgcolor="rgba(0,0,0,0)", 
+                plot_bgcolor="rgba(0,0,0,0)",
+                title="Application Conversion Funnel"
+            )
+            st.plotly_chart(fig, use_container_width=True)
         
     except Exception as e:
         st.error(f"❌ Failed to load analysis data: {e}")
@@ -367,13 +388,15 @@ def render_dashboard(db, email: str):
         # 分類 Pipeline 狀態
         applied_records = [r for r in valid_records if r.get("status") == "Applied"]
         interviewing_records = [r for r in valid_records if r.get("status") == "Interviewing"]
+        offered_records = [r for r in valid_records if r.get("status") == "Offered"]
         rejected_records = [r for r in valid_records if r.get("status") == "Rejected"]
         
         # 建立 Pipeline 分頁
-        tab_all, tab_applied, tab_interviewing, tab_rejected = st.tabs([
+        tab_all, tab_applied, tab_interviewing, tab_offered, tab_rejected = st.tabs([
             f"All Records ({len(valid_records)})", 
             f"Applied ({len(applied_records)})", 
             f"Interviewing ({len(interviewing_records)})", 
+            f"Offered ({len(offered_records)})",
             f"Rejected ({len(rejected_records)})"
         ])
         
@@ -396,6 +419,8 @@ def render_dashboard(db, email: str):
                         st.markdown(f"**Applied:** `{date_str}`")
                         if app_data.get("interview_date"):
                             st.markdown(f"**Interview:** `{get_local_time_str(app_data['interview_date'])}`")
+                        if app_data.get("offered_date"):
+                            st.markdown(f"**Offered:** `{get_local_time_str(app_data['offered_date'])}`")
                         if app_data.get("rejected_date"):
                             st.markdown(f"**Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
                         
@@ -437,7 +462,7 @@ def render_dashboard(db, email: str):
                         # 操作按鈕列
                         col_stat, col_upd, col_prep, col_del = st.columns([4, 2, 2, 2])
                         with col_stat:
-                            options = ["Applied", "Interviewing", "Rejected"]
+                            options = ["Applied", "Interviewing", "Offered", "Rejected"]
                             current_idx = options.index(status) if status in options else 0
                             new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
                         with col_upd:
@@ -512,6 +537,7 @@ def render_dashboard(db, email: str):
         with tab_all: render_record_list(valid_records, "all")
         with tab_applied: render_record_list(applied_records, "applied")
         with tab_interviewing: render_record_list(interviewing_records, "interviewing")
+        with tab_offered: render_record_list(offered_records, "offered")
         with tab_rejected: render_record_list(rejected_records, "rejected")
             
     except Exception as e:
