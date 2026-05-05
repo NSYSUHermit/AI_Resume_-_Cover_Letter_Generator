@@ -276,7 +276,7 @@ def render_interview_progress(db, email: str):
                 time_filter = st.selectbox(
                     "Timeframe",
                     ["Last 24 Hours", "Last 3 Days", "Last 7 Days", "Last 30 Days", "All Time", "Custom Range"],
-                    index=0,
+                    index=4,
                     label_visibility="collapsed"
                 )
                 
