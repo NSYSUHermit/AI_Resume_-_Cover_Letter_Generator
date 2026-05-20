@@ -299,33 +299,55 @@ if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
     del st.session_state.pending_toast
 
-# 🎨 效能優先 CSS：移除動畫、模糊濾鏡與外部字體導入
+# 🎨 效能優化版 CSS：優化選取器以確保排版穩定
 st.markdown("""
 <style>
-    /* 移除 Inter 字體導入以加速載入 */
-    * { font-family: sans-serif !important; }
+    /* 使用系統字體，避免外部載入延遲 */
+    html, body, [data-testid="stAppViewContainer"] {
+        font-family: sans-serif;
+    }
     
+    /* 容器樣式優化 */
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         background-color: #232529 !important; 
         border: 1px solid rgba(255, 255, 255, 0.1) !important; 
-        border-radius: 4px !important; 
-        padding: 1rem !important;
+        border-radius: 8px !important; 
+        padding: 1.2rem !important;
+        margin-bottom: 1rem;
     }
 
-    .stButton > button { border-radius: 4px !important; height: 40px !important; font-weight: 500 !important; }
-    .stButton > button[kind="primary"] { background: #6366f1 !important; border: none !important; color: white !important; }
+    /* 按鈕樣式簡化 */
+    .stButton > button { 
+        border-radius: 6px !important; 
+        height: 42px !important; 
+        font-weight: 500 !important;
+        transition: none !important; /* 關閉動畫 */
+    }
+    .stButton > button[kind="primary"] { 
+        background: #6366f1 !important; 
+        border: none !important; 
+    }
 
-    /* Tabs Styling - 簡化視覺效果 */
-    .stTabs [data-baseweb="tab-list"] { gap: 4px; }
+    /* Tabs 樣式穩定化 */
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] {
-        background-color: #1e293b; border-radius: 4px 4px 0px 0px; padding: 8px 16px; color: #94a3b8; border: none;
+        background-color: #1e293b; 
+        border-radius: 6px 6px 0px 0px; 
+        padding: 10px 20px; 
+        color: #94a3b8; 
+        border: none;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #334155 !important; color: white !important; border-bottom: 2px solid #6366f1 !important;
+        background-color: #334155 !important; 
+        color: white !important; 
+        border-bottom: 2px solid #6366f1 !important;
     }
     
-    /* 移除所有動畫 transitions */
-    * { transition: none !important; animation: none !important; }
+    /* 移除全域動畫以提升效能，但保留基本交互反饋 */
+    button, a, .stTabs [data-baseweb="tab"] {
+        animation: none !important;
+        transition: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
