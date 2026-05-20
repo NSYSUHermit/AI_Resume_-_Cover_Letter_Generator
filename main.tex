@@ -72,12 +72,6 @@ local resume = nil
 
 local function escapeTex(str)
   if not str then return "" end
-  str = string.gsub(str, "%%", "\\%%")
-  str = string.gsub(str, "_", "\\_")
-  str = string.gsub(str, "&", "\\&")
-  str = string.gsub(str, "#", "\\#")
-  str = string.gsub(str, "{", "\\{")
-  str = string.gsub(str, "}", "\\}")
   return str
 end
 

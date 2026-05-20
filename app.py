@@ -204,13 +204,13 @@ def escape_latex_chars(obj):
                    .replace('&', '\\&')
                    .replace('＆', '\\&')  # 處理全形 ＆，避免 LaTeX 找不到字體導致消失
                    .replace('_', '\\_')  # 避免底線觸發數學模式導致空白消失
-                   .replace('#', '\\#'))
+                       .replace('#', '\\#')
+                       .replace('{', '\\{')
+                       .replace('}', '\\}'))
     elif isinstance(obj, list):
         return [escape_latex_chars(i) for i in obj]
     elif isinstance(obj, dict):
-        # 排除連結與信箱欄位，避免跳脫字元破壞 PDF 內的超連結正常點擊
-        url_keys = ['email', 'website', 'linkedin']
-        return {k: (v if k in url_keys else escape_latex_chars(v)) for k, v in obj.items()}
+            return {k: escape_latex_chars(v) for k, v in obj.items()}
     return obj
 
 def generate_preview_pdf_bytes(data, template_name, block_order):
