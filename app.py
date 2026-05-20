@@ -82,18 +82,79 @@ if "resume_dl_data" not in st.session_state: st.session_state.resume_dl_data = N
 if "cl_dl_data" not in st.session_state: st.session_state.cl_dl_data = None
 
 # ---------------------------------------------------------
-# AI 核心邏輯 (使用 Gemini 2.5 flash)
+# AI 核心邏輯 (強制鎖定使用使用者指定的 gemini-2.5-flash)
 # ---------------------------------------------------------
 def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "Missing API Key.", None
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        # 強制鎖定使用使用者要求的 gemini-2.5-flash
+        model_name = "gemini-2.5-flash"
+        model = genai.GenerativeModel(model_name)
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
-        response = model.generate_content(["Parse PDF to JSON. Return ONLY JSON.", pdf_part])
-        raw = response.text.strip()
-        if "```" in raw: raw = raw.split("```")[1].replace("json", "").strip()
-        return True, "Done", json.loads(raw)
+        
+        prompt = """
+        Extract all information from this resume PDF into the EXACT JSON structure below. 
+        Maintain high fidelity to the original content but format it strictly.
+        
+        ### EXPECTED JSON STRUCTURE:
+        {
+          "heading": {
+            "name": "Full Name",
+            "email": "Email Address",
+            "phone": "Phone Number",
+            "website": "Personal Website/Portfolio URL",
+            "linkedin": "LinkedIn Profile URL"
+          },
+          "summary": "A concise professional summary",
+          "education": [
+            {
+              "school": "University Name",
+              "time_period": "e.g., Aug 2018 - May 2022",
+              "degree": "e.g., Bachelor of Science in Computer Science",
+              "school_location": "City, State/Country"
+            }
+          ],
+          "experience": [
+            {
+              "company": "Company Name",
+              "role": "Job Title",
+              "time_duration": "e.g., June 2022 - Present",
+              "company_location": "City, State/Country",
+              "details": [
+                { "description": "Bullet point of achievement/responsibility" }
+              ]
+            }
+          ],
+          "projects": [
+            {
+              "name": "Project Name",
+              "time": "Date/Duration",
+              "description": "Brief description of your role and the project outcome"
+            }
+          ],
+          "patents": [
+            {
+              "name": "Patent Title",
+              "time": "Date",
+              "description": "Brief description"
+            }
+          ],
+          "skills": {
+            "set1": { "title": "Languages & Frameworks", "items": ["Python", "Java", ...] },
+            "set2": { "title": "Tools & Technologies", "items": ["AWS", "Docker", ...] },
+            "set3": { "title": "Other Skills", "items": ["Agile", "Leadership", ...] }
+          }
+        }
+        
+        ### RULES:
+        1. Return ONLY the JSON object.
+        2. Ensure "experience" details are objects with a "description" key.
+        3. If a field is missing in the PDF, use an empty string or empty list/object as appropriate.
+        """
+        
+        response = model.generate_content([prompt, pdf_part], generation_config={"response_mime_type": "application/json"})
+        return True, "Done", json.loads(response.text)
     except Exception as e: return False, str(e), None
 
 def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
@@ -101,14 +162,17 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         api_key = st.session_state.get("api_key")
         if not api_key: return False, "Missing API Key."
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
-        response = model.generate_content(prompt)
-        raw = response.text.strip()
-        if "```" in raw: raw = raw.split("```")[1].replace("json", "").strip()
-        res = json.loads(raw)
         
-        # 📂 儲存 ATS 與優化結果到外部 JSON (恢復使用者要求的存入外部 JSON 功能)
+        # 強制鎖定使用使用者要求的 gemini-2.5-flash
+        model_name = "gemini-2.5-flash"
+        model = genai.GenerativeModel(model_name)
+        prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
+        
+        # 使用 JSON 模式確保輸出穩定性
+        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        res = json.loads(response.text)
+        
+        # 📂 儲存 ATS 與優化結果到外部 JSON
         with open("ats_analysis.json", "w", encoding="utf-8") as f:
             json.dump(res, f, ensure_ascii=False, indent=4)
             
@@ -327,7 +391,7 @@ with st.sidebar:
                         else: st.error(msg)
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    st.selectbox("🧠 Model", ["gemini-2.5-pro", "gemini-2.5-flash"], key="ai_model")
+    # 模型已鎖定為免費的 Gemini 1.5 Flash 以節省額度
     st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
     st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
     

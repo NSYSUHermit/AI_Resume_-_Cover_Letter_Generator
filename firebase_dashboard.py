@@ -20,7 +20,7 @@ def predict_interview_questions(jd_text, resume_data):
             return None
             
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model_name = "gemini-2.5-flash" # 強制鎖定為使用者要求的 2.5 版本
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
@@ -51,7 +51,7 @@ def analyze_skill_gap(jd_text, resume_data):
             return None
             
         genai.configure(api_key=api_key)
-        model_name = st.session_state.get("ai_model", "gemini-2.5-flash")
+        model_name = "gemini-2.5-flash" # 強制鎖定為使用者要求的 2.5 版本
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
