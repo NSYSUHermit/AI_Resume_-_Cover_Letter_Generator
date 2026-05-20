@@ -196,8 +196,19 @@ def render_pdf_js(pdf_bytes):
     pdf_js_html = f"""<!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><style>body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:10px;}} canvas{{margin-bottom:10px;border:1px solid #334155;max-width:98%;}}</style></head><body><div id="p"></div><script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';var b=window.atob('{base64_pdf}');var bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{var v=page.getViewport({{scale:1.3}});var c=document.createElement('canvas');c.height=v.height;c.width=v.width;document.getElementById('p').appendChild(c);page.render({{canvasContext:c.getContext('2d'),viewport:v}});}});}});</script></body></html>"""
     components.html(pdf_js_html, height=800, scrolling=True)
 
+def escape_latex_chars(obj):
+    """Recursively escape LaTeX special characters to prevent compilation errors."""
+    if isinstance(obj, str):
+        return obj.replace('$', '\\$').replace('%', '\\%').replace('&', '\\&')
+    elif isinstance(obj, list):
+        return [escape_latex_chars(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: escape_latex_chars(v) for k, v in obj.items()}
+    return obj
+
 def generate_preview_pdf_bytes(data, template_name, block_order):
     try:
+        escaped_data = escape_latex_chars(data)
         with tempfile.TemporaryDirectory() as td:
             shutil.copy(template_name, td)
             tp = os.path.join(td, template_name)
@@ -212,7 +223,7 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
                     elif b == "Skills": bs += "\\section{SKILLS}\n\\directlua{printSkills()}\n"
                 c = c.replace("BLOCKS_PLACEHOLDER", bs)
                 with open(tp, "w", encoding="utf-8") as f: f.write(c)
-            with open(os.path.join(td, "ml_resume.json"), "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False)
+            with open(os.path.join(td, "ml_resume.json"), "w", encoding="utf-8") as f: json.dump(escaped_data, f, ensure_ascii=False)
             subprocess.run(['lualatex', '-interaction=nonstopmode', template_name], cwd=td, capture_output=True)
             op = tp.replace(".tex", ".pdf")
             if os.path.exists(op): return open(op, "rb").read()
@@ -224,7 +235,10 @@ def generate_cover_letter_pdf_bytes(data):
         txt = data.get('cover_letter') or data.get('coverLetter') or data.get('Cover Letter', '')
         if not txt: return None
         
-        heading = data.get('heading', {})
+        escaped_data = escape_latex_chars(data)
+        escaped_txt = escape_latex_chars(txt)
+        
+        heading = escaped_data.get('heading', {})
         name = heading.get('name', 'Your Name')
         email = heading.get('email', '')
         phone = heading.get('phone', '')
@@ -254,7 +268,7 @@ def generate_cover_letter_pdf_bytes(data):
             "phone": phone,
             "linkedin": linkedin,
             "website": website,
-            "body": txt.replace("\n", "\n\n").replace('**', '')
+            "body": escaped_txt.replace("\n", "\n\n").replace('**', '')
         }
         
         rendered_tex = template.render(template_data)
