@@ -553,6 +553,19 @@ def edit_opt_dialog():
         st.session_state.optimized_resume_data = json.loads(edit); st.rerun()
 
 with t4:
+    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
+    with st.expander("📥 Manual Data Import (Paste Optimized JSON)"):
+        st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
+        manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
+        if st.button("Apply Manual Data", use_container_width=True):
+            try:
+                manual_data = json.loads(manual_opt_json)
+                st.session_state.optimized_resume_data = manual_data
+                st.toast("✅ Manual data applied!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Invalid JSON: {e}")
+
     if st.session_state.optimized_resume_data:
         cl1, cl2 = st.columns([4, 6])
         with cl1:
