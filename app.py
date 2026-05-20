@@ -192,7 +192,8 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
 def render_pdf_js(pdf_bytes):
     if not pdf_bytes: return
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_js_html = f"""<!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><style>body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:20px;}} canvas{{margin-bottom:20px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border-radius:8px;max-width:95%;}}</style></head><body><div id="p"></div><script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';var b=window.atob('{base64_pdf}');var bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{var v=page.getViewport({{scale:1.5}});var c=document.createElement('canvas');c.height=v.height;c.width=v.width;document.getElementById('p').appendChild(c);page.render({{canvasContext:c.getContext('2d'),viewport:v}});}});}});</script></body></html>"""
+    # 效能優化版 PDF 檢視器：移除陰影與圓角效果
+    pdf_js_html = f"""<!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><style>body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:10px;}} canvas{{margin-bottom:10px;border:1px solid #334155;max-width:98%;}}</style></head><body><div id="p"></div><script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';var b=window.atob('{base64_pdf}');var bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{for(var i=1;i<=pdf.numPages;i++)pdf.getPage(i).then(function(page){{var v=page.getViewport({{scale:1.3}});var c=document.createElement('canvas');c.height=v.height;c.width=v.width;document.getElementById('p').appendChild(c);page.render({{canvasContext:c.getContext('2d'),viewport:v}});}});}});</script></body></html>"""
     components.html(pdf_js_html, height=800, scrolling=True)
 
 def generate_preview_pdf_bytes(data, template_name, block_order):
@@ -289,38 +290,42 @@ def get_glass_overlay_html(message, animal):
     """
 
 # ---------------------------------------------------------
-# UI 介面
+# UI 介面 (效能優化版：移除所有動畫與濾鏡)
 # ---------------------------------------------------------
 st.set_page_config(page_title="AI Resume", page_icon="🚀", layout="wide")
 
-# 🔔 處理 Rerun 後的通知 (由使用者要求)
+# 🔔 處理 Rerun 後的通知
 if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
     del st.session_state.pending_toast
 
-# 🎨 修正後的 CSS：避免影響圖示
+# 🎨 效能優先 CSS：移除動畫、模糊濾鏡與外部字體導入
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    /* 僅對標題與文字生效，不影響全局圖示 */
-    h1, h2, h3, p, label, .stMarkdown { font-family: 'Inter', sans-serif !important; }
+    /* 移除 Inter 字體導入以加速載入 */
+    * { font-family: sans-serif !important; }
     
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
-        background-color: #ffffff05; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px !important; padding: 1.5rem !important;
+        background-color: #232529 !important; 
+        border: 1px solid rgba(255, 255, 255, 0.1) !important; 
+        border-radius: 4px !important; 
+        padding: 1rem !important;
     }
 
-    .stButton > button { border-radius: 8px !important; height: 44px !important; font-weight: 500 !important; }
-    .stButton > button[kind="primary"] { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important; border: none !important; color: white !important; }
+    .stButton > button { border-radius: 4px !important; height: 40px !important; font-weight: 500 !important; }
+    .stButton > button[kind="primary"] { background: #6366f1 !important; border: none !important; color: white !important; }
 
-    /* Tabs Styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    /* Tabs Styling - 簡化視覺效果 */
+    .stTabs [data-baseweb="tab-list"] { gap: 4px; }
     .stTabs [data-baseweb="tab"] {
-        background-color: #1e293b; border-radius: 8px 8px 0px 0px; padding: 10px 20px; color: #94a3b8; border: none;
+        background-color: #1e293b; border-radius: 4px 4px 0px 0px; padding: 8px 16px; color: #94a3b8; border: none;
     }
     .stTabs [aria-selected="true"] {
         background-color: #334155 !important; color: white !important; border-bottom: 2px solid #6366f1 !important;
     }
+    
+    /* 移除所有動畫 transitions */
+    * { transition: none !important; animation: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -329,25 +334,19 @@ with st.sidebar:
     if st.session_state.logged_in:
         st.success(f"**User:** `{st.session_state.user_email}`")
         if st.button("Push to Cloud", use_container_width=True): 
-            # 確保獲取 UI 上的最新資料 (由使用者強烈要求修復)
-            # 1. 獲取 Prompt (優先使用 Target 頁籤的 cp_v2)
+            # 確保獲取 UI 上的最新資料
             current_prompt = st.session_state.get("cp_v2", st.session_state.custom_prompt)
-            
-            # 2. 獲取 Resume JSON (從 Ace 編輯器的 Session State Key 獲取)
             ace_key = f"base_ed_{st.session_state.base_editor_key}"
             current_resume = st.session_state.resume_data
             if ace_key in st.session_state:
                 try:
-                    # Ace 編輯器會將當前內容存入 session_state[key]
                     current_resume = json.loads(st.session_state[ace_key])
-                    st.session_state.resume_data = current_resume # 同步回 session_state
-                except Exception as e:
-                    st.warning(f"Note: Using last saved JSON because of format error: {e}")
+                    st.session_state.resume_data = current_resume
+                except: pass
             
-            st.session_state.custom_prompt = current_prompt # 同步回 session_state
-            
+            st.session_state.custom_prompt = current_prompt
             ok, msg = save_user_profile(db, st.session_state.user_email, current_resume, current_prompt, st.session_state.api_key)
-            if ok: st.toast("✅ Profile pushed to cloud!")
+            if ok: st.toast("✅ Profile pushed!")
             else: st.error(msg)
             
         if st.button("Pull from Cloud", use_container_width=True):
@@ -358,17 +357,14 @@ with st.sidebar:
                 st.session_state.cp_v2 = pr
                 st.session_state.api_key = k
                 st.session_state.base_editor_key += 1
-                st.session_state.pending_toast = "✅ Profile pulled from cloud!" # Rerun 通知
+                st.session_state.pending_toast = "✅ Profile pulled!"
                 st.rerun()
         if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
     else:
-        # 🟢 登入/註冊 切換 (由使用者要求)
         auth_mode = st.radio("Auth Mode", ["Login", "Register"], horizontal=True, label_visibility="collapsed")
-        
         with st.form("auth_form"):
             e = st.text_input("Email")
             p = st.text_input("Password", type="password")
-            
             if auth_mode == "Login":
                 if st.form_submit_button("Login", type="primary", use_container_width=True):
                     if authenticate_user(db, e, p): 
@@ -383,31 +379,25 @@ with st.sidebar:
                         st.rerun()
             else:
                 if st.form_submit_button("Create Account", type="primary", use_container_width=True):
-                    if not e or not p:
-                        st.error("Please fill in both fields.")
-                    else:
-                        ok, msg = register_user(db, e, p)
-                        if ok: st.success(msg)
-                        else: st.error(msg)
+                    ok, msg = register_user(db, e, p)
+                    if ok: st.success(msg)
+                    else: st.error(msg)
     st.markdown("---")
     st.text_input("🔑 API Key", type="password", key="api_key")
-    # 模型已鎖定為免費的 Gemini 1.5 Flash 以節省額度
     st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
     st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
     
     st.markdown("---")
-    st.markdown("### 👨‍💻 Developed by NSYSUHermit")
-    col_gh, col_li = st.columns(2)
-    with col_gh:
-        st.markdown("[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/NSYSUHermit)")
-# --- Stepper ---
+    st.markdown("👨‍💻 Developed by NSYSUHermit")
+
+# --- Simplified Stepper ---
 s1, s2, s3, s4 = len(st.session_state.resume_data.get("experience", [])) > 0, len(st.session_state.get("jd_v2", "")) > 50, st.session_state.optimized_resume_data is not None, st.session_state.resume_preview_bytes is not None
 steps = [{"l": "Source", "d": s1}, {"l": "Target", "d": s2}, {"l": "Analysis", "d": s3}, {"l": "Review", "d": s4}, {"l": "Tracker", "d": st.session_state.logged_in}]
 cols = st.columns(5)
 for i, s in enumerate(steps):
     with cols[i]:
-        c = "#10b981" if s["d"] else "#6366f1"
-        st.markdown(f"<div style='text-align:center;padding:10px;border-radius:10px;background:{c}15;border:1px solid {c}40;color:{c};font-weight:bold;'>{'✅' if s['d'] else '🔵'} {s['l']}</div>", unsafe_allow_html=True)
+        label = f"✅ {s['l']}" if s['d'] else f"⚪ {s['l']}"
+        st.markdown(f"<div style='text-align:center; padding:8px; border:1px solid rgba(255,255,255,0.1); border-radius:4px; font-size:14px;'>{label}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 t1, t2, t3, t4, t5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS ", " 📝 Review ", " 📈 Tracker "])
@@ -415,54 +405,49 @@ t1, t2, t3, t4, t5 = st.tabs([" 📁 Source ", " 🎯 Target ", " 📊 ATS ", " 
 with t1:
     with st.container(border=True):
         st.subheader("📥 Quick Import")
-        st.caption("Upload your own resume PDF to automatically extract data and populate the structure below.")
         up = st.file_uploader("Upload PDF", type=["pdf"], key="up1", label_visibility="collapsed")
         if st.button("✨ Extract Data", type="primary", use_container_width=True) and up:
-            loading = st.empty(); loading.markdown(get_glass_overlay_html("Extracting...", st.session_state.animal_emoji), unsafe_allow_html=True)
-            ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
-            loading.empty()
-            if ok: 
-                st.session_state.resume_data = data
-                st.session_state.base_editor_key += 1
-                st.session_state.pending_toast = "✅ Data extracted successfully!"
-                st.rerun()
-            else: st.error(msg)
+            with st.spinner(f"{st.session_state.animal_emoji} Extracting..."):
+                ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
+                if ok: 
+                    st.session_state.resume_data = data
+                    st.session_state.base_editor_key += 1
+                    st.session_state.pending_toast = "✅ Data extracted!"
+                    st.rerun()
+                else: st.error(msg)
     
     st.markdown("#### 📝 Profile Editor")
-    st.info("💡 **Tip:** This is your 'Ground Truth' profile. AI will always use this version as the base for optimizations.")
     edit = st_ace.st_ace(value=json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), language="json", theme="dracula", height=500, key=f"base_ed_{st.session_state.base_editor_key}")
     if st.button("💾 Save Base Changes", use_container_width=True): 
         st.session_state.resume_data = json.loads(edit)
-        st.toast("💾 Base Profile Saved!")
+        st.toast("💾 Saved!")
 
 with t2:
     with st.container(border=True):
         st.subheader("🎯 Job Details")
-        st.caption("Paste the Job Description (JD) and describe your optimization goals. You can run the optimization here or copy the prompt for manual use.")
-        jd = st.text_area("JD Content", height=300, key="jd_v2", placeholder="Paste the target JD here...")
-        st.text_area("Strategy", value=st.session_state.custom_prompt, key="cp_v2", height=150, help="Tell AI what to prioritize (e.g. 'Focus on my backend experience' or 'Make it sound more professional')")
+        jd = st.text_area("JD Content", height=300, key="jd_v2")
+        st.text_area("Strategy", value=st.session_state.custom_prompt, key="cp_v2", height=150)
         
         c1, c2 = st.columns(2)
         with c1:
             if st.button("🚀 Optimize Resume", type="primary", use_container_width=True):
                 if jd:
-                    l = st.empty(); l.markdown(get_glass_overlay_html("Gemini Crafting...", st.session_state.animal_emoji), unsafe_allow_html=True)
-                    ok, rep = ai_optimize_and_update(jd, st.session_state.cp_v2, True, True)
-                    l.empty()
-                    if ok: 
-                        st.session_state.pending_toast = "✅ Resume Optimized Successfully!"
-                        st.rerun()
-                    else: st.error(rep)
+                    with st.spinner(f"{st.session_state.animal_emoji} Optimizing..."):
+                        ok, rep = ai_optimize_and_update(jd, st.session_state.cp_v2, True, True)
+                        if ok: 
+                            st.session_state.pending_toast = "✅ Optimized!"
+                            st.rerun()
+                        else: st.error(rep)
         with c2:
             p_text = build_optimization_prompt(jd if jd else "JD", st.session_state.cp_v2, True, True, st.session_state.resume_data)
             b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
             components.html(f"""
             <body style="margin:0; padding:0;">
                 <button id="copyPromptBtn" onclick="copyPrompt()" style="
-                    width:100%; height:44px; border-radius:8px; 
+                    width:100%; height:44px; border-radius:4px; 
                     background:#1e293b; color:white; border:1px solid rgba(255,255,255,0.2); 
                     cursor:pointer; font-weight:500; font-family:sans-serif; 
-                    display:flex; align-items:center; justify-content:center; transition:all 0.2s;">
+                    display:flex; align-items:center; justify-content:center;">
                     📋 Copy Prompt
                 </button>
             </body>
