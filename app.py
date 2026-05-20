@@ -405,6 +405,8 @@ with st.sidebar:
                     if ok: st.success(msg)
                     else: st.error(msg)
     st.markdown("---")
+    st.markdown("🔑 **API Settings**")
+    st.caption("[Get your free API Key from Google AI Studio](https://aistudio.google.com/app/apikey)")
     st.text_input("🔑 API Key", type="password", key="api_key")
     st.selectbox("Animal", ["🦦 Otter", "🐕 Dog", "🦖 T-Rex"], key="animal_emoji_select")
     st.session_state.animal_emoji = st.session_state.animal_emoji_select.split(" ")[0]
