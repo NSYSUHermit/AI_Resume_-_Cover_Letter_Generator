@@ -1,6 +1,12 @@
 __pycache__/
 *.py[cod]
 
+# Local secrets and credentials
+.env
+.streamlit/secrets.toml
+*service-account*.json
+*firebase*credential*.json
+
 # Local/generated analysis artifacts
 ats_analysis.json
 ml_resume.json

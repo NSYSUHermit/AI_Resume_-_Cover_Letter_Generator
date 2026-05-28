@@ -130,6 +130,210 @@ def render_json_editor(value, key, height=500):
         label_visibility="collapsed",
     )
 
+def editor_rows(value):
+    if hasattr(value, "to_dict"):
+        return value.to_dict("records")
+    if isinstance(value, list):
+        return value
+    return []
+
+def compact_rows(rows, fields):
+    cleaned = []
+    for row in editor_rows(rows):
+        item = {field: str(row.get(field, "") or "").strip() for field in fields}
+        if any(item.values()):
+            cleaned.append(item)
+    return cleaned
+
+def editable_seed(rows, fields):
+    rows = editor_rows(rows)
+    if rows:
+        return rows
+    return [{field: "" for field in fields}]
+
+def details_to_text(details):
+    lines = []
+    for detail in details or []:
+        if isinstance(detail, dict):
+            text = detail.get("description", "")
+        else:
+            text = str(detail)
+        if str(text).strip():
+            lines.append(str(text).strip())
+    return "\n".join(lines)
+
+def text_to_details(text):
+    return [{"description": line.strip()} for line in str(text or "").splitlines() if line.strip()]
+
+def skills_to_rows(skills):
+    rows = []
+    if isinstance(skills, dict):
+        for key, value in skills.items():
+            if isinstance(value, dict):
+                items = value.get("items", [])
+                if isinstance(items, str):
+                    items_text = items
+                else:
+                    items_text = ", ".join(str(item) for item in items)
+                rows.append({
+                    "key": key,
+                    "title": value.get("title", ""),
+                    "items": items_text,
+                })
+    return rows or [{"key": "set1", "title": "Skills", "items": ""}]
+
+def rows_to_skills(rows):
+    skills = {}
+    for index, row in enumerate(editor_rows(rows), start=1):
+        key = str(row.get("key", "") or f"set{index}").strip() or f"set{index}"
+        title = str(row.get("title", "") or "").strip()
+        items_text = str(row.get("items", "") or "")
+        items = [item.strip() for item in items_text.split(",") if item.strip()]
+        if title or items:
+            skills[key] = {"title": title or "Skills", "items": items}
+    return skills or {"set1": {"title": "Skills", "items": []}}
+
+def render_resume_form_editor(data, key_prefix):
+    data = json.loads(json.dumps(data or {}, ensure_ascii=False))
+    heading = data.get("heading") if isinstance(data.get("heading"), dict) else {}
+
+    st.markdown("#### Profile Fields")
+    with st.container(border=True):
+        st.subheader("Basic Info")
+        c1, c2 = st.columns(2)
+        with c1:
+            name = st.text_input("Name", value=heading.get("name", ""), key=f"{key_prefix}_name")
+            email = st.text_input("Email", value=heading.get("email", ""), key=f"{key_prefix}_email")
+            phone = st.text_input("Phone", value=heading.get("phone", ""), key=f"{key_prefix}_phone")
+        with c2:
+            website = st.text_input("Website", value=heading.get("website", ""), key=f"{key_prefix}_website")
+            linkedin = st.text_input("LinkedIn", value=heading.get("linkedin", ""), key=f"{key_prefix}_linkedin")
+            target_role = st.text_input("Target Role", value=data.get("target_role", ""), key=f"{key_prefix}_target_role")
+        target_company = st.text_input("Target Company", value=data.get("target_company", ""), key=f"{key_prefix}_target_company")
+        summary = st.text_area("Summary", value=data.get("summary", ""), height=130, key=f"{key_prefix}_summary")
+        about_more = st.text_area("About Me / Notes", value=data.get("about me more", ""), height=90, key=f"{key_prefix}_about")
+        cover_letter = st.text_area("Cover Letter", value=data.get("cover_letter", ""), height=180, key=f"{key_prefix}_cover_letter")
+
+    with st.container(border=True):
+        st.subheader("Education")
+        education_rows = st.data_editor(
+            editable_seed(data.get("education", []), ["school", "time_period", "degree", "school_location"]),
+            key=f"{key_prefix}_education",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "school": st.column_config.TextColumn("School"),
+                "time_period": st.column_config.TextColumn("Time Period"),
+                "degree": st.column_config.TextColumn("Degree"),
+                "school_location": st.column_config.TextColumn("Location"),
+            },
+        )
+
+    exp_seed = []
+    for exp in data.get("experience", []) or []:
+        if isinstance(exp, dict):
+            exp_seed.append({
+                "company": exp.get("company", ""),
+                "role": exp.get("role", ""),
+                "time_duration": exp.get("time_duration", ""),
+                "company_location": exp.get("company_location", ""),
+                "details": details_to_text(exp.get("details", [])),
+            })
+    exp_seed = editable_seed(exp_seed, ["company", "role", "time_duration", "company_location", "details"])
+    with st.container(border=True):
+        st.subheader("Experience")
+        experience_rows = st.data_editor(
+            exp_seed,
+            key=f"{key_prefix}_experience",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "company": st.column_config.TextColumn("Company"),
+                "role": st.column_config.TextColumn("Role"),
+                "time_duration": st.column_config.TextColumn("Time Duration"),
+                "company_location": st.column_config.TextColumn("Location"),
+                "details": st.column_config.TextColumn("Bullet Points (one per line)", width="large"),
+            },
+        )
+
+    with st.container(border=True):
+        st.subheader("Projects")
+        project_rows = st.data_editor(
+            editable_seed(data.get("projects", []), ["name", "time", "description"]),
+            key=f"{key_prefix}_projects",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "name": st.column_config.TextColumn("Name"),
+                "time": st.column_config.TextColumn("Time"),
+                "description": st.column_config.TextColumn("Description", width="large"),
+            },
+        )
+
+    with st.container(border=True):
+        st.subheader("Patents")
+        patent_rows = st.data_editor(
+            editable_seed(data.get("patents", []), ["name", "time", "description"]),
+            key=f"{key_prefix}_patents",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "name": st.column_config.TextColumn("Name"),
+                "time": st.column_config.TextColumn("Time"),
+                "description": st.column_config.TextColumn("Description", width="large"),
+            },
+        )
+
+    with st.container(border=True):
+        st.subheader("Skills")
+        skill_rows = st.data_editor(
+            skills_to_rows(data.get("skills", {})),
+            key=f"{key_prefix}_skills",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "key": st.column_config.TextColumn("Set Key"),
+                "title": st.column_config.TextColumn("Category"),
+                "items": st.column_config.TextColumn("Items (comma separated)", width="large"),
+            },
+        )
+
+    experience = []
+    for row in compact_rows(experience_rows, ["company", "role", "time_duration", "company_location", "details"]):
+        experience.append({
+            "company": row["company"],
+            "role": row["role"],
+            "time_duration": row["time_duration"],
+            "company_location": row["company_location"],
+            "details": text_to_details(row["details"]),
+        })
+
+    return {
+        **data,
+        "heading": {
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "website": website,
+            "linkedin": linkedin,
+        },
+        "target_company": target_company,
+        "target_role": target_role,
+        "cover_letter": cover_letter,
+        "about me more": about_more,
+        "summary": summary,
+        "education": compact_rows(education_rows, ["school", "time_period", "degree", "school_location"]),
+        "experience": experience,
+        "projects": compact_rows(project_rows, ["name", "time", "description"]),
+        "patents": compact_rows(patent_rows, ["name", "time", "description"]),
+        "skills": rows_to_skills(skill_rows),
+    }
+
 def sync_application_to_tracker():
     tracker_db = get_db()
     if tracker_db is None:
@@ -725,15 +929,32 @@ if active_view == "Source":
                 st.rerun()
             else: st.error(msg)
     
-    st.markdown("#### Profile Editor")
-    edit = render_json_editor(json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), key=f"base_ed_{st.session_state.base_editor_key}", height=500)
-    if st.button("Save Source JSON", use_container_width=True, disabled=is_ai_busy()):
-        try:
-            st.session_state.resume_data = json.loads(edit)
-            clear_generated_outputs()
-            st.toast("Saved. Previous optimized output cleared.")
-        except json.JSONDecodeError as e:
-            st.error(f"Source JSON is invalid: {e}")
+    edited_resume = render_resume_form_editor(
+        st.session_state.resume_data,
+        key_prefix=f"base_form_{st.session_state.base_editor_key}",
+    )
+    if st.button("Save Profile Fields", use_container_width=True, type="primary", disabled=is_ai_busy()):
+        st.session_state.resume_data = edited_resume
+        st.session_state.base_editor_key += 1
+        clear_generated_outputs()
+        st.toast("Saved. Previous optimized output cleared.")
+        st.rerun()
+
+    with st.expander("Advanced JSON Import"):
+        raw_import = render_json_editor(
+            json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False),
+            key=f"base_json_import_{st.session_state.base_editor_key}",
+            height=320,
+        )
+        if st.button("Apply JSON Import", use_container_width=True, disabled=is_ai_busy()):
+            try:
+                st.session_state.resume_data = json.loads(raw_import)
+                st.session_state.base_editor_key += 1
+                clear_generated_outputs()
+                st.toast("JSON imported.")
+                st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(f"Source JSON is invalid: {e}")
 
 if active_view == "Target":
     with st.container(border=True):
@@ -862,14 +1083,30 @@ if active_view == "ATS":
 
 @st.dialog("Edit Optimized Data", width="large")
 def edit_opt_dialog():
-    edit = render_json_editor(json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False), key=f"opt_ed_{st.session_state.opt_editor_key}", height=500)
+    edit = render_resume_form_editor(
+        st.session_state.optimized_resume_data,
+        key_prefix=f"opt_form_{st.session_state.opt_editor_key}",
+    )
     if st.button("Save Changes", use_container_width=True, disabled=is_ai_busy()):
-        try:
-            st.session_state.optimized_resume_data = json.loads(edit)
-            clear_pdf_outputs()
-            st.rerun()
-        except json.JSONDecodeError as e:
-            st.error(f"Optimized JSON is invalid: {e}")
+        st.session_state.optimized_resume_data = edit
+        st.session_state.opt_editor_key += 1
+        clear_pdf_outputs()
+        st.rerun()
+
+    with st.expander("Advanced Optimized JSON Import"):
+        raw_opt_import = render_json_editor(
+            json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
+            key=f"opt_json_import_{st.session_state.opt_editor_key}",
+            height=320,
+        )
+        if st.button("Apply Optimized JSON Import", use_container_width=True, disabled=is_ai_busy()):
+            try:
+                st.session_state.optimized_resume_data = json.loads(raw_opt_import)
+                st.session_state.opt_editor_key += 1
+                clear_pdf_outputs()
+                st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(f"Optimized JSON is invalid: {e}")
 
 if active_view == "Review":
     sync_base_editor_to_state(show_error=False)
