@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+
+# Local/generated analysis artifacts
+ats_analysis.json
+ml_resume.json
+
+# LaTeX build outputs
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz

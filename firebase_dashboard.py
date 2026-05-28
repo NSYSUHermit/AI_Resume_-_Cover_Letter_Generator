@@ -1,7 +1,6 @@
 import streamlit as st
-import streamlit.components.v1 as components
+import streamlit.components.v1 as components 
 import firebase_admin
-import numpy as np
 import json
 import plotly.graph_objects as go
 import google.generativeai as genai
@@ -20,7 +19,7 @@ def predict_interview_questions(jd_text, resume_data):
             return None
             
         genai.configure(api_key=api_key)
-        model_name = "gemini-2.5-flash" # 強制鎖定為使用者要求的 2.5 版本
+        model_name = "gemini-1.5-flash" # 使用穩定版本
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
@@ -38,7 +37,13 @@ def predict_interview_questions(jd_text, resume_data):
         [JD]: {jd_text}
         [Resume]: {json.dumps(resume_data)}
         """
-        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
+        response = model.generate_content(
+            prompt, 
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            )
+        )
         return json.loads(response.text)
     except Exception:
         return None
@@ -51,7 +56,7 @@ def analyze_skill_gap(jd_text, resume_data):
             return None
             
         genai.configure(api_key=api_key)
-        model_name = "gemini-2.5-flash" # 強制鎖定為使用者要求的 2.5 版本
+        model_name = "gemini-1.5-flash" # 使用穩定版本
         model = genai.GenerativeModel(model_name)
         
         prompt = f"""
@@ -70,7 +75,13 @@ def analyze_skill_gap(jd_text, resume_data):
         [JD]: {jd_text}
         [Resume]: {json.dumps(resume_data)}
         """
-        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(response_mime_type="application/json"))
+        response = model.generate_content(
+            prompt, 
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            )
+        )
         return json.loads(response.text)
     except Exception:
         return None
@@ -89,7 +100,7 @@ def init_firebase():
             cred = credentials.Certificate(cert_dict)
             firebase_admin.initialize_app(cred)
         except Exception as e:
-            st.error(f"❌ Firebase initialization failed: {e}")
+            st.error(f"Firebase initialization failed: {e}")
             return None
     
     return firestore.client()
@@ -100,6 +111,11 @@ def init_firebase():
 def register_user(db, email: str, password: str):
     """Register a new user with hashed password"""
     try:
+        if db is None:
+            return False, "Firebase is not initialized."
+        email = (email or "").strip()
+        if not email or not password:
+            return False, "Email and password are required."
         doc_ref = db.collection('user_auth').document(email)
         if doc_ref.get().exists:
             return False, "This Email is already registered!"
@@ -113,6 +129,11 @@ def register_user(db, email: str, password: str):
 def authenticate_user(db, email: str, password: str):
     """Authenticate user login"""
     try:
+        if db is None:
+            return False, "Firebase is not initialized."
+        email = (email or "").strip()
+        if not email or not password:
+            return False, "Email and password are required."
         doc = db.collection('user_auth').document(email).get()
         if not doc.exists:
             return False, "Account not found, please register first."
@@ -124,34 +145,33 @@ def authenticate_user(db, email: str, password: str):
     except Exception as e:
         return False, f"Login verification failed: {e}"
 
-def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api_key: str):
-    """Save base resume, custom prompt, and API key to Firestore"""
+def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str):
+    """Save base resume and custom prompt to Firestore."""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         data = {
             "base_resume": resume_data,
             "custom_prompt": custom_prompt,
-            "api_key": api_key,
             "last_updated": firestore.SERVER_TIMESTAMP
         }
         doc_ref.set(data)
-        return True, "✅ Profile synced to cloud successfully!"
+        return True, "Profile synced to cloud successfully."
     except Exception as e:
-        st.error(f"❌ Error saving profile: {e}")
+        st.error(f"Error saving profile: {e}")
         return False, f"Error saving profile: {e}"
 
 def load_user_profile(db, email: str):
-    """Load base resume, custom prompt, and API key from Firestore"""
+    """Load base resume and custom prompt from Firestore."""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         doc = doc_ref.get()
         if doc.exists:
             profile_data = doc.to_dict()
-            return profile_data.get("base_resume"), profile_data.get("custom_prompt"), profile_data.get("api_key")
+            return profile_data.get("base_resume"), profile_data.get("custom_prompt"), None
         else:
             return None, None, None
     except Exception as e:
-        st.error(f"❌ Error loading profile: {e}")
+        st.error(f"Error loading profile: {e}")
         return None, None, None
 
 # ==========================================
@@ -180,7 +200,7 @@ def save_application(db, email: str, company_name: str, resume_json: dict, jd_te
         st.session_state.force_refresh_apps = True
         return True
     except Exception as e:
-        st.error(f"❌ Error saving application record: {e}")
+        st.error(f"Error saving application record: {e}")
         return False
 
 # ==========================================
@@ -193,7 +213,7 @@ def delete_application(db, email: str, doc_id: str):
         st.session_state.force_refresh_apps = True
         return True
     except Exception as e:
-        st.error(f"❌ Error deleting application: {e}")
+        st.error(f"Error deleting application: {e}")
         return False
 
 def update_application_status(db, email: str, doc_id: str, new_status: str, notes: str):
@@ -215,7 +235,7 @@ def update_application_status(db, email: str, doc_id: str, new_status: str, note
         st.session_state.force_refresh_apps = True
         return True
     except Exception as e:
-        st.error(f"❌ Error updating application: {e}")
+        st.error(f"Error updating application: {e}")
         return False
 
 def fetch_applications(db, email):
@@ -235,7 +255,7 @@ def fetch_applications(db, email):
             st.session_state.app_records = records
             st.session_state.force_refresh_apps = False
         except Exception as e:
-            st.error(f"❌ Error fetching applications: {e}")
+            st.error(f"Error fetching applications: {e}")
             return []
     return st.session_state.app_records
 
@@ -345,7 +365,7 @@ def render_interview_progress(db, email: str):
             st.plotly_chart(fig, use_container_width=True)
         
     except Exception as e:
-        st.error(f"❌ Failed to load analysis data: {e}")
+        st.error(f"Failed to load analysis data: {e}")
 
 def render_dashboard(db, email: str):
     """
@@ -427,28 +447,30 @@ def render_dashboard(db, email: str):
                         st.write("")
                         col_view, col_copy = st.columns(2)
                         with col_view:
-                            with st.popover("👁️ View Data", use_container_width=True):
+                            with st.popover("View Data", use_container_width=True):
                                 st.markdown("**Job Description:**")
                                 st.info(app_data.get("jd_text", "No JD saved."))
                                 st.markdown("**Saved Resume JSON:**")
                                 st.json(app_data.get("resume_json", {}))
                         
                         with col_copy:
-                            # --- 📋 一鍵複製 JSON 功能 (修正對齊版本) ---
+                            # 一鍵複製 JSON 功能
                             import base64
                             resume_json_str = json.dumps(app_data.get("resume_json", {}), ensure_ascii=False, indent=4)
                             b64_resume = base64.b64encode(resume_json_str.encode('utf-8')).decode('utf-8')
                             
-                            js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="✅ Copied!";btn.style.borderColor="#059669";btn.style.color="#34d399";btn.style.backgroundColor="#064e3b10";setTimeout(function(){{btn.innerText="📋 Copy JSON";btn.style.borderColor="rgba(255,255,255,0.2)";btn.style.color="white";btn.style.backgroundColor="#1e293b";}},2000);}});}}catch(e){{console.error(e);this.innerText="❌ Error";}}"""
+                            js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="#059669";btn.style.color="#059669";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="#e2e8f0";btn.style.color="#111827";btn.style.backgroundColor="#ffffff";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
                             html_copy_json = f"""
                             <body style="margin:0; padding:0; background:transparent;">
                                 <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
                                     width:100%; height:38px; border-radius:8px; 
-                                    background:#1e293b; color:white; border:1px solid rgba(255,255,255,0.2); 
-                                    cursor:pointer; font-weight:400; font-size: 14px;
+                                    background:#ffffff; color:#111827; border:1px solid #e2e8f0; 
+                                    cursor:pointer; font-weight:650; font-size: 14px;
                                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-                                    display: flex; align-items: center; justify-content: center;">
-                                    📋 Copy JSON
+                                    display: flex; align-items: center; justify-content: center;
+                                    box-shadow:0 1px 2px rgba(15,23,42,0.06);
+                                    transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
+                                    Copy JSON
                                 </button>
                             </body>
                             """
@@ -474,9 +496,8 @@ def render_dashboard(db, email: str):
                                     st.toast("No changes detected.")
                         
                         with col_prep:
-                            # --- 補回你原本強大的面試準備按鈕 ---
-                            btn_prep = st.button("🧠 Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role")
-                            btn_radar = st.button("📊 Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role")
+                            btn_prep = st.button("Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role")
+                            btn_radar = st.button("Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role")
                             
                             if btn_prep:
                                 with st.spinner("AI is analyzing JD and Resume..."):
@@ -506,13 +527,13 @@ def render_dashboard(db, email: str):
                         if f"prep_result_{doc_id}" in st.session_state:
                             q_data = st.session_state[f"prep_result_{doc_id}"]
                             with st.container(border=True):
-                                st.markdown("##### 🎯 Predicted Interview Questions")
+                                st.markdown("##### Predicted Interview Questions")
                                 t_col, b_col = st.columns(2)
                                 with t_col:
-                                    st.markdown("**💻 Tech Questions**")
+                                    st.markdown("**Technical Questions**")
                                     for q in q_data.get("technical", []): st.caption(f"- {q}")
                                 with b_col:
-                                    st.markdown("**🤝 Behavioral (STAR)**")
+                                    st.markdown("**Behavioral (STAR)**")
                                     for q in q_data.get("behavioral", []): st.caption(f"- {q}")
                                 if st.button("Close", key=f"close_prep_{doc_id}"):
                                     del st.session_state[f"prep_result_{doc_id}"]
@@ -522,7 +543,7 @@ def render_dashboard(db, email: str):
                         if f"radar_result_{doc_id}" in st.session_state:
                             gap_data = st.session_state[f"radar_result_{doc_id}"]
                             with st.container(border=True):
-                                st.markdown("##### 🕸️ Skill Gap Analysis")
+                                st.markdown("##### Skill Gap Analysis")
                                 import plotly.graph_objects as go
                                 fig = go.Figure()
                                 fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Proficiency'))
@@ -540,4 +561,4 @@ def render_dashboard(db, email: str):
         with tab_rejected: render_record_list(rejected_records, "rejected")
             
     except Exception as e:
-        st.error(f"❌ Failed to load dashboard: {e}")
+        st.error(f"Failed to load dashboard: {e}")

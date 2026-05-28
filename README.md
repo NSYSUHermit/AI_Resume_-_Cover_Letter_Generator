@@ -32,7 +32,7 @@ This is a cloud-based resume generation tool developed using **Streamlit**. It c
 
 ### 1. 系統架構 (System Architecture)
 本專案採用 **Server-side Rendering (SSR) 單體式架構**，以 Python/Streamlit 作為核心大腦，串接各項外部服務：
-- **前端展示層 (Frontend)**：使用 `streamlit` 建立多頁籤 (Tabs) 介面，涵蓋履歷編輯、AI 最佳化、ATS 分析、PDF 輸出與求職追蹤。整合 `streamlit-ace` 提供語法高亮的 JSON 編輯器。
+- **前端展示層 (Frontend)**：使用 `streamlit` 建立多頁籤 (Tabs) 介面，涵蓋履歷編輯、AI 最佳化、ATS 分析、PDF 輸出與求職追蹤。JSON 編輯器採用原生 Streamlit 輸入元件以降低前端依賴。
 - **後端邏輯層 (Backend)**：依賴 `st.session_state` 暫存狀態。呼叫 `google.generativeai` (Gemini) 解析 Job Description (JD) 進行 ATS 關鍵字比對、簽證預檢與履歷重寫。
 - **資料持久層 (Database)**：透過 `firebase_admin` 串接 Firestore，實作基於密碼雜湊的身分驗證系統、儲存使用者的 JSON 履歷與投遞歷史 (Dashboard)。
 
