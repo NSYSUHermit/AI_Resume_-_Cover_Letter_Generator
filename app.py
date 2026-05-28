@@ -611,7 +611,13 @@ with st.sidebar:
                 st.session_state.custom_prompt = current_prompt
                 cloud_db = get_db()
                 if cloud_db is not None:
-                    ok, msg = save_user_profile(cloud_db, st.session_state.user_email, st.session_state.resume_data, current_prompt)
+                    ok, msg = save_user_profile(
+                        cloud_db,
+                        st.session_state.user_email,
+                        st.session_state.resume_data,
+                        current_prompt,
+                        st.session_state.get("api_key", ""),
+                    )
                     if ok: st.toast("Profile pushed.")
                     else: st.error(msg)
             
@@ -619,15 +625,16 @@ with st.sidebar:
             cloud_db = get_db()
             if cloud_db is not None:
                 r, pr, k = load_user_profile(cloud_db, st.session_state.user_email)
-                if r: 
-                    st.session_state.resume_data = r
+                if r is not None or pr is not None or k is not None:
+                    if r is not None:
+                        st.session_state.resume_data = r
+                        st.session_state.base_editor_key += 1
+                        clear_generated_outputs()
                     if pr is not None:
                         st.session_state.custom_prompt = pr
                         st.session_state.cp_v2 = pr
                     if k is not None:
                         st.session_state.api_key = k
-                    st.session_state.base_editor_key += 1
-                    clear_generated_outputs()
                     st.session_state.pending_toast = "Profile pulled."
                     st.rerun()
         if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
@@ -642,18 +649,18 @@ with st.sidebar:
                     auth_db = get_db()
                     if auth_db is not None:
                         ok, msg = authenticate_user(auth_db, email, p)
-                        if ok: 
+                        if ok:
                             st.session_state.logged_in = True; st.session_state.user_email = email
                             r, pr, k = load_user_profile(auth_db, email)
-                            if r: 
+                            if r is not None:
                                 st.session_state.resume_data = r
-                                if pr is not None:
-                                    st.session_state.custom_prompt = pr
-                                    st.session_state.cp_v2 = pr
-                                if k is not None:
-                                    st.session_state.api_key = k
                                 st.session_state.base_editor_key += 1
                                 clear_generated_outputs()
+                            if pr is not None:
+                                st.session_state.custom_prompt = pr
+                                st.session_state.cp_v2 = pr
+                            if k is not None:
+                                st.session_state.api_key = k
                             st.rerun()
                         else:
                             st.error(msg)
@@ -687,9 +694,15 @@ for i, s in enumerate(steps):
         st.markdown(f"<div class='{step_class}'>{s['l']}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
-t1, t2, t3, t4, t5 = st.tabs(["Source", "Target", "ATS", "Review", "Tracker"])
+active_view = st.radio(
+    "Workspace",
+    ["Source", "Target", "ATS", "Review", "Tracker"],
+    key="active_view",
+    horizontal=True,
+    label_visibility="collapsed",
+)
 
-with t1:
+if active_view == "Source":
     with st.container(border=True):
         st.subheader("Quick Import")
         up = st.file_uploader("Upload PDF", type=["pdf"], key="up1", label_visibility="collapsed")
@@ -714,7 +727,7 @@ with t1:
         except json.JSONDecodeError as e:
             st.error(f"Source JSON is invalid: {e}")
 
-with t2:
+if active_view == "Target":
     with st.container(border=True):
         st.subheader("Job Details")
         jd = st.text_area("JD Content", height=300, key="jd_v2")
@@ -777,7 +790,7 @@ with t2:
             </script>
             """, height=44)
 
-with t3:
+if active_view == "ATS":
     st.subheader("ATS Analysis")
     st.caption("See how well your resume matches the JD and identify missing keywords.")
     
@@ -840,7 +853,7 @@ def edit_opt_dialog():
         except json.JSONDecodeError as e:
             st.error(f"Optimized JSON is invalid: {e}")
 
-with t4:
+if active_view == "Review":
     sync_base_editor_to_state(show_error=False)
     # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
     with st.expander("Manual Data Import"):
@@ -908,7 +921,7 @@ with t4:
             else: st.info("Click 'Generate PDF' to see preview.")
     else: st.warning("Optimize first.")
 
-with t5:
+if active_view == "Tracker":
     if st.session_state.logged_in:
         tracker_db = get_db()
         if tracker_db is not None:

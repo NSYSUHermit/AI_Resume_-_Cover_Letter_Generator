@@ -145,8 +145,8 @@ def authenticate_user(db, email: str, password: str):
     except Exception as e:
         return False, f"Login verification failed: {e}"
 
-def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str):
-    """Save base resume and custom prompt to Firestore."""
+def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api_key: str = ""):
+    """Save base resume, custom prompt, and API key to Firestore."""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         data = {
@@ -154,20 +154,22 @@ def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str):
             "custom_prompt": custom_prompt,
             "last_updated": firestore.SERVER_TIMESTAMP
         }
-        doc_ref.set(data)
+        if api_key:
+            data["api_key"] = api_key
+        doc_ref.set(data, merge=True)
         return True, "Profile synced to cloud successfully."
     except Exception as e:
         st.error(f"Error saving profile: {e}")
         return False, f"Error saving profile: {e}"
 
 def load_user_profile(db, email: str):
-    """Load base resume and custom prompt from Firestore."""
+    """Load base resume, custom prompt, and API key from Firestore."""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         doc = doc_ref.get()
         if doc.exists:
             profile_data = doc.to_dict()
-            return profile_data.get("base_resume"), profile_data.get("custom_prompt"), None
+            return profile_data.get("base_resume"), profile_data.get("custom_prompt"), profile_data.get("api_key")
         else:
             return None, None, None
     except Exception as e:
