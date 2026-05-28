@@ -45,11 +45,11 @@
 
 % --- 修改點：將地點 (#4) 設定為與時間 (#3) 一樣的粗體正體 ---
 \newcommand{\resumeExpFixEntry}[4]{
-  \vspace{4pt} 
+  \vspace{3pt}
   \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
     \textbf{#1} & \textbf{#3} \\ % 公司 & 時間
     \upshape{#2} & {\upshape #4} \\ % 職稱 & 地點
-  \end{tabular*}\vspace{4pt} % <--- 將原本的 -2pt 改成正的 4pt (或更大)
+  \end{tabular*}\vspace{1pt}
 }
 
 % 學歷指令
@@ -138,13 +138,13 @@ function printSummary()
   if r.summary and r.summary ~= "" then
     -- 印出跟其他欄位一樣的 Section 標題與橫線
     tex.print("\\section{SUMMARY}")
-    tex.print("\\vspace{8pt}") 
+    tex.print("\\vspace{5pt}")
     
     -- 印出 Summary 內容
     tex.print(escapeTex(r.summary))
     
     -- 在 Summary 內容跟下一個區塊之間補上一點點垂直間距，讓版面更好看
-    tex.print("\\vspace{8pt}")
+    tex.print("\\vspace{2pt}")
   end
 end
 
@@ -176,12 +176,12 @@ function printProjectsAndPatents()
     end
     
     tex.print("\\section{" .. title .. "}")
-    tex.print("\\vspace{2pt}")
+    tex.print("\\vspace{5pt}")
     
     local function printItems(items)
       for _, item in ipairs(items) do
         tex.print("\\noindent \\textbf{" .. escapeTex(item.name) .. "} \\hfill " .. escapeTex(item.time or "") .. "")
-        tex.print("\\vspace{0pt}")
+        tex.print("\\vspace{2pt}")
         tex.print("\\resumeItemListStart")
         tex.print("\\item " .. escapeTex(item.description or ""))
         tex.print("\\resumeItemListEnd")
@@ -191,7 +191,7 @@ function printProjectsAndPatents()
     if has_projects then printItems(r.projects) end
     if has_patents then printItems(r.patents) end
     
-    tex.print("\\vspace{8pt}")
+    tex.print("\\vspace{1pt}")
   end
 end
 
@@ -200,7 +200,7 @@ function printSkills()
   local s = r.skills or {}
   
   -- 給標題下方一點點呼吸空間
-  tex.print("\\vspace{8pt}") 
+  tex.print("\\vspace{5pt}")
   
   -- 新的動態讀取函數
   local function printDynamicCategory(key)
