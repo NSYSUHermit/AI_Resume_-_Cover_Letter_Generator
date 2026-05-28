@@ -8,6 +8,7 @@ import google.generativeai as genai
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from ui_feedback import is_ai_busy, run_ai_call
 
 GEMINI_MODEL = "gemini-2.5-flash"
 
@@ -484,12 +485,12 @@ def render_dashboard(db, email: str):
                         st.write("")
                         col_view, col_copy = st.columns(2)
                         with col_view:
-                            if st.button("View Data", key=f"view_{tab_name}_{doc_id}", use_container_width=True):
+                            if st.button("View Data", key=f"view_{tab_name}_{doc_id}", use_container_width=True, disabled=is_ai_busy()):
                                 st.session_state.active_tracker_detail = doc_id
 
                         with col_copy:
                             if st.session_state.get("active_tracker_detail") == doc_id:
-                                if st.button("Hide Data", key=f"hide_{tab_name}_{doc_id}", use_container_width=True):
+                                if st.button("Hide Data", key=f"hide_{tab_name}_{doc_id}", use_container_width=True, disabled=is_ai_busy()):
                                     del st.session_state.active_tracker_detail
                                     st.rerun()
                             else:
@@ -533,7 +534,7 @@ def render_dashboard(db, email: str):
                             current_idx = options.index(status) if status in options else 0
                             new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
                         with col_upd:
-                            if st.button("Update", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary"):
+                            if st.button("Update", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary", disabled=is_ai_busy()):
                                 if new_status != status or new_notes != current_notes:
                                     if update_application_status(db, email, doc_id, new_status, new_notes):
                                         st.toast("Application updated successfully.")
@@ -542,29 +543,47 @@ def render_dashboard(db, email: str):
                                     st.toast("No changes detected.")
                         
                         with col_prep:
-                            btn_prep = st.button("Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role")
-                            btn_radar = st.button("Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role")
+                            btn_prep = st.button("Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role", disabled=is_ai_busy())
+                            btn_radar = st.button("Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role", disabled=is_ai_busy())
                             
                             if btn_prep:
-                                with st.spinner("AI is analyzing JD and Resume..."):
-                                    questions = predict_interview_questions(app_data.get("jd_text", ""), app_data.get("resume_json", {}))
-                                    if questions:
-                                        st.session_state[f"prep_result_{doc_id}"] = questions
-                                        if f"radar_result_{doc_id}" in st.session_state: del st.session_state[f"radar_result_{doc_id}"]
-                                    else:
-                                        st.error("Failed to generate questions. Check API key.")
+                                questions = run_ai_call(
+                                    "Preparing interview questions",
+                                    [
+                                        "Reading the saved job description...",
+                                        "Matching likely interview areas to the resume...",
+                                        "Drafting technical questions...",
+                                        "Drafting behavioral STAR prompts...",
+                                        "Formatting the response...",
+                                    ],
+                                    lambda: predict_interview_questions(app_data.get("jd_text", ""), app_data.get("resume_json", {})),
+                                )
+                                if questions:
+                                    st.session_state[f"prep_result_{doc_id}"] = questions
+                                    if f"radar_result_{doc_id}" in st.session_state: del st.session_state[f"radar_result_{doc_id}"]
+                                else:
+                                    st.error("Failed to generate questions. Check API key.")
                             
                             if btn_radar:
-                                with st.spinner("Analyzing skill match..."):
-                                    gap_data = analyze_skill_gap(app_data.get("jd_text", ""), app_data.get("resume_json", {}))
-                                    if gap_data:
-                                        st.session_state[f"radar_result_{doc_id}"] = gap_data
-                                        if f"prep_result_{doc_id}" in st.session_state: del st.session_state[f"prep_result_{doc_id}"]
-                                    else:
-                                        st.error("Failed to generate radar data.")
+                                gap_data = run_ai_call(
+                                    "Analyzing skill match",
+                                    [
+                                        "Extracting skill categories from the role...",
+                                        "Estimating resume evidence for each category...",
+                                        "Comparing candidate and requirement scores...",
+                                        "Preparing radar chart data...",
+                                        "Formatting the response...",
+                                    ],
+                                    lambda: analyze_skill_gap(app_data.get("jd_text", ""), app_data.get("resume_json", {})),
+                                )
+                                if gap_data:
+                                    st.session_state[f"radar_result_{doc_id}"] = gap_data
+                                    if f"prep_result_{doc_id}" in st.session_state: del st.session_state[f"prep_result_{doc_id}"]
+                                else:
+                                    st.error("Failed to generate radar data.")
                         
                         with col_del:
-                            if st.button("Del", key=f"del_{tab_name}_{doc_id}", use_container_width=True):
+                            if st.button("Del", key=f"del_{tab_name}_{doc_id}", use_container_width=True, disabled=is_ai_busy()):
                                 if delete_application(db, email, doc_id):
                                     st.toast("Record deleted.")
                                     st.rerun()
@@ -581,7 +600,7 @@ def render_dashboard(db, email: str):
                                 with b_col:
                                     st.markdown("**Behavioral (STAR)**")
                                     for q in q_data.get("behavioral", []): st.caption(f"- {q}")
-                                if st.button("Close", key=f"close_prep_{doc_id}"):
+                                if st.button("Close", key=f"close_prep_{doc_id}", disabled=is_ai_busy()):
                                     del st.session_state[f"prep_result_{doc_id}"]
                                     st.rerun()
 
@@ -596,7 +615,7 @@ def render_dashboard(db, email: str):
                                 fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Requirement'))
                                 fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=300)
                                 st.plotly_chart(fig, use_container_width=True)
-                                if st.button("Close", key=f"close_radar_{doc_id}"):
+                                if st.button("Close", key=f"close_radar_{doc_id}", disabled=is_ai_busy()):
                                     del st.session_state[f"radar_result_{doc_id}"]
                                     st.rerun()
                                     

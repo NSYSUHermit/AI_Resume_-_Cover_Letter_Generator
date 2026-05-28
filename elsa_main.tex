@@ -54,11 +54,11 @@
 
 % 學歷指令
 \newcommand{\resumeEduEntry}[4]{
-  \vspace{8pt}
+  \vspace{4pt}
   \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
     \textbf{#3} & \textbf{#2} \\ 
     \upshape{#1} & {\upshape #4} \\    
-  \end{tabular*}\vspace{4pt}
+  \end{tabular*}\vspace{-1pt}
 }
 
 % 列表間距指令
@@ -176,7 +176,7 @@ function printProjectsAndPatents()
     end
     
     tex.print("\\section{" .. title .. "}")
-    tex.print("\\vspace{4pt}")
+    tex.print("\\vspace{2pt}")
     
     local function printItems(items)
       for _, item in ipairs(items) do

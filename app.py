@@ -9,6 +9,7 @@ import shutil
 import base64
 import streamlit.components.v1 as components
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, predict_interview_questions, analyze_skill_gap
+from ui_feedback import is_ai_busy, run_ai_call
 
 st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
@@ -603,7 +604,7 @@ with st.sidebar:
     st.caption("Resume, cover letter, and application tracking.")
     if st.session_state.logged_in:
         st.success(f"**User:** `{st.session_state.user_email}`")
-        if st.button("Push to Cloud", use_container_width=True): 
+        if st.button("Push to Cloud", use_container_width=True, disabled=is_ai_busy()):
             if sync_base_editor_to_state():
                 current_prompt = st.session_state.get("cp_v2", st.session_state.custom_prompt)
                 st.session_state.custom_prompt = current_prompt
@@ -619,7 +620,7 @@ with st.sidebar:
                     if ok: st.toast("Profile pushed.")
                     else: st.error(msg)
             
-        if st.button("Pull from Cloud", use_container_width=True):
+        if st.button("Pull from Cloud", use_container_width=True, disabled=is_ai_busy()):
             cloud_db = get_db()
             if cloud_db is not None:
                 r, pr, k = load_user_profile(cloud_db, st.session_state.user_email)
@@ -635,14 +636,14 @@ with st.sidebar:
                         st.session_state.api_key = k
                     st.session_state.pending_toast = "Profile pulled."
                     st.rerun()
-        if st.button("Logout", use_container_width=True): st.session_state.logged_in = False; st.rerun()
+        if st.button("Logout", use_container_width=True, disabled=is_ai_busy()): st.session_state.logged_in = False; st.rerun()
     else:
         auth_mode = st.radio("Auth Mode", ["Login", "Register"], horizontal=True, label_visibility="collapsed")
         with st.form("auth_form"):
             e = st.text_input("Email")
             p = st.text_input("Password", type="password")
             if auth_mode == "Login":
-                if st.form_submit_button("Login", type="primary", use_container_width=True):
+                if st.form_submit_button("Login", type="primary", use_container_width=True, disabled=is_ai_busy()):
                     email = e.strip()
                     auth_db = get_db()
                     if auth_db is not None:
@@ -663,7 +664,7 @@ with st.sidebar:
                         else:
                             st.error(msg)
             else:
-                if st.form_submit_button("Create Account", type="primary", use_container_width=True):
+                if st.form_submit_button("Create Account", type="primary", use_container_width=True, disabled=is_ai_busy()):
                     auth_db = get_db()
                     if auth_db is not None:
                         ok, msg = register_user(auth_db, e.strip(), p)
@@ -675,7 +676,7 @@ with st.sidebar:
     st.text_input("API Key", type="password", key="api_key")
     
     st.markdown("---")
-    if st.button("Reset All Data", use_container_width=True, type="secondary"):
+    if st.button("Reset All Data", use_container_width=True, type="secondary", disabled=is_ai_busy()):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
@@ -704,20 +705,29 @@ if active_view == "Source":
     with st.container(border=True):
         st.subheader("Quick Import")
         up = st.file_uploader("Upload PDF", type=["pdf"], key="up1", label_visibility="collapsed")
-        if st.button("Extract Resume Data", type="primary", use_container_width=True) and up:
-            with st.spinner("Extracting resume data..."):
-                ok, msg, data = parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key)
-                if ok: 
-                    st.session_state.resume_data = data
-                    st.session_state.base_editor_key += 1
-                    clear_generated_outputs()
-                    st.session_state.pending_toast = "Data extracted."
-                    st.rerun()
-                else: st.error(msg)
+        if st.button("Extract Resume Data", type="primary", use_container_width=True, disabled=is_ai_busy() or up is None):
+            ok, msg, data = run_ai_call(
+                "Extracting resume data",
+                [
+                    "Uploading PDF bytes to Gemini...",
+                    "Reading sections and contact details...",
+                    "Structuring education, experience, projects, and skills...",
+                    "Validating JSON output...",
+                    "Almost done...",
+                ],
+                lambda: parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key),
+            )
+            if ok:
+                st.session_state.resume_data = data
+                st.session_state.base_editor_key += 1
+                clear_generated_outputs()
+                st.session_state.pending_toast = "Data extracted."
+                st.rerun()
+            else: st.error(msg)
     
     st.markdown("#### Profile Editor")
     edit = render_json_editor(json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False), key=f"base_ed_{st.session_state.base_editor_key}", height=500)
-    if st.button("Save Source JSON", use_container_width=True): 
+    if st.button("Save Source JSON", use_container_width=True, disabled=is_ai_busy()):
         try:
             st.session_state.resume_data = json.loads(edit)
             clear_generated_outputs()
@@ -733,17 +743,27 @@ if active_view == "Target":
         
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Optimize Resume", type="primary", use_container_width=True):
+            if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=is_ai_busy()):
                 if jd:
                     if sync_base_editor_to_state():
                         st.session_state.custom_prompt = st.session_state.cp_v2
                         clear_generated_outputs()
-                        with st.spinner("Optimizing resume..."):
-                            ok, rep = ai_optimize_and_update(jd, st.session_state.cp_v2, True, True)
-                            if ok: 
-                                st.session_state.pending_toast = "Optimized from current Source JSON."
-                                st.rerun()
-                            else: st.error(rep)
+                        ok, rep = run_ai_call(
+                            "Optimizing resume",
+                            [
+                                "Reading the job description and source resume...",
+                                "Mapping role requirements to resume evidence...",
+                                "Rewriting bullets with impact and metrics...",
+                                "Checking ATS keyword coverage...",
+                                "Formatting the response as valid JSON...",
+                                "Almost done...",
+                            ],
+                            lambda: ai_optimize_and_update(jd, st.session_state.cp_v2, True, True),
+                        )
+                        if ok:
+                            st.session_state.pending_toast = "Optimized from current Source JSON."
+                            st.rerun()
+                        else: st.error(rep)
                 else:
                     st.warning("Paste a job description before optimizing.")
         with c2:
@@ -796,7 +816,7 @@ if active_view == "ATS":
     with st.expander("Manual Result Import"):
         st.caption("If you ran the AI optimization elsewhere, paste the resulting JSON here to update the dashboard.")
         manual_json = st.text_area("Paste the externally inferred JSON here:", height=200, key="manual_ats_json")
-        if st.button("Apply Manual Result", use_container_width=True):
+        if st.button("Apply Manual Result", use_container_width=True, disabled=is_ai_busy()):
             try:
                 res = json.loads(manual_json)
                 if "optimized_resume" not in res:
@@ -843,7 +863,7 @@ if active_view == "ATS":
 @st.dialog("Edit Optimized Data", width="large")
 def edit_opt_dialog():
     edit = render_json_editor(json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False), key=f"opt_ed_{st.session_state.opt_editor_key}", height=500)
-    if st.button("Save Changes", use_container_width=True): 
+    if st.button("Save Changes", use_container_width=True, disabled=is_ai_busy()):
         try:
             st.session_state.optimized_resume_data = json.loads(edit)
             clear_pdf_outputs()
@@ -857,7 +877,7 @@ if active_view == "Review":
     with st.expander("Manual Data Import"):
         st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
         manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
-        if st.button("Apply Manual Data", use_container_width=True):
+        if st.button("Apply Manual Data", use_container_width=True, disabled=is_ai_busy()):
             try:
                 manual_data = json.loads(manual_opt_json)
                 st.session_state.optimized_resume_data = manual_data
@@ -879,10 +899,10 @@ if active_view == "Review":
             with st.container(border=True):
                 st.subheader("Export Settings")
                 st.caption("Select your preferred template and section order, then generate the final PDFs.")
-                if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
+                if st.button("Edit Optimized JSON", use_container_width=True, disabled=is_ai_busy()): edit_opt_dialog()
                 tmpl = st.selectbox("Template", ["Tech", "Business"], key="tm")
                 order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
-                if st.button("Generate PDF", type="primary", use_container_width=True):
+                if st.button("Generate PDF", type="primary", use_container_width=True, disabled=is_ai_busy()):
                     if optimized_result_is_stale():
                         st.error("This optimized result is stale. Re-run Optimize Resume so the PDF uses the latest Source JSON.")
                     else:
@@ -913,7 +933,7 @@ if active_view == "Review":
                 dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
                 if dl:
                     sync = st.checkbox("Sync to Tracker", value=True) if st.session_state.logged_in else False
-                    st.download_button(f"Download {dl['name']}", dl["bytes"], dl["name"], use_container_width=True, on_click=sync_application_to_tracker if sync and ch=="Resume" else None)
+                    st.download_button(f"Download {dl['name']}", dl["bytes"], dl["name"], use_container_width=True, on_click=sync_application_to_tracker if sync and ch=="Resume" else None, disabled=is_ai_busy())
                 if target: render_pdf_js(target)
                 else: st.info(f"The {ch} data is missing.")
             else: st.info("Click 'Generate PDF' to see preview.")
