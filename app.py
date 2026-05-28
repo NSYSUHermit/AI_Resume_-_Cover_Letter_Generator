@@ -12,6 +12,8 @@ from firebase_dashboard import init_firebase, authenticate_user, register_user, 
 
 st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
+GEMINI_MODEL = "gemini-2.5-flash"
+
 def get_db():
     return init_firebase()
 
@@ -141,15 +143,13 @@ def sync_application_to_tracker():
     )
 
 # ---------------------------------------------------------
-# AI 核心邏輯 (強制鎖定使用 gemini-1.5-flash)
+# AI 核心邏輯 (強制鎖定使用 gemini-2.5-flash)
 # ---------------------------------------------------------
 def parse_pdf_resume_to_json(pdf_bytes, api_key):
     if not api_key: return False, "Missing API Key.", None
     try:
         genai.configure(api_key=api_key)
-        # 使用穩定版本 gemini-1.5-flash
-        model_name = "gemini-1.5-flash"
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(GEMINI_MODEL)
         pdf_part = {"mime_type": "application/pdf", "data": pdf_bytes}
         
         prompt = """
@@ -229,9 +229,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, enable_ats, check_visa):
         if not api_key: return False, "Missing API Key."
         genai.configure(api_key=api_key)
         
-        # 使用穩定版本 gemini-1.5-flash
-        model_name = "gemini-1.5-flash"
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(GEMINI_MODEL)
         prompt = build_optimization_prompt(jd_text, custom_prompt, enable_ats, check_visa, st.session_state.resume_data)
         
         # 使用 JSON 模式確保輸出穩定性，並降低溫度減少幻覺

@@ -1,12 +1,15 @@
 import streamlit as st
 import streamlit.components.v1 as components 
 import firebase_admin
+import base64
 import json
 import plotly.graph_objects as go
 import google.generativeai as genai
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # ==========================================
 # 0. AI Helpers (Predict Interview & Skill Gap)
@@ -19,8 +22,7 @@ def predict_interview_questions(jd_text, resume_data):
             return None
             
         genai.configure(api_key=api_key)
-        model_name = "gemini-1.5-flash" # 使用穩定版本
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(GEMINI_MODEL)
         
         prompt = f"""
         You are a senior interviewer. Based on the following Job Description (JD) and the candidate's Resume, 
@@ -56,8 +58,7 @@ def analyze_skill_gap(jd_text, resume_data):
             return None
             
         genai.configure(api_key=api_key)
-        model_name = "gemini-1.5-flash" # 使用穩定版本
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(GEMINI_MODEL)
         
         prompt = f"""
         Analyze the match between the candidate's Resume and the Job Description (JD).
@@ -413,14 +414,48 @@ def render_dashboard(db, email: str):
         offered_records = [r for r in valid_records if r.get("status") == "Offered"]
         rejected_records = [r for r in valid_records if r.get("status") == "Rejected"]
         
-        # 建立 Pipeline 分頁
-        tab_all, tab_applied, tab_interviewing, tab_offered, tab_rejected = st.tabs([
-            f"All Records ({len(valid_records)})", 
-            f"Applied ({len(applied_records)})", 
-            f"Interviewing ({len(interviewing_records)})", 
-            f"Offered ({len(offered_records)})",
-            f"Rejected ({len(rejected_records)})"
-        ])
+        stage_records = {
+            "all": valid_records,
+            "applied": applied_records,
+            "interviewing": interviewing_records,
+            "offered": offered_records,
+            "rejected": rejected_records,
+        }
+        stage_labels = {
+            "all": f"All Records ({len(valid_records)})",
+            "applied": f"Applied ({len(applied_records)})",
+            "interviewing": f"Interviewing ({len(interviewing_records)})",
+            "offered": f"Offered ({len(offered_records)})",
+            "rejected": f"Rejected ({len(rejected_records)})",
+        }
+        selected_stage = st.radio(
+            "Pipeline Stage",
+            list(stage_records.keys()),
+            key="pipeline_stage_filter",
+            horizontal=True,
+            label_visibility="collapsed",
+            format_func=lambda stage: stage_labels[stage],
+        )
+        selected_records = stage_records[selected_stage]
+
+        page_size = 20
+        page_count = max(1, (len(selected_records) + page_size - 1) // page_size)
+        page_key = f"pipeline_page_{selected_stage}"
+        if st.session_state.get(page_key, 1) > page_count:
+            st.session_state[page_key] = page_count
+        page = 1
+        if page_count > 1:
+            page = st.number_input(
+                "Page",
+                min_value=1,
+                max_value=page_count,
+                step=1,
+                key=page_key,
+                help=f"Showing {page_size} records per page.",
+            )
+            st.caption(f"Showing records {(page - 1) * page_size + 1}-{min(page * page_size, len(selected_records))} of {len(selected_records)}.")
+
+        visible_records = selected_records[(page - 1) * page_size:page * page_size]
         
         def render_record_list(record_list, tab_name):
             if not record_list:
@@ -449,34 +484,43 @@ def render_dashboard(db, email: str):
                         st.write("")
                         col_view, col_copy = st.columns(2)
                         with col_view:
-                            with st.popover("View Data", use_container_width=True):
+                            if st.button("View Data", key=f"view_{tab_name}_{doc_id}", use_container_width=True):
+                                st.session_state.active_tracker_detail = doc_id
+
+                        with col_copy:
+                            if st.session_state.get("active_tracker_detail") == doc_id:
+                                if st.button("Hide Data", key=f"hide_{tab_name}_{doc_id}", use_container_width=True):
+                                    del st.session_state.active_tracker_detail
+                                    st.rerun()
+                            else:
+                                st.caption("Open View Data to copy JSON.")
+
+                        if st.session_state.get("active_tracker_detail") == doc_id:
+                            with st.container(border=True):
+                                st.markdown("##### Saved Application Data")
                                 st.markdown("**Job Description:**")
                                 st.info(app_data.get("jd_text", "No JD saved."))
+                                resume_json = app_data.get("resume_json", {})
+                                resume_json_str = json.dumps(resume_json, ensure_ascii=False, indent=4)
+                                b64_resume = base64.b64encode(resume_json_str.encode("utf-8")).decode("utf-8")
+                                js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="#059669";btn.style.color="#059669";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="#e2e8f0";btn.style.color="#111827";btn.style.backgroundColor="#ffffff";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
+                                html_copy_json = f"""
+                                <body style="margin:0; padding:0; background:transparent;">
+                                    <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
+                                        width:100%; height:38px; border-radius:8px;
+                                        background:#ffffff; color:#111827; border:1px solid #e2e8f0;
+                                        cursor:pointer; font-weight:650; font-size: 14px;
+                                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                                        display: flex; align-items: center; justify-content: center;
+                                        box-shadow:0 1px 2px rgba(15,23,42,0.06);
+                                        transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
+                                        Copy JSON
+                                    </button>
+                                </body>
+                                """
+                                components.html(html_copy_json, height=45)
                                 st.markdown("**Saved Resume JSON:**")
-                                st.json(app_data.get("resume_json", {}))
-                        
-                        with col_copy:
-                            # 一鍵複製 JSON 功能
-                            import base64
-                            resume_json_str = json.dumps(app_data.get("resume_json", {}), ensure_ascii=False, indent=4)
-                            b64_resume = base64.b64encode(resume_json_str.encode('utf-8')).decode('utf-8')
-                            
-                            js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="#059669";btn.style.color="#059669";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="#e2e8f0";btn.style.color="#111827";btn.style.backgroundColor="#ffffff";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
-                            html_copy_json = f"""
-                            <body style="margin:0; padding:0; background:transparent;">
-                                <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
-                                    width:100%; height:38px; border-radius:8px; 
-                                    background:#ffffff; color:#111827; border:1px solid #e2e8f0; 
-                                    cursor:pointer; font-weight:650; font-size: 14px;
-                                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-                                    display: flex; align-items: center; justify-content: center;
-                                    box-shadow:0 1px 2px rgba(15,23,42,0.06);
-                                    transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
-                                    Copy JSON
-                                </button>
-                            </body>
-                            """
-                            st.components.v1.html(html_copy_json, height=45)
+                                st.json(resume_json)
                             
                     with c_actions:
                         current_notes = app_data.get("notes", "")
@@ -556,11 +600,7 @@ def render_dashboard(db, email: str):
                                     del st.session_state[f"radar_result_{doc_id}"]
                                     st.rerun()
                                     
-        with tab_all: render_record_list(valid_records, "all")
-        with tab_applied: render_record_list(applied_records, "applied")
-        with tab_interviewing: render_record_list(interviewing_records, "interviewing")
-        with tab_offered: render_record_list(offered_records, "offered")
-        with tab_rejected: render_record_list(rejected_records, "rejected")
+        render_record_list(visible_records, selected_stage)
             
     except Exception as e:
         st.error(f"Failed to load dashboard: {e}")
