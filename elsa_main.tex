@@ -58,7 +58,7 @@
   \begin{tabular*}{1\textwidth}{l@{\extracolsep{\fill}}r}
     \textbf{#3} & \textbf{#2} \\ 
     \upshape{#1} & {\upshape #4} \\    
-  \end{tabular*}\vspace{-1pt}
+  \end{tabular*}\vspace{-3pt}
 }
 
 % 列表間距指令
@@ -175,6 +175,7 @@ function printProjectsAndPatents()
         title = "PATENTS"
     end
     
+    tex.print("\\vspace{-5pt}")
     tex.print("\\section{" .. title .. "}")
     tex.print("\\vspace{5pt}")
     
