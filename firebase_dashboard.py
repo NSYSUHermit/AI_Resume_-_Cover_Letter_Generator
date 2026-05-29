@@ -388,27 +388,94 @@ def render_dashboard(db, email: str):
 
     try:
         app_records = fetch_applications(db, email)
-        
-        date_range = st.session_state.get("dashboard_active_date_range")
-        start_date, end_date = None, None
-        if date_range and len(date_range) == 2:
-            start_date, end_date = date_range
-            
+
+        if not app_records:
+            st.info("No job applications found yet.")
+            return
+
+        def get_record_date(record):
+            applied_date = record.get("applied_date")
+            return applied_date.date() if hasattr(applied_date, "date") else None
+
+        def get_sort_timestamp(record):
+            applied_date = record.get("applied_date")
+            if hasattr(applied_date, "timestamp"):
+                return applied_date.timestamp()
+            return 0
+
+        dated_records = [get_record_date(record) for record in app_records]
+        dated_records = [record_date for record_date in dated_records if record_date]
+        min_record_date = min(dated_records) if dated_records else None
+        max_record_date = max(dated_records) if dated_records else None
+        today = datetime.now().date()
+
+        with st.container(border=True):
+            search_col, timeframe_col, sort_col = st.columns([2.2, 1.25, 1])
+            with search_col:
+                search_value = st.text_input(
+                    "Search Company",
+                    key="pipeline_company_search",
+                    placeholder="Search company name...",
+                    disabled=is_ai_busy(),
+                )
+            with timeframe_col:
+                list_time_filter = st.selectbox(
+                    "List Timeframe",
+                    ["All Time", "Last 30 Days", "Last 7 Days", "Custom Range"],
+                    key="pipeline_list_time_filter",
+                    disabled=is_ai_busy(),
+                )
+            with sort_col:
+                sort_order = st.selectbox(
+                    "Sort",
+                    ["Newest first", "Oldest first"],
+                    key="pipeline_sort_order",
+                    disabled=is_ai_busy(),
+                )
+
+            list_start_date, list_end_date = None, None
+            if list_time_filter == "Last 30 Days":
+                list_start_date, list_end_date = today - timedelta(days=30), today
+            elif list_time_filter == "Last 7 Days":
+                list_start_date, list_end_date = today - timedelta(days=7), today
+            elif list_time_filter == "Custom Range" and min_record_date and max_record_date:
+                default_start = max(min_record_date, max_record_date - timedelta(days=30))
+                custom_range = st.date_input(
+                    "Custom List Range",
+                    value=(default_start, max_record_date),
+                    min_value=min_record_date,
+                    max_value=max(max_record_date, today),
+                    key="pipeline_custom_date_range",
+                    disabled=is_ai_busy(),
+                )
+                if len(custom_range) == 2:
+                    list_start_date, list_end_date = custom_range
+
         valid_records = []
         for app_data in app_records:
-            applied_date = app_data.get("applied_date")
-            
-            if start_date and end_date and applied_date:
-                dt_date = applied_date.date() if hasattr(applied_date, 'date') else None
-                if dt_date and not (start_date <= dt_date <= end_date):
+            record_date = get_record_date(app_data)
+            if list_start_date and list_end_date and record_date:
+                if not (list_start_date <= record_date <= list_end_date):
                     continue
-                    
             valid_records.append(app_data)
-            
+
+        search_query = (search_value or "").strip().lower()
+        if search_query:
+            valid_records = [
+                record for record in valid_records
+                if search_query in (record.get("company_name", "") or "").lower()
+            ]
+
+        valid_records = sorted(
+            valid_records,
+            key=get_sort_timestamp,
+            reverse=(sort_order == "Newest first"),
+        )
+
         if not valid_records:
-            st.info("No job applications found in this timeframe.")
+            st.info("No matching applications found.")
             return
-            
+
         # 分類 Pipeline 狀態
         applied_records = [r for r in valid_records if r.get("status") == "Applied"]
         interviewing_records = [r for r in valid_records if r.get("status") == "Interviewing"]
@@ -439,24 +506,27 @@ def render_dashboard(db, email: str):
         )
         selected_records = stage_records[selected_stage]
 
-        page_size = 20
-        page_count = max(1, (len(selected_records) + page_size - 1) // page_size)
-        page_key = f"pipeline_page_{selected_stage}"
-        if st.session_state.get(page_key, 1) > page_count:
-            st.session_state[page_key] = page_count
-        page = 1
-        if page_count > 1:
-            page = st.number_input(
-                "Page",
-                min_value=1,
-                max_value=page_count,
-                step=1,
-                key=page_key,
-                help=f"Showing {page_size} records per page.",
-            )
-            st.caption(f"Showing records {(page - 1) * page_size + 1}-{min(page * page_size, len(selected_records))} of {len(selected_records)}.")
+        batch_size = 20
+        visible_key = f"pipeline_visible_count_{selected_stage}"
+        feed_signature = json.dumps(
+            {
+                "stage": selected_stage,
+                "search": search_query,
+                "timeframe": list_time_filter,
+                "start": str(list_start_date),
+                "end": str(list_end_date),
+                "sort": sort_order,
+                "total": len(selected_records),
+            },
+            sort_keys=True,
+        )
+        if st.session_state.get("pipeline_feed_signature") != feed_signature:
+            st.session_state.pipeline_feed_signature = feed_signature
+            st.session_state[visible_key] = batch_size
 
-        visible_records = selected_records[(page - 1) * page_size:page * page_size]
+        visible_count = min(st.session_state.get(visible_key, batch_size), len(selected_records))
+        visible_records = selected_records[:visible_count]
+        st.caption(f"Showing {visible_count} of {len(selected_records)} matching records.")
         
         def render_record_list(record_list, tab_name):
             if not record_list:
@@ -619,7 +689,24 @@ def render_dashboard(db, email: str):
                                     del st.session_state[f"radar_result_{doc_id}"]
                                     st.rerun()
                                     
-        render_record_list(visible_records, selected_stage)
+        with st.container(height=720):
+            render_record_list(visible_records, selected_stage)
+
+        remaining_records = len(selected_records) - visible_count
+        if remaining_records > 0:
+            load_count = min(batch_size, remaining_records)
+            load_col_left, load_col_mid, load_col_right = st.columns([1, 1.2, 1])
+            with load_col_mid:
+                if st.button(
+                    f"Load {load_count} more",
+                    key=f"load_more_{selected_stage}",
+                    use_container_width=True,
+                    disabled=is_ai_busy(),
+                ):
+                    st.session_state[visible_key] = min(len(selected_records), visible_count + batch_size)
+                    st.rerun()
+        else:
+            st.caption("All matching records are loaded.")
             
     except Exception as e:
         st.error(f"Failed to load dashboard: {e}")
