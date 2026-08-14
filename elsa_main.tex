@@ -77,6 +77,25 @@ local function escapeTex(str)
   return str
 end
 
+-- A bullet may arrive as {description = "..."} or as a bare string, depending on
+-- what the model returned. Reading .description on a string yields nil, which
+-- silently printed empty bullets.
+local function bulletText(d)
+  if type(d) == "table" then return d.description or d.text or "" end
+  if type(d) == "string" then return d end
+  return ""
+end
+
+-- Skill sets are printed in key order rather than from a hard-coded set1/set2/
+-- set3 list: the editor lets users name their own keys, and anything outside
+-- those three used to vanish from the PDF without warning.
+local function sortedKeys(tbl)
+  local keys = {}
+  for k in pairs(tbl or {}) do keys[#keys + 1] = k end
+  table.sort(keys)
+  return keys
+end
+
 local function getResume()
   if resume then return resume end
   local fh, err = io.open("ml_resume.json", "r")
@@ -154,7 +173,7 @@ function printExperience()
     tex.print("\\resumeExpFixEntry{" .. escapeTex(exp.company) .. "}{" .. escapeTex(exp.role) .. "}{" .. escapeTex(exp.time_duration) .. "}{" .. escapeTex(exp.company_location or "") .. "}")
     tex.print("\\resumeItemListStart")
     for _, d in ipairs(exp.details or {}) do
-      tex.print("\\item " .. escapeTex(d.description or ""))
+      tex.print("\\item " .. escapeTex(bulletText(d)))
     end
     tex.print("\\resumeItemListEnd")
   end
@@ -216,10 +235,10 @@ function printSkills()
     end
   end
 
-  -- 依序印出 set1, set2, set3
-  printDynamicCategory("set1")
-  printDynamicCategory("set2")
-  printDynamicCategory("set3")
+  -- 依 key 排序印出所有 set，不再寫死 set1/set2/set3
+  for _, key in ipairs(sortedKeys(s)) do
+    printDynamicCategory(key)
+  end
 end
 
 \end{luacode*}

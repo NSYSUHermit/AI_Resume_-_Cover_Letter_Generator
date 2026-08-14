@@ -4,89 +4,12 @@ import firebase_admin
 import base64
 import json
 import plotly.graph_objects as go
-import google.generativeai as genai
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
-from ui_feedback import is_ai_busy, run_ai_call
-
-GEMINI_MODEL = "gemini-2.5-flash"
-
-# ==========================================
-# 0. AI Helpers (Predict Interview & Skill Gap)
-# ==========================================
-def predict_interview_questions(jd_text, resume_data):
-    """Predict potential interview questions based on JD and Resume."""
-    try:
-        api_key = st.session_state.get("api_key", "")
-        if not api_key:
-            return None
-            
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        
-        prompt = f"""
-        You are a senior interviewer. Based on the following Job Description (JD) and the candidate's Resume, 
-        predict 5 technical questions and 3 behavioral questions that are most likely to be asked.
-        Focus on the candidate's specific experiences and how they relate to the JD requirements.
-        Return ONLY valid JSON.
-        
-        Format:
-        {{
-            "technical": ["Question 1", "Question 2", ...],
-            "behavioral": ["Question 1", "Question 2", ...]
-        }}
-        
-        [JD]: {jd_text}
-        [Resume]: {json.dumps(resume_data)}
-        """
-        response = model.generate_content(
-            prompt, 
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.1
-            )
-        )
-        return json.loads(response.text)
-    except Exception:
-        return None
-
-def analyze_skill_gap(jd_text, resume_data):
-    """Analyze skill gap and return data for radar chart."""
-    try:
-        api_key = st.session_state.get("api_key", "")
-        if not api_key:
-            return None
-            
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        
-        prompt = f"""
-        Analyze the match between the candidate's Resume and the Job Description (JD).
-        Extract 5 key categories (e.g., Programming, Cloud, Soft Skills, Tools, Domain Knowledge).
-        For each category, provide a score (0-100) for the candidate's proficiency and the job's requirement level.
-        Return ONLY valid JSON.
-        
-        Format:
-        {{
-            "categories": ["Category 1", "Category 2", ...],
-            "candidate_scores": [80, 70, ...],
-            "requirement_scores": [90, 80, ...]
-        }}
-        
-        [JD]: {jd_text}
-        [Resume]: {json.dumps(resume_data)}
-        """
-        response = model.generate_content(
-            prompt, 
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.1
-            )
-        )
-        return json.loads(response.text)
-    except Exception:
-        return None
+from ui_feedback import run_ai_call
+from theme import TOKENS, FONT_STACK
+import ai
 
 # ==========================================
 # 1. 初始化與連接 Firebase
@@ -243,7 +166,13 @@ def update_application_status(db, email: str, doc_id: str, new_status: str, note
         return False
 
 def fetch_applications(db, email):
-    """Fetch applications once and cache them in session_state to prevent 429 Quota Exceeded."""
+    """Fetch applications once and cache them in session_state to prevent 429 Quota Exceeded.
+
+    The cache is keyed by account: without that, signing out and signing back in
+    as someone else served the previous user's records from session state.
+    """
+    if st.session_state.get("app_records_email") != email:
+        st.session_state.force_refresh_apps = True
     if "app_records" not in st.session_state or st.session_state.get("force_refresh_apps", True):
         try:
             apps_ref = db.collection('users').document(email).collection('applications')
@@ -257,6 +186,7 @@ def fetch_applications(db, email):
                 records.append(data)
             
             st.session_state.app_records = records
+            st.session_state.app_records_email = email
             st.session_state.force_refresh_apps = False
         except Exception as e:
             st.error(f"Error fetching applications: {e}")
@@ -415,23 +345,17 @@ def render_dashboard(db, email: str):
                 search_value = st.text_input(
                     "Search Company",
                     key="pipeline_company_search",
-                    placeholder="Search company name...",
-                    disabled=is_ai_busy(),
-                )
+                    placeholder="Search company name...",                )
             with timeframe_col:
                 list_time_filter = st.selectbox(
                     "List Timeframe",
                     ["All Time", "Last 30 Days", "Last 7 Days", "Custom Range"],
-                    key="pipeline_list_time_filter",
-                    disabled=is_ai_busy(),
-                )
+                    key="pipeline_list_time_filter",                )
             with sort_col:
                 sort_order = st.selectbox(
                     "Sort",
                     ["Newest first", "Oldest first"],
-                    key="pipeline_sort_order",
-                    disabled=is_ai_busy(),
-                )
+                    key="pipeline_sort_order",                )
 
             list_start_date, list_end_date = None, None
             if list_time_filter == "Last 30 Days":
@@ -445,9 +369,7 @@ def render_dashboard(db, email: str):
                     value=(default_start, max_record_date),
                     min_value=min_record_date,
                     max_value=max(max_record_date, today),
-                    key="pipeline_custom_date_range",
-                    disabled=is_ai_busy(),
-                )
+                    key="pipeline_custom_date_range",                )
                 if len(custom_range) == 2:
                     list_start_date, list_end_date = custom_range
 
@@ -528,167 +450,168 @@ def render_dashboard(db, email: str):
         visible_records = selected_records[:visible_count]
         st.caption(f"Showing {visible_count} of {len(selected_records)} matching records.")
         
+        @st.fragment
+        def render_record(app_data, tab_name):
+            """One tracker row, isolated so typing a note or changing a status
+            reruns only this record instead of redrawing all 20."""
+            doc_id = app_data['id']
+            company = app_data.get("company_name", "Unknown")
+            status = app_data.get("status", "Applied")
+            date_str = get_local_time_str(app_data.get("applied_date"))
+
+            with st.expander(f"{company} — {status} ({date_str})", expanded=False):
+                # 現代化佈局: 左側為資訊, 右側為快捷操作區塊
+                c_info, c_actions = st.columns([1, 1])
+
+                with c_info:
+                    st.markdown(f"**Applied:** `{date_str}`")
+                    if app_data.get("interview_date"):
+                        st.markdown(f"**Interview:** `{get_local_time_str(app_data['interview_date'])}`")
+                    if app_data.get("offered_date"):
+                        st.markdown(f"**Offered:** `{get_local_time_str(app_data['offered_date'])}`")
+                    if app_data.get("rejected_date"):
+                        st.markdown(f"**Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
+                        
+                    st.write("")
+                    col_view, col_copy = st.columns(2)
+                    with col_view:
+                        if st.button("View Data", key=f"view_{tab_name}_{doc_id}", use_container_width=True):
+                            st.session_state.active_tracker_detail = doc_id
+
+                    with col_copy:
+                        if st.session_state.get("active_tracker_detail") == doc_id:
+                            if st.button("Hide Data", key=f"hide_{tab_name}_{doc_id}", use_container_width=True):
+                                del st.session_state.active_tracker_detail
+                                st.rerun()
+                        else:
+                            st.caption("Open View Data to copy JSON.")
+
+                    if st.session_state.get("active_tracker_detail") == doc_id:
+                        with st.container(border=True):
+                            st.markdown("##### Saved Application Data")
+                            st.markdown("**Job Description:**")
+                            st.info(app_data.get("jd_text", "No JD saved."))
+                            resume_json = app_data.get("resume_json", {})
+                            resume_json_str = json.dumps(resume_json, ensure_ascii=False, indent=4)
+                            b64_resume = base64.b64encode(resume_json_str.encode("utf-8")).decode("utf-8")
+                            js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="{TOKENS['success']}";btn.style.color="{TOKENS['success']}";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="{TOKENS['border']}";btn.style.color="{TOKENS['text']}";btn.style.backgroundColor="{TOKENS['surface']}";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
+                            html_copy_json = f"""
+                            <body style="margin:0; padding:0; background:transparent;">
+                                <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
+                                    width:100%; height:38px; border-radius:8px;
+                                    background:{TOKENS['surface']}; color:{TOKENS['text']}; border:1px solid {TOKENS['border']};
+                                    cursor:pointer; font-weight:650; font-size: 14px;
+                                    font-family: {FONT_STACK};
+                                    display: flex; align-items: center; justify-content: center;
+                                    box-shadow:0 1px 2px rgba(15,23,42,0.06);
+                                    transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
+                                    Copy JSON
+                                </button>
+                            </body>
+                            """
+                            components.html(html_copy_json, height=45)
+                            st.markdown("**Saved Resume JSON:**")
+                            st.json(resume_json)
+                            
+                with c_actions:
+                    current_notes = app_data.get("notes", "")
+                    new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{tab_name}_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
+                        
+                    # 操作按鈕列
+                    col_stat, col_upd, col_prep, col_del = st.columns([4, 2, 2, 2])
+                    with col_stat:
+                        options = ["Applied", "Interviewing", "Offered", "Rejected"]
+                        current_idx = options.index(status) if status in options else 0
+                        new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
+                    with col_upd:
+                        if st.button("Update", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary"):
+                            if new_status != status or new_notes != current_notes:
+                                if update_application_status(db, email, doc_id, new_status, new_notes):
+                                    st.toast("Application updated successfully.")
+                                    st.rerun()
+                            else:
+                                st.toast("No changes detected.")
+                        
+                    with col_prep:
+                        btn_prep = st.button("Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role")
+                        btn_radar = st.button("Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role")
+                            
+                        if btn_prep:
+                            questions = run_ai_call(
+                                "Preparing interview questions",
+                                lambda: ai.predict_interview_questions(
+                                    app_data.get("jd_text", ""),
+                                    app_data.get("resume_json", {}),
+                                    st.session_state.get("api_key", ""),
+                                ),
+                                success=lambda r: r is not None,
+                            )
+                            if questions:
+                                st.session_state[f"prep_result_{doc_id}"] = questions
+                                if f"radar_result_{doc_id}" in st.session_state: del st.session_state[f"radar_result_{doc_id}"]
+                            else:
+                                st.error("Failed to generate questions. Check API key.")
+                            
+                        if btn_radar:
+                            gap_data = run_ai_call(
+                                "Analyzing skill match",
+                                lambda: ai.analyze_skill_gap(
+                                    app_data.get("jd_text", ""),
+                                    app_data.get("resume_json", {}),
+                                    st.session_state.get("api_key", ""),
+                                ),
+                                success=lambda r: r is not None,
+                            )
+                            if gap_data:
+                                st.session_state[f"radar_result_{doc_id}"] = gap_data
+                                if f"prep_result_{doc_id}" in st.session_state: del st.session_state[f"prep_result_{doc_id}"]
+                            else:
+                                st.error("Failed to generate radar data.")
+                        
+                    with col_del:
+                        if st.button("Del", key=f"del_{tab_name}_{doc_id}", use_container_width=True):
+                            if delete_application(db, email, doc_id):
+                                st.toast("Record deleted.")
+                                st.rerun()
+                        
+                    # 如果有預測結果，顯示在下方
+                    if f"prep_result_{doc_id}" in st.session_state:
+                        q_data = st.session_state[f"prep_result_{doc_id}"]
+                        with st.container(border=True):
+                            st.markdown("##### Predicted Interview Questions")
+                            t_col, b_col = st.columns(2)
+                            with t_col:
+                                st.markdown("**Technical Questions**")
+                                for q in q_data.get("technical", []): st.caption(f"- {q}")
+                            with b_col:
+                                st.markdown("**Behavioral (STAR)**")
+                                for q in q_data.get("behavioral", []): st.caption(f"- {q}")
+                            if st.button("Close", key=f"close_prep_{doc_id}"):
+                                del st.session_state[f"prep_result_{doc_id}"]
+                                st.rerun()
+
+                    # 如果有雷達圖結果
+                    if f"radar_result_{doc_id}" in st.session_state:
+                        gap_data = st.session_state[f"radar_result_{doc_id}"]
+                        with st.container(border=True):
+                            st.markdown("##### Skill Gap Analysis")
+                            import plotly.graph_objects as go
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Proficiency'))
+                            fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Requirement'))
+                            fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=300)
+                            st.plotly_chart(fig, use_container_width=True)
+                            if st.button("Close", key=f"close_radar_{doc_id}"):
+                                del st.session_state[f"radar_result_{doc_id}"]
+                                st.rerun()
+
         def render_record_list(record_list, tab_name):
             if not record_list:
                 st.caption("No applications in this stage.")
                 return
-                
             for app_data in record_list:
-                doc_id = app_data['id']
-                company = app_data.get("company_name", "Unknown")
-                status = app_data.get("status", "Applied")
-                date_str = get_local_time_str(app_data.get("applied_date"))
-                
-                with st.expander(f"{company} — {status} ({date_str})", expanded=False):
-                    # 現代化佈局: 左側為資訊, 右側為快捷操作區塊
-                    c_info, c_actions = st.columns([1, 1])
-                    
-                    with c_info:
-                        st.markdown(f"**Applied:** `{date_str}`")
-                        if app_data.get("interview_date"):
-                            st.markdown(f"**Interview:** `{get_local_time_str(app_data['interview_date'])}`")
-                        if app_data.get("offered_date"):
-                            st.markdown(f"**Offered:** `{get_local_time_str(app_data['offered_date'])}`")
-                        if app_data.get("rejected_date"):
-                            st.markdown(f"**Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
-                        
-                        st.write("")
-                        col_view, col_copy = st.columns(2)
-                        with col_view:
-                            if st.button("View Data", key=f"view_{tab_name}_{doc_id}", use_container_width=True, disabled=is_ai_busy()):
-                                st.session_state.active_tracker_detail = doc_id
+                render_record(app_data, tab_name)
 
-                        with col_copy:
-                            if st.session_state.get("active_tracker_detail") == doc_id:
-                                if st.button("Hide Data", key=f"hide_{tab_name}_{doc_id}", use_container_width=True, disabled=is_ai_busy()):
-                                    del st.session_state.active_tracker_detail
-                                    st.rerun()
-                            else:
-                                st.caption("Open View Data to copy JSON.")
-
-                        if st.session_state.get("active_tracker_detail") == doc_id:
-                            with st.container(border=True):
-                                st.markdown("##### Saved Application Data")
-                                st.markdown("**Job Description:**")
-                                st.info(app_data.get("jd_text", "No JD saved."))
-                                resume_json = app_data.get("resume_json", {})
-                                resume_json_str = json.dumps(resume_json, ensure_ascii=False, indent=4)
-                                b64_resume = base64.b64encode(resume_json_str.encode("utf-8")).decode("utf-8")
-                                js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="#059669";btn.style.color="#059669";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="#e2e8f0";btn.style.color="#111827";btn.style.backgroundColor="#ffffff";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
-                                html_copy_json = f"""
-                                <body style="margin:0; padding:0; background:transparent;">
-                                    <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
-                                        width:100%; height:38px; border-radius:8px;
-                                        background:#ffffff; color:#111827; border:1px solid #e2e8f0;
-                                        cursor:pointer; font-weight:650; font-size: 14px;
-                                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-                                        display: flex; align-items: center; justify-content: center;
-                                        box-shadow:0 1px 2px rgba(15,23,42,0.06);
-                                        transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
-                                        Copy JSON
-                                    </button>
-                                </body>
-                                """
-                                components.html(html_copy_json, height=45)
-                                st.markdown("**Saved Resume JSON:**")
-                                st.json(resume_json)
-                            
-                    with c_actions:
-                        current_notes = app_data.get("notes", "")
-                        new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{tab_name}_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
-                        
-                        # 操作按鈕列
-                        col_stat, col_upd, col_prep, col_del = st.columns([4, 2, 2, 2])
-                        with col_stat:
-                            options = ["Applied", "Interviewing", "Offered", "Rejected"]
-                            current_idx = options.index(status) if status in options else 0
-                            new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
-                        with col_upd:
-                            if st.button("Update", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary", disabled=is_ai_busy()):
-                                if new_status != status or new_notes != current_notes:
-                                    if update_application_status(db, email, doc_id, new_status, new_notes):
-                                        st.toast("Application updated successfully.")
-                                        st.rerun()
-                                else:
-                                    st.toast("No changes detected.")
-                        
-                        with col_prep:
-                            btn_prep = st.button("Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role", disabled=is_ai_busy())
-                            btn_radar = st.button("Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role", disabled=is_ai_busy())
-                            
-                            if btn_prep:
-                                questions = run_ai_call(
-                                    "Preparing interview questions",
-                                    [
-                                        "Reading the saved job description...",
-                                        "Matching likely interview areas to the resume...",
-                                        "Drafting technical questions...",
-                                        "Drafting behavioral STAR prompts...",
-                                        "Formatting the response...",
-                                    ],
-                                    lambda: predict_interview_questions(app_data.get("jd_text", ""), app_data.get("resume_json", {})),
-                                )
-                                if questions:
-                                    st.session_state[f"prep_result_{doc_id}"] = questions
-                                    if f"radar_result_{doc_id}" in st.session_state: del st.session_state[f"radar_result_{doc_id}"]
-                                else:
-                                    st.error("Failed to generate questions. Check API key.")
-                            
-                            if btn_radar:
-                                gap_data = run_ai_call(
-                                    "Analyzing skill match",
-                                    [
-                                        "Extracting skill categories from the role...",
-                                        "Estimating resume evidence for each category...",
-                                        "Comparing candidate and requirement scores...",
-                                        "Preparing radar chart data...",
-                                        "Formatting the response...",
-                                    ],
-                                    lambda: analyze_skill_gap(app_data.get("jd_text", ""), app_data.get("resume_json", {})),
-                                )
-                                if gap_data:
-                                    st.session_state[f"radar_result_{doc_id}"] = gap_data
-                                    if f"prep_result_{doc_id}" in st.session_state: del st.session_state[f"prep_result_{doc_id}"]
-                                else:
-                                    st.error("Failed to generate radar data.")
-                        
-                        with col_del:
-                            if st.button("Del", key=f"del_{tab_name}_{doc_id}", use_container_width=True, disabled=is_ai_busy()):
-                                if delete_application(db, email, doc_id):
-                                    st.toast("Record deleted.")
-                                    st.rerun()
-                        
-                        # 如果有預測結果，顯示在下方
-                        if f"prep_result_{doc_id}" in st.session_state:
-                            q_data = st.session_state[f"prep_result_{doc_id}"]
-                            with st.container(border=True):
-                                st.markdown("##### Predicted Interview Questions")
-                                t_col, b_col = st.columns(2)
-                                with t_col:
-                                    st.markdown("**Technical Questions**")
-                                    for q in q_data.get("technical", []): st.caption(f"- {q}")
-                                with b_col:
-                                    st.markdown("**Behavioral (STAR)**")
-                                    for q in q_data.get("behavioral", []): st.caption(f"- {q}")
-                                if st.button("Close", key=f"close_prep_{doc_id}", disabled=is_ai_busy()):
-                                    del st.session_state[f"prep_result_{doc_id}"]
-                                    st.rerun()
-
-                        # 如果有雷達圖結果
-                        if f"radar_result_{doc_id}" in st.session_state:
-                            gap_data = st.session_state[f"radar_result_{doc_id}"]
-                            with st.container(border=True):
-                                st.markdown("##### Skill Gap Analysis")
-                                import plotly.graph_objects as go
-                                fig = go.Figure()
-                                fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Proficiency'))
-                                fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Requirement'))
-                                fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=300)
-                                st.plotly_chart(fig, use_container_width=True)
-                                if st.button("Close", key=f"close_radar_{doc_id}", disabled=is_ai_busy()):
-                                    del st.session_state[f"radar_result_{doc_id}"]
-                                    st.rerun()
-                                    
         with st.container(height=720):
             render_record_list(visible_records, selected_stage)
 
@@ -700,9 +623,7 @@ def render_dashboard(db, email: str):
                 if st.button(
                     f"Load {load_count} more",
                     key=f"load_more_{selected_stage}",
-                    use_container_width=True,
-                    disabled=is_ai_busy(),
-                ):
+                    use_container_width=True,                ):
                     st.session_state[visible_key] = min(len(selected_records), visible_count + batch_size)
                     st.rerun()
         else:
