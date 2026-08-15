@@ -41,3 +41,14 @@ def application_progress(jd_text, has_optimized, has_pdf, is_tracked):
         ("PDF generated", bool(has_pdf)),
         ("Saved to tracker", bool(is_tracked)),
     ]
+
+
+def should_record_application(is_tracked, logged_in):
+    """Whether a download should write a new tracker row.
+
+    save_application() writes with an auto-generated document id and does no
+    deduplication at all, so without this guard a user who downloads the resume
+    and then the cover letter — or who just downloads twice — gets one tracker
+    row per click. One optimize run is one application.
+    """
+    return bool(logged_in) and not is_tracked

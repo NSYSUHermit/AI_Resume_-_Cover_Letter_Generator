@@ -62,3 +62,19 @@ def test_all_four_stages_can_be_complete():
         jd_text="x" * 51, has_optimized=True, has_pdf=True, is_tracked=True
     )
     assert all(done for _, done in steps)
+
+
+def test_logged_out_user_never_records():
+    assert workspace.should_record_application(is_tracked=False, logged_in=False) is False
+
+
+def test_first_download_records():
+    assert workspace.should_record_application(is_tracked=False, logged_in=True) is True
+
+
+def test_second_download_does_not_record_again():
+    assert workspace.should_record_application(is_tracked=True, logged_in=True) is False
+
+
+def test_logged_out_user_with_stale_flag_still_does_not_record():
+    assert workspace.should_record_application(is_tracked=True, logged_in=False) is False
