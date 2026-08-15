@@ -1,4 +1,10 @@
-streamlit==1.37.1
+# Pinned for reproducible builds. NOTE: Streamlit Community Cloud chooses the
+# Python version, and it moved to 3.14. A pin is only safe if every transitive
+# dependency has a wheel for that interpreter - streamlit 1.37.x caps
+# pillow<11, and pillow only gained cp314 wheels in 11.3.0, so the old pin
+# forced a source build and failed on missing zlib headers.
+# If the platform bumps Python again and the build breaks, raise this pin.
+streamlit==1.61.1
 google-generativeai==0.8.5
 Jinja2==3.1.4
 firebase-admin==7.4.0

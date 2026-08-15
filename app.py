@@ -623,7 +623,9 @@ st.markdown("<style>\n" + css_root_block() + """
         color: var(--text);
     }
 
-    .main .block-container {
+    /* Renamed from .main .block-container; the old selector matched nothing
+       after the 1.6x DOM change, so the width cap was silently not applied. */
+    [data-testid="stMainBlockContainer"] {
         padding-top: 3.25rem;
         padding-bottom: 3rem;
         max-width: 1320px;
@@ -650,19 +652,13 @@ st.markdown("<style>\n" + css_root_block() + """
         color: var(--muted);
     }
 
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {
-        background: var(--surface) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: var(--radius) !important;
-        padding: 1.2rem !important;
-        margin-bottom: 1rem !important;
-        box-shadow: var(--shadow-sm);
-    }
+    /* st.container(border=True) used to be an inline-styled div we could hook;
+       Streamlit now paints the border itself on stVerticalBlock via a hashed
+       emotion class. Nothing left to target that would not break again on the
+       next release, so the native card styling stands. */
 
     .stButton > button,
     .stDownloadButton > button,
-    button[data-baseweb="tab"],
-    div[data-baseweb="select"] > div,
     input,
     textarea {
         transition: background-color var(--ease), border-color var(--ease), box-shadow var(--ease), color var(--ease), transform var(--ease) !important;
@@ -702,20 +698,18 @@ st.markdown("<style>\n" + css_root_block() + """
         border-color: var(--brand-dark) !important;
     }
 
+    /* Streamlit dropped BaseWeb entirely, so every data-baseweb hook is gone. */
     .stButton > button:focus-visible,
     .stDownloadButton > button:focus-visible,
     input:focus,
-    textarea:focus,
-    [data-baseweb="select"] div:focus,
-    [data-baseweb="radio"] input:focus-visible + div {
+    textarea:focus {
         outline: none !important;
         border-color: var(--brand) !important;
         box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18) !important;
     }
 
     input,
-    textarea,
-    div[data-baseweb="select"] > div {
+    textarea {
         border-radius: var(--radius) !important;
         border-color: var(--border) !important;
         background: var(--surface) !important;
