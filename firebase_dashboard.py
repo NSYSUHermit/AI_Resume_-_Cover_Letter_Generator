@@ -12,6 +12,25 @@ from theme import TOKENS, FONT_STACK
 import ai
 
 # ==========================================
+# 0. Reporting wrappers for the AI status panel
+# ==========================================
+def prep_interview_questions(app_data, report=lambda m: None):
+    report("Reading the saved job description and resume...")
+    return ai.predict_interview_questions(
+        app_data.get("jd_text", ""),
+        app_data.get("resume_json", {}),
+        st.session_state.get("api_key", ""),
+    )
+
+def prep_skill_gap(app_data, report=lambda m: None):
+    report("Comparing your resume against the role...")
+    return ai.analyze_skill_gap(
+        app_data.get("jd_text", ""),
+        app_data.get("resume_json", {}),
+        st.session_state.get("api_key", ""),
+    )
+
+# ==========================================
 # 1. 初始化與連接 Firebase
 # ==========================================
 @st.cache_resource
@@ -539,11 +558,7 @@ def render_dashboard(db, email: str):
                         if btn_prep:
                             questions = run_ai_call(
                                 "Preparing interview questions",
-                                lambda: ai.predict_interview_questions(
-                                    app_data.get("jd_text", ""),
-                                    app_data.get("resume_json", {}),
-                                    st.session_state.get("api_key", ""),
-                                ),
+                                lambda report: prep_interview_questions(app_data, report),
                                 success=lambda r: r is not None,
                             )
                             if questions:
@@ -555,11 +570,7 @@ def render_dashboard(db, email: str):
                         if btn_radar:
                             gap_data = run_ai_call(
                                 "Analyzing skill match",
-                                lambda: ai.analyze_skill_gap(
-                                    app_data.get("jd_text", ""),
-                                    app_data.get("resume_json", {}),
-                                    st.session_state.get("api_key", ""),
-                                ),
+                                lambda report: prep_skill_gap(app_data, report),
                                 success=lambda r: r is not None,
                             )
                             if gap_data:

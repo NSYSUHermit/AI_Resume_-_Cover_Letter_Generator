@@ -76,6 +76,45 @@ if "suggested_metrics" not in st.session_state: st.session_state.suggested_metri
 if "jd_screening" not in st.session_state: st.session_state.jd_screening = None
 if "last_synced_snapshot" not in st.session_state: st.session_state.last_synced_snapshot = None
 if "last_synced_at" not in st.session_state: st.session_state.last_synced_at = None
+# Plain state, not a widget key: the workspace bar is built from buttons now, so
+# nothing owns this value except us.
+if "active_view" not in st.session_state: st.session_state.active_view = "Source"
+
+def set_result_banner(title, details=None, actions=None):
+    """Record what an AI run produced, so it can be shown after the rerun.
+
+    The status panel is destroyed by the rerun that follows a successful call,
+    which left a four-second toast as the only confirmation of a thirty-second
+    operation. This survives until the next run or an explicit dismiss.
+    """
+    st.session_state.result_banner = {
+        "title": title,
+        "details": [d for d in (details or []) if d],
+        "actions": actions or [],
+    }
+
+def render_result_banner():
+    banner = st.session_state.get("result_banner")
+    if not banner:
+        return
+    with st.container(border=True, key="result_banner"):
+        text_col, close_col = st.columns([20, 1])
+        with text_col:
+            st.markdown(f"**{banner['title']}**")
+            if banner["details"]:
+                st.caption("  ·  ".join(banner["details"]))
+        with close_col:
+            if st.button("✕", key="dismiss_result_banner", help="Dismiss"):
+                del st.session_state.result_banner
+                st.rerun()
+        if banner["actions"]:
+            action_cols = st.columns(len(banner["actions"]) + 2)
+            for col, (action_label, target_view) in zip(action_cols, banner["actions"]):
+                with col:
+                    if st.button(action_label, key=f"banner_to_{target_view}", use_container_width=True):
+                        st.session_state.active_view = target_view
+                        del st.session_state.result_banner
+                        st.rerun()
 
 def clear_pdf_outputs():
     st.session_state.resume_preview_bytes = None
@@ -91,6 +130,7 @@ def clear_generated_outputs():
     st.session_state.suggested_metrics = []
     st.session_state.jd_screening = None
     st.session_state.optimized_source_snapshot = None
+    st.session_state.result_banner = None
     clear_pdf_outputs()
 
 def resume_snapshot(data):
@@ -392,33 +432,52 @@ def sync_application_to_tracker():
 # ---------------------------------------------------------
 # AI 核心邏輯 (prompts and scoring live in ai.py)
 # ---------------------------------------------------------
-def parse_pdf_resume_to_json(pdf_bytes, api_key):
+def check_api_key(api_key, report=lambda m: None):
+    report("Sending a test request to Gemini...")
+    return ai.test_api_key(api_key)
+
+def parse_pdf_resume_to_json(pdf_bytes, api_key, report=lambda m: None):
     if not api_key: return False, "Missing API Key.", None
     try:
-        return True, "Done", ai.parse_resume_pdf(pdf_bytes, api_key)
+        report(f"Uploading {len(pdf_bytes) // 1024} KB to Gemini...")
+        data = ai.parse_resume_pdf(pdf_bytes, api_key)
+        roles = len(data.get("experience") or [])
+        schools = len(data.get("education") or [])
+        skills = sum(len((s or {}).get("items") or []) for s in (data.get("skills") or {}).values())
+        report(f"Read {roles} roles, {schools} schools, {skills} skills")
+        return True, "Done", data
     except Exception as e:
         return False, str(e), None
 
-def ai_optimize_and_update(jd_text, custom_prompt):
+def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
     """Screen the JD, then rewrite against it, then score the result locally.
 
     Splitting what used to be a single call means the rewrite prompt has one
-    job, a malformed response costs half as much work, and the keyword list is
-    produced before the rewrite exists rather than by the model marking itself.
+    job, a malformed response costs half as much work, the keyword list is
+    produced before the rewrite exists rather than by the model marking itself,
+    and each stage has something true to report while the user waits.
     """
     api_key = st.session_state.get("api_key")
     if not api_key: return False, "Missing API Key."
 
+    report("Reading the job description...")
     try:
         screening = ai.screen_job_description(jd_text, api_key)
     except Exception as e:
         return False, f"Job description screening failed: {e}"
 
     st.session_state.jd_screening = screening
+    company = screening.get("target_company") or ""
+    role = screening.get("target_role") or ""
+    keywords = screening.get("keywords", [])
+    target = " · ".join(p for p in (company, role) if p) or "this role"
+    report(f"Target: {target} — {len(keywords)} requirements extracted")
+
     if screening.get("visa_blocked"):
         reason = screening.get("reason") or "This posting rules out visa sponsorship."
         return False, f"Visa check stopped this run: {reason}"
 
+    report("Rewriting your resume against those requirements...")
     try:
         rewrite = ai.rewrite_resume(jd_text, st.session_state.resume_data, custom_prompt, api_key)
     except Exception as e:
@@ -431,19 +490,32 @@ def ai_optimize_and_update(jd_text, custom_prompt):
     # The screening call already read these off the JD; prefer them so the
     # filename and the tracker entry do not depend on the rewrite call.
     if not optimized.get("target_company"):
-        optimized["target_company"] = screening.get("target_company", "")
+        optimized["target_company"] = company
     if not optimized.get("target_role"):
-        optimized["target_role"] = screening.get("target_role", "")
+        optimized["target_role"] = role
+
+    suggested = rewrite.get("suggested_metrics", []) or []
+    report("Scoring keyword coverage...")
+    metrics = ai.keyword_report(keywords, st.session_state.resume_data, optimized)
+    report(f"Coverage {metrics['original_pct']}% → {metrics['optimized_pct']}%")
 
     st.session_state.optimized_resume_data = optimized
     st.session_state.changelog = rewrite.get("changelog", "")
-    st.session_state.suggested_metrics = rewrite.get("suggested_metrics", []) or []
+    st.session_state.suggested_metrics = suggested
     st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
     st.session_state.opt_editor_key += 1
-    st.session_state.ats_metrics = ai.keyword_report(
-        screening.get("keywords", []), st.session_state.resume_data, optimized
-    )
+    st.session_state.ats_metrics = metrics
     st.session_state.ats_analysis = {"screening": screening, "rewrite": rewrite}
+
+    set_result_banner(
+        title=f"Resume optimised for {target}",
+        details=[
+            f"Keyword coverage {metrics['original_pct']}% → {metrics['optimized_pct']}%",
+            f"{len(metrics['newly_added'])} newly covered" if metrics["newly_added"] else None,
+            f"{len(suggested)} facts to add yourself" if suggested else None,
+        ],
+        actions=[("See ATS breakdown", "ATS"), ("Generate PDF", "Review")],
+    )
     return True, "Done"
 
 # ---------------------------------------------------------
@@ -657,15 +729,15 @@ st.markdown("<style>\n" + css_root_block() + """
        emotion class. Nothing left to target that would not break again on the
        next release, so the native card styling stands. */
 
-    .stButton > button,
-    .stDownloadButton > button,
+    .stButton button,
+    .stDownloadButton button,
     input,
     textarea {
         transition: background-color var(--ease), border-color var(--ease), box-shadow var(--ease), color var(--ease), transform var(--ease) !important;
     }
 
-    .stButton > button,
-    .stDownloadButton > button {
+    .stButton button,
+    .stDownloadButton button {
         border-radius: var(--radius) !important;
         min-height: 42px !important;
         font-weight: 650 !important;
@@ -675,32 +747,37 @@ st.markdown("<style>\n" + css_root_block() + """
         box-shadow: var(--shadow-sm);
     }
 
-    .stButton > button p,
-    .stDownloadButton > button p {
+    /* Descendant, not child: a button with help= is wrapped in a tooltip span,
+       which pushed it out of `.stButton > button` and left its label painted
+       with the muted body colour - grey text on a blue primary button. */
+    .stButton button p,
+    .stButton button span,
+    .stDownloadButton button p,
+    .stFormSubmitButton button p {
         color: inherit !important;
     }
 
-    .stButton > button:hover,
-    .stDownloadButton > button:hover {
+    .stButton button:hover,
+    .stDownloadButton button:hover {
         border-color: var(--border-strong) !important;
         box-shadow: var(--shadow-md);
         transform: translateY(-1px);
     }
 
-    .stButton > button[kind="primary"] { 
+    .stButton button[kind="primary"] {
         background: var(--brand) !important;
         border-color: var(--brand) !important;
         color: #ffffff !important;
     }
 
-    .stButton > button[kind="primary"]:hover {
+    .stButton button[kind="primary"]:hover {
         background: var(--brand-dark) !important;
         border-color: var(--brand-dark) !important;
     }
 
     /* Streamlit dropped BaseWeb entirely, so every data-baseweb hook is gone. */
-    .stButton > button:focus-visible,
-    .stDownloadButton > button:focus-visible,
+    .stButton button:focus-visible,
+    .stDownloadButton button:focus-visible,
     input:focus,
     textarea:focus {
         outline: none !important;
@@ -738,26 +815,39 @@ st.markdown("<style>\n" + css_root_block() + """
         box-shadow: var(--shadow-sm);
     }
 
-    .step-pill {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 40px;
-        padding: 0 12px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--surface);
-        color: var(--muted);
-        font-size: 0.9rem;
-        font-weight: 650;
-        box-shadow: var(--shadow-sm);
-        white-space: nowrap;
+    /* Blue while an AI call is in flight, green once it lands (below). Both use
+       the .st-key- hook that ui_feedback.py and render_result_banner set up. */
+    .st-key-ai_status details,
+    .st-key-ai_status [data-testid="stExpander"] {
+        border-left: 4px solid var(--brand) !important;
+        background: rgba(37, 99, 235, 0.05) !important;
+        border-radius: var(--radius) !important;
     }
 
-    .step-pill.done {
-        border-color: rgba(5, 150, 105, 0.25);
-        background: rgba(5, 150, 105, 0.08);
-        color: var(--success);
+    .st-key-ai_status [data-testid="stMarkdownContainer"] p {
+        color: var(--text);
+        font-size: 0.92rem;
+    }
+
+    /* st.container(key="result_banner") emits .st-key-result_banner. This is a
+       documented hook, unlike the hashed emotion classes, so it is safe to
+       target. Green accent marks it as an outcome rather than another form. */
+    .st-key-result_banner {
+        border-color: rgba(5, 150, 105, 0.35) !important;
+        border-left: 4px solid var(--success) !important;
+        background: rgba(5, 150, 105, 0.06) !important;
+    }
+
+    .st-key-result_banner p {
+        color: var(--text);
+    }
+
+    .st-key-dismiss_result_banner button {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: var(--muted) !important;
+        min-height: 28px !important;
     }
 
     /* Editing a LaTeX resume is a desktop task, and the multi-column layouts
@@ -884,7 +974,7 @@ def render_api_key_setup():
         if st.button("Save and test key", type="primary"):
             ok, msg = run_ai_call(
                 "Checking your key",
-                lambda: ai.test_api_key(key_input),
+                lambda report: check_api_key(key_input, report),
                 success=lambda r: r[0],
             )
             if ok:
@@ -897,23 +987,41 @@ def render_api_key_setup():
 if not st.session_state.api_key:
     render_api_key_setup()
 
-# --- Simplified Stepper ---
-s1, s2, s3, s4 = len(st.session_state.resume_data.get("experience", [])) > 0, len(st.session_state.get("jd_text", "")) > 50, st.session_state.optimized_resume_data is not None, st.session_state.resume_preview_bytes is not None
-steps = [{"l": "Source", "d": s1}, {"l": "Target", "d": s2}, {"l": "Analysis", "d": s3}, {"l": "Review", "d": s4}, {"l": "Tracker", "d": st.session_state.logged_in}]
-cols = st.columns(5)
-for i, s in enumerate(steps):
-    with cols[i]:
-        step_class = "step-pill done" if s['d'] else "step-pill"
-        st.markdown(f"<div class='{step_class}'>{s['l']}</div>", unsafe_allow_html=True)
+# --- Workspace navigation ---
+# One bar that is both the progress indicator and the switcher. There used to be
+# a decorative row of step pills sitting above a separate radio, so the thing
+# that looked clickable was inert and the thing that worked looked like settings.
+WORKSPACES = [
+    ("Source", "Source", len(st.session_state.resume_data.get("experience", [])) > 0),
+    ("Target", "Target", len(st.session_state.get("jd_text", "")) > 50),
+    ("ATS", "Analysis", st.session_state.optimized_resume_data is not None),
+    ("Review", "Review", st.session_state.resume_preview_bytes is not None),
+    ("Tracker", "Tracker", st.session_state.logged_in),
+]
 
+nav_cols = st.columns(len(WORKSPACES))
+for col, (view, label, done) in zip(nav_cols, WORKSPACES):
+    with col:
+        if st.button(
+            label,
+            key=f"nav_{view}",
+            use_container_width=True,
+            type="primary" if st.session_state.active_view == view else "secondary",
+            # Same slot either way, so the labels stay aligned as steps complete.
+            icon=":material/check_circle:" if done else ":material/radio_button_unchecked:",
+        ):
+            st.session_state.active_view = view
+            # Rerun rather than falling through: the bar above has already drawn
+            # itself for the previous view, so without this the highlight and the
+            # content below would disagree until the next interaction.
+            st.rerun()
+
+active_view = st.session_state.active_view
 st.markdown("---")
-active_view = st.radio(
-    "Workspace",
-    ["Source", "Target", "ATS", "Review", "Tracker"],
-    key="active_view",
-    horizontal=True,
-    label_visibility="collapsed",
-)
+
+# Rendered outside the workspaces so the outcome of a run stays visible wherever
+# the user navigates next.
+render_result_banner()
 
 if active_view == "Source":
     if resume_is_empty(st.session_state.resume_data):
@@ -930,14 +1038,24 @@ if active_view == "Source":
         if st.button("Extract Resume Data", type="primary", use_container_width=True, disabled=up is None or no_key):
             ok, msg, data = run_ai_call(
                 "Extracting resume data",
-                lambda: parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key),
+                lambda report: parse_pdf_resume_to_json(up.getvalue(), st.session_state.api_key, report),
                 success=lambda r: r[0],
             )
             if ok:
                 st.session_state.resume_data = data
                 st.session_state.base_editor_key += 1
                 clear_generated_outputs()
-                st.session_state.pending_toast = "Data extracted."
+                roles = len(data.get("experience") or [])
+                schools = len(data.get("education") or [])
+                set_result_banner(
+                    title="Resume imported from your PDF",
+                    details=[
+                        f"{roles} roles" if roles else None,
+                        f"{schools} schools" if schools else None,
+                        "Check the fields below, then add a job description",
+                    ],
+                    actions=[("Add a job description", "Target")],
+                )
                 st.rerun()
             else: st.error(msg)
 
@@ -997,11 +1115,12 @@ if active_view == "Target":
                     clear_generated_outputs()
                     ok, rep = run_ai_call(
                         "Optimizing resume",
-                        lambda: ai_optimize_and_update(jd, strategy),
+                        lambda report: ai_optimize_and_update(jd, strategy, report),
                         success=lambda r: r[0],
                     )
                     if ok:
-                        st.session_state.pending_toast = "Optimized from current Source JSON."
+                        # The banner was filled in by ai_optimize_and_update with
+                        # the real numbers; no toast needed.
                         st.rerun()
                     else: st.error(rep)
                 else:
