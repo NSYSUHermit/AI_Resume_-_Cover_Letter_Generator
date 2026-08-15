@@ -12,6 +12,7 @@ from firebase_dashboard import init_firebase, authenticate_user, register_user, 
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block
 import ai
+import workspace
 
 st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
@@ -76,9 +77,12 @@ if "suggested_metrics" not in st.session_state: st.session_state.suggested_metri
 if "jd_screening" not in st.session_state: st.session_state.jd_screening = None
 if "last_synced_snapshot" not in st.session_state: st.session_state.last_synced_snapshot = None
 if "last_synced_at" not in st.session_state: st.session_state.last_synced_at = None
-# Plain state, not a widget key: the workspace bar is built from buttons now, so
+# Plain state, not a widget key: the sidebar nav is built from buttons, so
 # nothing owns this value except us.
-if "active_view" not in st.session_state: st.session_state.active_view = "Source"
+if "active_view" not in st.session_state:
+    st.session_state.active_view = workspace.initial_view(
+        resume_is_empty(st.session_state.resume_data)
+    )
 
 def set_result_banner(title, details=None, actions=None):
     """Record what an AI run produced, so it can be shown after the rerun.
@@ -514,7 +518,9 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
             f"{len(metrics['newly_added'])} newly covered" if metrics["newly_added"] else None,
             f"{len(suggested)} facts to add yourself" if suggested else None,
         ],
-        actions=[("See ATS breakdown", "ATS"), ("Generate PDF", "Review")],
+        # "ATS" and "Review" are no longer separate destinations to jump to —
+        # both are already part of the Generator view the user is looking at.
+        actions=[],
     )
     return True, "Done"
 
@@ -879,6 +885,23 @@ st.markdown(
 with st.sidebar:
     st.markdown("### AI Resume Studio")
     st.caption("Resume, cover letter, and application tracking.")
+
+    st.caption("WORKSPACE")
+    for view, label, icon in workspace.VIEWS:
+        if st.button(
+            label,
+            key=f"nav_{view}",
+            use_container_width=True,
+            type="primary" if st.session_state.active_view == view else "secondary",
+            icon=icon,
+        ):
+            st.session_state.active_view = view
+            # Rerun rather than falling through: the sidebar has already drawn
+            # itself for the previous view, so without this the highlight and
+            # the content below would disagree until the next interaction.
+            st.rerun()
+    st.markdown("---")
+
     if st.session_state.logged_in:
         st.success(f"**User:** `{st.session_state.user_email}`")
         if st.session_state.get("sync_error"):
@@ -915,6 +938,12 @@ with st.sidebar:
                             if k is not None:
                                 st.session_state.api_key = k
                             st.session_state.base_editor_key += 1
+                            # Session init ran before login, when resume_data was
+                            # necessarily empty, so it always landed on Profile.
+                            # Recompute now that the real profile has loaded.
+                            st.session_state.active_view = workspace.initial_view(
+                                resume_is_empty(st.session_state.resume_data)
+                            )
                             # What we just loaded is by definition in sync, so
                             # autosave must not immediately write it back.
                             mark_profile_synced()
@@ -928,28 +957,27 @@ with st.sidebar:
                         ok, msg = register_user(auth_db, e.strip(), p)
                         if ok: st.success(msg)
                         else: st.error(msg)
-    st.markdown("---")
-    st.markdown("**API Settings**")
-    if st.session_state.api_key:
-        st.success("Gemini key connected")
-        if st.button("Change key", use_container_width=True):
-            st.session_state.api_key = ""
+    with st.expander("Settings"):
+        st.markdown("**API Settings**")
+        if st.session_state.api_key:
+            st.success("Gemini key connected")
+            if st.button("Change key", use_container_width=True):
+                st.session_state.api_key = ""
+                st.rerun()
+        else:
+            st.caption("Add your Gemini key in the main panel to turn on the AI features.")
+
+        st.checkbox(
+            "Show advanced import tools",
+            key="show_advanced_tools",
+            help="Paste raw JSON in and out of the app. Not needed for normal use.",
+        )
+
+        # Deferred: session_state cannot be written for a key whose widget has
+        # already been instantiated this run.
+        if st.button("Reset All Data", use_container_width=True, type="secondary"):
+            st.session_state.pending_reset = True
             st.rerun()
-    else:
-        st.caption("Add your Gemini key in the main panel to turn on the AI features.")
-
-    st.markdown("---")
-    st.checkbox(
-        "Show advanced import tools",
-        key="show_advanced_tools",
-        help="Paste raw JSON in and out of the app. Not needed for normal use.",
-    )
-
-    # Deferred: session_state cannot be written for a key whose widget has
-    # already been instantiated this run.
-    if st.button("Reset All Data", use_container_width=True, type="secondary"):
-        st.session_state.pending_reset = True
-        st.rerun()
 
     st.caption("Developed by NSYSUHermit")
 
@@ -987,43 +1015,13 @@ def render_api_key_setup():
 if not st.session_state.api_key:
     render_api_key_setup()
 
-# --- Workspace navigation ---
-# One bar that is both the progress indicator and the switcher. There used to be
-# a decorative row of step pills sitting above a separate radio, so the thing
-# that looked clickable was inert and the thing that worked looked like settings.
-WORKSPACES = [
-    ("Source", "Source", len(st.session_state.resume_data.get("experience", [])) > 0),
-    ("Target", "Target", len(st.session_state.get("jd_text", "")) > 50),
-    ("ATS", "Analysis", st.session_state.optimized_resume_data is not None),
-    ("Review", "Review", st.session_state.resume_preview_bytes is not None),
-    ("Tracker", "Tracker", st.session_state.logged_in),
-]
-
-nav_cols = st.columns(len(WORKSPACES))
-for col, (view, label, done) in zip(nav_cols, WORKSPACES):
-    with col:
-        if st.button(
-            label,
-            key=f"nav_{view}",
-            use_container_width=True,
-            type="primary" if st.session_state.active_view == view else "secondary",
-            # Same slot either way, so the labels stay aligned as steps complete.
-            icon=":material/check_circle:" if done else ":material/radio_button_unchecked:",
-        ):
-            st.session_state.active_view = view
-            # Rerun rather than falling through: the bar above has already drawn
-            # itself for the previous view, so without this the highlight and the
-            # content below would disagree until the next interaction.
-            st.rerun()
-
 active_view = st.session_state.active_view
-st.markdown("---")
 
 # Rendered outside the workspaces so the outcome of a run stays visible wherever
 # the user navigates next.
 render_result_banner()
 
-if active_view == "Source":
+if active_view == workspace.PROFILE:      # 原 "Source"
     if resume_is_empty(st.session_state.resume_data):
         st.info(
             "**Start here.** Either upload an existing resume PDF below and let the AI fill "
@@ -1054,7 +1052,7 @@ if active_view == "Source":
                         f"{schools} schools" if schools else None,
                         "Check the fields below, then add a job description",
                     ],
-                    actions=[("Add a job description", "Target")],
+                    actions=[("Add a job description", workspace.GENERATOR)],
                 )
                 st.rerun()
             else: st.error(msg)
@@ -1085,7 +1083,7 @@ if active_view == "Source":
                 except json.JSONDecodeError as e:
                     st.error(f"Source JSON is invalid: {e}")
 
-if active_view == "Target":
+if active_view == workspace.GENERATOR:    # 原 "Target"，Task 4 會把 ATS/Review 併進來
     with st.container(border=True):
         st.subheader("Job Details")
         # Both inputs mirror into durable keys. A widget key alone is dropped by
@@ -1166,7 +1164,7 @@ if active_view == "Target":
             </script>
             """, height=44)
 
-if active_view == "ATS":
+if active_view == workspace.GENERATOR:    # 原 "ATS"，暫時與上面的 Target 區塊一起渲染，Task 4/5 才整併成單一版面
     st.subheader("ATS Analysis")
     st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
 
@@ -1321,7 +1319,7 @@ def render_preview():
         else: st.info(f"The {ch} data is missing.")
     else: st.info("Click 'Generate PDF' to see preview.")
 
-if active_view == "Review":
+if active_view == workspace.GENERATOR:    # 原 "Review"，暫時與上面兩個區塊一起渲染，Task 4/5 才整併成單一版面
     # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
     if st.session_state.get("show_advanced_tools"):
         with st.expander("Manual Data Import"):
@@ -1354,7 +1352,7 @@ if active_view == "Review":
             render_preview()
     else: st.warning("Optimize first.")
 
-if active_view == "Tracker":
+if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
         tracker_db = get_db()
         if tracker_db is not None:
