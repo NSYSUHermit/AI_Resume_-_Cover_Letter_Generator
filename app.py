@@ -634,18 +634,26 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
 # ---------------------------------------------------------
 # PDF 渲染
 # ---------------------------------------------------------
-def render_pdf_js(pdf_bytes, max_pages=None, height=800):
-    """Render a PDF inline with pdf.js.
+def render_pdf_js(pdf_bytes, height=800):
+    """Render every page of a PDF inline with pdf.js.
 
-    Re-embedding the document as base64 is the most expensive thing this app
-    does on a rerun, so callers cap `max_pages` unless the user asks for the
-    full document. Canvases are appended synchronously in page order; the
-    previous version appended them from the getPage callback, so pages could
-    land out of order whenever one resolved before an earlier one.
+    This used to take a `max_pages` cap, defaulting to one page behind a
+    "Render all pages" checkbox, on the stated grounds that re-embedding the
+    document as base64 is the most expensive thing this app does on a rerun.
+    That reasoning was wrong: `base64.b64encode` below runs over the whole
+    document regardless of the cap, which only ever limited how many canvases
+    pdf.js painted client-side. The expensive half was paid either way, so the
+    cap bought nothing and cost the user a click plus the hidden pages.
+
+    If the base64 re-embed ever needs fixing for real, cache it on a hash of
+    `pdf_bytes` — that is the part that is actually expensive.
+
+    Canvases are appended synchronously in page order; an earlier version
+    appended them from the getPage callback, so pages could land out of order
+    whenever one resolved before an earlier one.
     """
     if not pdf_bytes: return
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    cap = "null" if max_pages is None else str(int(max_pages))
     pdf_js_html = f"""<!DOCTYPE html><html><head>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
@@ -658,8 +666,7 @@ var b=window.atob('{base64_pdf}');
 var bytes=new Uint8Array(b.length);
 for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);
 pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{
-  var cap={cap};
-  var last=(cap===null)?pdf.numPages:Math.min(pdf.numPages,cap);
+  var last=pdf.numPages;
   for(var i=1;i<=last;i++){{
     (function(n){{
       var c=document.createElement('canvas');
@@ -671,9 +678,7 @@ pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{
       }});
     }})(i);
   }}
-  if(last<pdf.numPages){{
-    document.getElementById('note').textContent='Showing '+last+' of '+pdf.numPages+' pages. Tick "Render all pages" to see the rest.';
-  }}
+  document.getElementById('note').textContent=pdf.numPages+(pdf.numPages===1?' page':' pages');
 }});</script></body></html>"""
     components.html(pdf_js_html, height=height, scrolling=True)
 
@@ -2061,10 +2066,7 @@ def render_preview():
                 sync_application_to_tracker()
 
     if target:
-        # Checking the layout only needs page one; rasterising every page on
-        # each rerun was pure waste.
-        all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
-        render_pdf_js(target, max_pages=None if all_pages else 1)
+        render_pdf_js(target)
     elif ch == "Resume":
         data = st.session_state.resume_data
         if resume_is_empty(data):
@@ -2087,8 +2089,7 @@ def render_preview():
                 # docstring, Minor 9).
                 base_bytes = None
             if base_bytes:
-                all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
-                render_pdf_js(base_bytes, max_pages=None if all_pages else 1)
+                render_pdf_js(base_bytes)
             else:
                 st.info("Preview unavailable. Check the LaTeX log above.")
     else:
