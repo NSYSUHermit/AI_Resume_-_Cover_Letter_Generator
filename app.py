@@ -10,7 +10,7 @@ import base64
 import streamlit.components.v1 as components
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
 from ui_feedback import run_ai_call
-from theme import TOKENS, FONT_STACK, css_root_block
+from theme import TOKENS, FONT_STACK, css_root_block, walker_svg
 import ai
 import workspace
 
@@ -18,6 +18,20 @@ st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
 def get_db():
     return init_firebase()
+
+# Three preset (left, right) column ratios for the Generator view - the
+# user-approved substitute for a draggable splitter (design doc "需求 8 的
+# 裁決：分段控制取代拖曳"): st.columns' ratios are fixed at render time and
+# Streamlit has no drag API, or real one would need a bidirectional React
+# custom component or JS that rewrites Streamlit's internal DOM (the project
+# has been bitten twice by relying on that - see requirements.txt). Shared
+# between the session-state default below and render_panel_ratio_control()
+# near the bottom of this file.
+PANEL_RATIOS = {
+    "Wide preview":   (4, 6),
+    "Even":           (5, 5),
+    "Wide workspace": (7, 3),
+}
 
 # ---------------------------------------------------------
 # 初始化 Session State
@@ -64,6 +78,10 @@ if "api_key" not in st.session_state: st.session_state.api_key = ""
 # widget is not rendered, so keeping the JD only in the text area's own key lost
 # it the moment the user switched workspace.
 if "jd_text" not in st.session_state: st.session_state.jd_text = ""
+# Durable copy of the panel-ratio choice, same reason as jd_text above: the
+# segmented_control that sets this only renders on the Generator view, so its
+# own widget key would be dropped by a trip to Profile/Tracker and back.
+if "panel_ratio" not in st.session_state: st.session_state.panel_ratio = "Even"
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
@@ -256,6 +274,18 @@ def editor_rows(value):
 def compact_rows(rows, fields):
     cleaned = []
     for row in editor_rows(rows):
+        # A row is not always a dict: editable_seed()/editor_rows() pass a
+        # list straight through unchanged (unlike experience_seed_rows(),
+        # which already filters to dicts), so a malformed optimized_resume_data
+        # - e.g. {"education": ["MIT BS"]} instead of a list of {"school":
+        # ...} dicts, reachable via Manual Data Import's free-form JSON paste,
+        # or ai.rewrite_resume(), which does not validate element shapes -
+        # seeds this with bare strings. row.get(...) below would crash the
+        # whole draft table (and everything the Generator view renders after
+        # it) over one bad row; skip what cannot be read as a row instead and
+        # let the table degrade to showing what it can.
+        if not isinstance(row, dict):
+            continue
         item = {field: str(row.get(field, "") or "").strip() for field in fields}
         if any(item.values()):
             cleaned.append(item)
@@ -268,6 +298,18 @@ def editable_seed(rows, fields):
     return [{field: "" for field in fields}]
 
 def details_to_text(details):
+    if isinstance(details, str):
+        # A malformed optimized_resume_data can carry "details" as an
+        # already-joined string instead of a list of {"description": ...}
+        # dicts (ai.rewrite_resume() does not validate element shapes, and
+        # Manual Data Import accepts arbitrary pasted JSON). Falling through
+        # to the loop below would iterate the string CHARACTER BY CHARACTER
+        # ("details or []" is truthy for any non-empty string, so the for
+        # loop walks it directly) - silently exploding one bullet into one
+        # row per letter the next time anything round-trips through
+        # text_to_details(), its inverse. Treat a string as already the text
+        # this function exists to produce instead.
+        return "\n".join(line.strip() for line in details.splitlines() if line.strip())
     lines = []
     for detail in details or []:
         if isinstance(detail, dict):
@@ -309,6 +351,43 @@ def rows_to_skills(rows):
             skills[key] = {"title": title or "Skills", "items": items}
     return skills or {"set1": {"title": "Skills", "items": []}}
 
+# Shared field lists for the two grids ("experience" needs its own seed/rows
+# helpers below because "details" round-trips through a joined-text column;
+# education and projects are plain enough that editable_seed()/compact_rows()
+# need only the field list). Shared between render_resume_form_editor() (Profile
+# view and edit_opt_dialog()) and render_optimized_draft_table() (the draft
+# table) so the two editable-grid surfaces cannot silently drift on field names.
+EXPERIENCE_ROW_FIELDS = ["company", "role", "time_duration", "company_location", "details"]
+EDUCATION_ROW_FIELDS = ["school", "time_period", "degree", "school_location"]
+PROJECT_ROW_FIELDS = ["name", "time", "description"]
+
+def experience_seed_rows(experience_list):
+    """experience list (schema shape) -> st.data_editor row dicts."""
+    rows = []
+    for exp in experience_list or []:
+        if isinstance(exp, dict):
+            rows.append({
+                "company": exp.get("company", ""),
+                "role": exp.get("role", ""),
+                "time_duration": exp.get("time_duration", ""),
+                "company_location": exp.get("company_location", ""),
+                "details": details_to_text(exp.get("details", [])),
+            })
+    return editable_seed(rows, EXPERIENCE_ROW_FIELDS)
+
+def rows_to_experience(rows):
+    """Inverse of experience_seed_rows(): st.data_editor rows -> experience list."""
+    experience = []
+    for row in compact_rows(rows, EXPERIENCE_ROW_FIELDS):
+        experience.append({
+            "company": row["company"],
+            "role": row["role"],
+            "time_duration": row["time_duration"],
+            "company_location": row["company_location"],
+            "details": text_to_details(row["details"]),
+        })
+    return experience
+
 def render_resume_form_editor(data, key_prefix):
     data = json.loads(json.dumps(data or {}, ensure_ascii=False))
     heading = data.get("heading") if isinstance(data.get("heading"), dict) else {}
@@ -333,7 +412,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Education")
         education_rows = st.data_editor(
-            editable_seed(data.get("education", []), ["school", "time_period", "degree", "school_location"]),
+            editable_seed(data.get("education", []), EDUCATION_ROW_FIELDS),
             key=f"{key_prefix}_education",
             num_rows="dynamic",
             hide_index=True,
@@ -346,17 +425,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    exp_seed = []
-    for exp in data.get("experience", []) or []:
-        if isinstance(exp, dict):
-            exp_seed.append({
-                "company": exp.get("company", ""),
-                "role": exp.get("role", ""),
-                "time_duration": exp.get("time_duration", ""),
-                "company_location": exp.get("company_location", ""),
-                "details": details_to_text(exp.get("details", [])),
-            })
-    exp_seed = editable_seed(exp_seed, ["company", "role", "time_duration", "company_location", "details"])
+    exp_seed = experience_seed_rows(data.get("experience", []))
     with st.container(border=True):
         st.subheader("Experience")
         experience_rows = st.data_editor(
@@ -377,7 +446,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Projects")
         project_rows = st.data_editor(
-            editable_seed(data.get("projects", []), ["name", "time", "description"]),
+            editable_seed(data.get("projects", []), PROJECT_ROW_FIELDS),
             key=f"{key_prefix}_projects",
             num_rows="dynamic",
             hide_index=True,
@@ -419,15 +488,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    experience = []
-    for row in compact_rows(experience_rows, ["company", "role", "time_duration", "company_location", "details"]):
-        experience.append({
-            "company": row["company"],
-            "role": row["role"],
-            "time_duration": row["time_duration"],
-            "company_location": row["company_location"],
-            "details": text_to_details(row["details"]),
-        })
+    experience = rows_to_experience(experience_rows)
 
     return {
         **data,
@@ -443,9 +504,9 @@ def render_resume_form_editor(data, key_prefix):
         "cover_letter": cover_letter,
         "about me more": about_more,
         "summary": summary,
-        "education": compact_rows(education_rows, ["school", "time_period", "degree", "school_location"]),
+        "education": compact_rows(education_rows, EDUCATION_ROW_FIELDS),
         "experience": experience,
-        "projects": compact_rows(project_rows, ["name", "time", "description"]),
+        "projects": compact_rows(project_rows, PROJECT_ROW_FIELDS),
         "patents": compact_rows(patent_rows, ["name", "time", "description"]),
         "skills": rows_to_skills(skill_rows),
     }
@@ -474,7 +535,7 @@ def sync_application_to_tracker():
     st.session_state.tracked_application_id = st.session_state.optimized_resume_data.get('target_company') or "recorded"
     st.session_state.pending_toast = "Recorded to tracker."
     # render_preview 是 @st.fragment。"Saved to tracker" 那格進度在
-    # render_generator_panel()，在 fragment 之外，不會跟著 fragment-scoped
+    # render_floating_progress()，在 fragment 之外，不會跟著 fragment-scoped
     # rerun 更新——使用者得再點別的東西才看得到。跟 render_export_settings
     # 同樣的作法：app-scope st.rerun()（預設值 scope="app"）逼出全頁重繪。
     st.rerun()
@@ -639,6 +700,15 @@ def escape_latex_chars(obj):
         return {k: escape_latex_chars(v) for k, v in obj.items()}
     return obj
 
+def template_file_for(template_label):
+    """Map the Template selectbox's label to its .tex file.
+
+    Shared by render_export_settings() (the real export, left column) and
+    render_preview()'s cached base-resume preview (right column) so the two
+    can never silently drift apart on what "Tech" / "Business" resolve to.
+    """
+    return "main.tex" if "Tech" in template_label else "elsa_main.tex"
+
 def generate_preview_pdf_bytes(data, template_name, block_order):
     try:
         escaped_data = escape_latex_chars(data)
@@ -668,6 +738,72 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
     except Exception as e:
         st.error(f"Resume PDF generation error: {e}")
     return None
+
+class PreviewCompileFailed(Exception):
+    """Raised by base_preview_pdf() on a failed compile - see its docstring.
+
+    Never meant to reach a user; render_preview() catches it right where it
+    calls base_preview_pdf() and shows the same "Preview unavailable" message
+    a returned None used to produce.
+    """
+
+@st.cache_data(show_spinner="Compiling your resume preview...", max_entries=8)
+def base_preview_pdf(snapshot, template_name, block_order):
+    """Base 履歷的預覽。
+
+    以 snapshot 字串當 key，履歷沒變就不會重新編譯。lualatex 要跑好幾秒，
+    每次 rerun 都編譯一次會讓整個 app 失去反應。
+
+    show_spinner carries a real message, not False: a genuine first-time
+    compile (a cache miss) used to run for several seconds with no visible
+    indication at all - a gap Task 2 flagged rather than caused (the design
+    doc's own spec asked for show_spinner=False; closing the gap it left is
+    this task's job). st.cache_data's own show_spinner mechanism is
+    hit/miss-aware at the framework level, confirmed by reading
+    streamlit/runtime/caching/cache_utils.py's
+    CachedFunc._get_or_create_cached_value(): a cache hit returns via
+    _handle_cache_hit() and never even constructs the spinner context
+    manager, which only wraps the miss path's _handle_cache_miss() call.
+    st.spinner() itself additionally debounces via a 0.5s timer
+    (elements/spinner.py's DELAY_SECS) that gets cancelled before enqueueing
+    anything if the wrapped call finishes first. Both together mean a cache
+    hit stays completely silent and instant with zero custom bookkeeping
+    here, and only a genuine multi-second compile ever shows anything -
+    exactly the contract this task asks for, without reimplementing that
+    hit/miss + debounce logic by hand. Styled via the .stCacheSpinner hook in
+    the stylesheet to carry the app's brand colour instead of Streamlit's
+    default, so it reads as part of the same visual language as the rest of
+    this redesign rather than a generic system spinner.
+
+    `block_order` must be a tuple, not a list, from the caller: lists are not
+    hashable, and st.cache_data hashes every argument to build the cache key.
+    generate_preview_pdf_bytes only ever iterates/truth-tests it, so a tuple
+    works there unchanged, but it's converted back to a list anyway to keep
+    that function's contract (a list) exactly as it was before this wrapper
+    existed.
+
+    Raises PreviewCompileFailed instead of returning None on a failed
+    compile (UI final-review fix wave, Minor 9): generate_preview_pdf_bytes()
+    returns None on a LaTeX failure, and a plain `return None` here would
+    cache that None under this call's (snapshot, template_name, block_order)
+    key exactly like any other result, so a transient lualatex failure would
+    stick until one of those three changed. st.cache_data only writes a
+    result to the cache after this function returns (confirmed by reading
+    streamlit==1.61.1's own runtime/caching/cache_utils.py -
+    CachedFunc._handle_cache_miss() calls cache.write_result() only after
+    self._info.func(...) returns, with nothing catching an exception raised
+    from that call in between - and empirically: a cache_data-wrapped
+    function made to raise on every call was confirmed to re-run on every
+    call, not just the first), so raising instead of returning means a later
+    call with the very same arguments retries the compile instead of
+    replaying the old failure. The error itself was already shown via
+    st.error/st.code inside generate_preview_pdf_bytes() above; this only
+    keeps that failure from being remembered.
+    """
+    pdf_bytes = generate_preview_pdf_bytes(json.loads(snapshot), template_name, list(block_order))
+    if pdf_bytes is None:
+        raise PreviewCompileFailed()
+    return pdf_bytes
 
 def generate_cover_letter_pdf_bytes(data):
     try:
@@ -738,6 +874,20 @@ if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
     del st.session_state.pending_toast
 
+# UI final-review fix wave, Important 1 + Minor 7: the floating progress bar
+# (#gp-floating-progress, further down) renders only on the Generator view
+# (render_floating_progress()'s own guard), so only Generator's copy of the
+# shared stMainBlockContainer rule below needs the extra headroom that clears
+# it - see the comment on that rule for the arithmetic and for why this is a
+# container-wide padding rather than a spacer element. st.session_state.active_view
+# is already set by this point (session init near the top of this file), and
+# every nav click that changes it calls st.rerun() before any more render
+# code runs, so this always reflects the view actually being drawn this run,
+# regardless of where in the script it is read from.
+main_container_padding_top = (
+    "9.5rem" if st.session_state.active_view == workspace.GENERATOR else "3.25rem"
+)
+
 # Lightweight visual system: native CSS only, no UI/animation framework.
 st.markdown("<style>\n" + css_root_block() + """
 
@@ -750,9 +900,60 @@ st.markdown("<style>\n" + css_root_block() + """
     /* Renamed from .main .block-container; the old selector matched nothing
        after the 1.6x DOM change, so the width cap was silently not applied. */
     [data-testid="stMainBlockContainer"] {
-        padding-top: 3.25rem;
-        padding-bottom: 3rem;
+        /* Base value: 3.25rem, same as before the floating progress bar
+           existed. This is what Career Profile and Tracker actually render
+           with - neither ever shows the bar, so neither needs more.
+
+           Generator needs more (see main_container_padding_top, computed in
+           Python just above this block, before this string is built): the
+           bar sits at top:calc(3.75rem + 0.75rem) and is roughly 4.3rem
+           tall, so content must not start before about
+           3.75 + 0.75 + 4.3 + 0.75 = 9.55rem from the viewport top - close
+           enough to treat as 9.5rem given "roughly 4.3rem tall" is already
+           an approximation. (A previous version of this rule derived that
+           same 9.55rem here and then wrote 6.5rem below it - the bug an
+           earlier review round found and this comment now guards against
+           recurring.)
+
+           This has to stay a padding-top on the whole container, not a
+           spacer element scoped to the Generator branch: render_result_banner()
+           (below) runs before the per-view dispatch, so on the Generator view
+           it can render at the very top of this same container, ahead of
+           anything a spacer placed inside the Generator branch could push
+           down. A container-wide padding-top clears it too, regardless of
+           render order - which is also why the Generator-vs-not decision has
+           to happen in Python before this string is built, rather than
+           through some DOM-order-dependent trick. */
+        padding-top: """ + main_container_padding_top + """;
+        /* Task 4 density pass: 3rem -> 2rem. padding-top is untouched - it is
+           pinned to the headroom arithmetic explained above and guarded by
+           tests/test_floating_progress.py's
+           test_main_container_padding_is_pinned (the Generator value) and
+           tests/test_app_smoke.py's test_density_pass_css_values_are_pinned
+           (the shared base value). */
+        padding-bottom: 2rem;
         max-width: 1320px;
+    }
+
+    /* Task 4 density pass ("畫面太空白" / 全域縮小間距與內邊距, design doc):
+       Streamlit's default gap between stacked/side-by-side elements is 1rem
+       ("small", the gap= default streamlit.elements.layouts documents for
+       every st.container/st.columns call in this file - confirmed by
+       reading that module's docstring directly). Tightened once here rather
+       than passing gap= to every one of this file's container/columns call
+       sites individually. Applies to every view, not just Generator: this
+       selector is not scoped to any single container, so it also tightens
+       Career Profile's stacked form cards and Tracker's dashboard, matching
+       the "touches every view" scope of this pass. !important for the same
+       reason several rules below already needed it - no local way to check
+       whether Streamlit's own gap styling is inline or class-based in this
+       version, so this beats either. */
+    [data-testid="stVerticalBlock"] {
+        gap: 0.6rem !important;
+    }
+
+    [data-testid="stHorizontalBlock"] {
+        gap: 0.75rem !important;
     }
 
     [data-testid="stSidebar"] {
@@ -767,9 +968,33 @@ st.markdown("<style>\n" + css_root_block() + """
         margin-bottom: 0.35rem;
     }
 
-    h1, h2, h3, h4 {
+    /* Task 4 density pass, corrected in the UI final-review fix wave
+       (Important 3): a bare `h1, h2, h3, h4 { margin-top/bottom }` selector
+       never applied. Confirmed by grepping the shipped streamlit==1.61.1
+       bundle (StreamlitMarkdown.<hash>.js): Streamlit puts its own
+       "h1, h2, h3, h4, h5, h6": {margin: 0} rule on an emotion class on the
+       stMarkdownContainer div nested inside stHeading, i.e. a compound
+       selector like `.cssHash h1` at specificity (0,1,1) - which always beat
+       a bare `h1` at (0,0,1), so the margin-top/bottom below were dead code.
+       Worse, Streamlit's own heading spacing is padding, not margin (same
+       bundle: h1 padding is spacing.xl 0 spacing.lg 0, h2 is lg 0 lg 0, h3 is
+       md 0 lg 0, h4 is sm 0 lg 0) - so even a winning margin rule would have
+       ADDED space on top of that padding instead of tightening it.
+       [data-testid="stHeading"] h1 matches Streamlit's own (0,1,1)
+       specificity exactly (an attribute selector counts the same as a class),
+       so plain cascade order (this stylesheet renders after Streamlit's own
+       initial styles) should be enough on its own - but unlike Streamlit's
+       base styles, which load once up front, this order isn't guaranteed the
+       same way for every rerun, so !important removes the "should" the same
+       way the two gap rules above already do. */
+    [data-testid="stHeading"] h1,
+    [data-testid="stHeading"] h2,
+    [data-testid="stHeading"] h3,
+    [data-testid="stHeading"] h4 {
         color: var(--text);
         letter-spacing: 0;
+        padding-top: 0.3rem !important;
+        padding-bottom: 0.4rem !important;
     }
 
     p, label, [data-testid="stCaptionContainer"] {
@@ -850,21 +1075,40 @@ st.markdown("<style>\n" + css_root_block() + """
 
     hr {
         border-color: var(--border);
-        margin: 1.1rem 0;
+        /* Task 4 density pass: 1.1rem -> 0.75rem. */
+        margin: 0.75rem 0;
     }
 
     [data-testid="stAlert"] {
         border-radius: var(--radius);
         border: 1px solid var(--border);
         box-shadow: var(--shadow-sm);
+        /* Task 4 density pass: previously unset (Streamlit's own default);
+           set explicitly, matching the tightened stMetric padding below. */
+        padding: 0.75rem 1rem;
     }
 
     [data-testid="stMetric"] {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        padding: 0.85rem 1rem;
+        /* Task 4 density pass: 0.85rem 1rem -> 0.6rem 0.85rem. */
+        padding: 0.6rem 0.85rem;
         box-shadow: var(--shadow-sm);
+    }
+
+    /* base_preview_pdf's show_spinner (app.py, near generate_preview_pdf_bytes)
+       only ever fires on a genuine cache miss - see that function's own
+       docstring for why. .stCacheSpinner is the class Streamlit adds only to
+       a cache-triggered spinner (the `cache=True` prop on its Spinner proto,
+       confirmed by reading the frontend's Spinner component source), so this
+       cannot also restyle the unrelated "Generating..." spinner in
+       render_export_settings() - deliberately: that one is out of scope for
+       this task. Brand colour cascades to the icon via `color: inherit`
+       (confirmed by reading DynamicIcon's source), so one rule recolours
+       both the icon and the text. */
+    [data-testid="stSpinner"].stCacheSpinner {
+        color: var(--brand) !important;
     }
 
     /* Blue while an AI call is in flight, green once it lands (below). Both use
@@ -920,6 +1164,136 @@ st.markdown("<style>\n" + css_root_block() + """
     @media (max-width: 900px) {
         #small-screen-notice { display: block; }
     }
+
+    /* Floating progress bar - rendered only on the Generator view, by
+       render_floating_progress() below. Self-contained SVG + keyframes under
+       our own #gp-/.gp- names; nothing here targets a Streamlit-internal
+       class, so a platform upgrade cannot break it the way the old
+       ".main .block-container" selector above once did. The headroom this
+       needs is reserved on the shared stMainBlockContainer rule above, not
+       here - see the comment on that rule for why. */
+    #gp-floating-progress {
+        position: fixed;
+        /* Streamlit's real toolbar height is 3.75rem (theme.sizes.headerHeight
+           in the streamlit==1.61.1 frontend bundle - confirmed by grepping the
+           shipped JS: the header's own styled-component sets
+           height/minHeight:e.sizes.headerHeight, and Streamlit's own toast
+           container docks fixed elements at top:e.sizes.headerHeight, the
+           same pattern used here. 2.875rem is a different constant
+           (fullScreenHeaderHeight) used only for an individual element's
+           fullscreen view, not the app toolbar - using it would sit this bar
+           under the toolbar instead of below it. */
+        top: calc(3.75rem + 0.75rem);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.55rem 1.5rem 0.65rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        box-shadow: var(--shadow-md);
+    }
+
+    .gp-track {
+        position: relative;
+        width: 240px;
+        height: 26px;
+    }
+
+    .gp-track::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 2px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--border);
+    }
+
+    .gp-track-fill {
+        position: absolute;
+        left: 0;
+        bottom: 2px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--brand);
+        transition: width 420ms ease-in-out;
+    }
+
+    .gp-stop {
+        position: absolute;
+        bottom: 0;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--surface);
+        border: 2px solid var(--muted);
+        transform: translateX(-50%);
+    }
+
+    .gp-stop-done {
+        border-color: var(--success);
+        background: var(--success);
+    }
+
+    .gp-walker-wrap {
+        position: absolute;
+        bottom: 4px;
+        transform: translateX(-50%);
+        /* Advancing a stage glides the walker to its new stop instead of
+           jumping - the state-driven counterpart to the old demo, which
+           looped through all four stops on a timer instead of on progress. */
+        transition: left 420ms ease-in-out;
+    }
+
+    .gp-walker {
+        display: block;
+        width: 20px;
+        height: 24px;
+    }
+
+    .gp-label {
+        font-size: 0.75rem;
+        font-weight: 650;
+        color: var(--muted);
+        white-space: nowrap;
+    }
+
+    /* Compact generation-status panel (ui_feedback.run_ai_call, Task 4): the
+       same .gp-walker figure from the floating bar above, marching in place
+       (no `left` to drive here - a single blocking call has no horizontal
+       "progress" of its own) beside the current milestone message. Reuses
+       .gp-walker/.gp-bob/.gp-legs/.gp-legs2 and their keyframes as-is; this
+       is only the row layout that did not exist yet. */
+    .gp-status-line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .gp-status-line .gp-walker {
+        flex: none;
+    }
+
+    .gp-status-line span {
+        color: var(--text);
+        font-size: 0.92rem;
+    }
+
+    /* Walk cycle: two leg groups alternate via steps(), plus a slight bob.
+       This keeps looping regardless of the walker's (state-driven) position -
+       only `left` above is ever driven from Python. */
+    .gp-bob { animation: gpbob .42s ease-in-out infinite alternate; }
+    .gp-legs  { animation: gpstep  .42s steps(2,end) infinite; }
+    .gp-legs2 { animation: gpstep2 .42s steps(2,end) infinite; }
+    @keyframes gpstep  { 0%{opacity:1} 50%{opacity:0} }
+    @keyframes gpstep2 { 0%{opacity:0} 50%{opacity:1} }
+    @keyframes gpbob   { from{transform:translateY(0)} to{transform:translateY(-1.5px)} }
 </style>""", unsafe_allow_html=True)
 
 st.markdown(
@@ -1129,8 +1503,54 @@ if active_view == workspace.PROFILE:      # 原 "Source"
                 except json.JSONDecodeError as e:
                     st.error(f"Source JSON is invalid: {e}")
 
+def render_quick_stats():
+    """Quick-stat cards filling the whitespace above Source of Truth.
+
+    Each card is only shown when a real number backs it - nothing here is a
+    fabricated placeholder:
+    - Experience Entries reads st.session_state.resume_data, which always
+      exists (session init at the top of this file), so it is always shown -
+      including a genuine 0 for an empty profile, which is an accurate count,
+      not an invented one.
+    - Latest ATS Score needs an actual scored optimize run
+      (st.session_state.ats_metrics); omitted entirely when that is None
+      rather than shown as a fake 0%.
+    - Applications Recorded reads st.session_state.app_records, which
+      firebase_dashboard.fetch_applications() populates only after a Tracker
+      visit has already fetched it this session. Deliberately NOT fetched
+      from here (no get_db()/fetch_applications() call in this function): a
+      "quick" stats row at the top of Generator is not the place to trigger a
+      new Firestore round-trip on every render, so this card simply reflects
+      whatever is already in session_state, per the task's own framing
+      ("numbers already available in session state"). Logged-out sessions
+      never populate app_records, so the card is naturally absent, not a
+      misleading 0 - satisfying the same rule without a special-cased check.
+    """
+    experience_count = len((st.session_state.resume_data or {}).get("experience") or [])
+    cards = [("Experience Entries", str(experience_count), "Roles in your base Career Profile")]
+
+    metrics = st.session_state.get("ats_metrics")
+    if metrics and metrics.get("total"):
+        cards.append((
+            "Latest ATS Score",
+            f"{metrics['optimized_pct']}%",
+            "Keyword match rate from the most recent Optimize run",
+        ))
+
+    if st.session_state.get("logged_in") and "app_records" in st.session_state:
+        cards.append((
+            "Applications Recorded",
+            str(len(st.session_state.app_records or [])),
+            "Tracked in your application pipeline",
+        ))
+
+    for col, (label, value, help_text) in zip(st.columns(len(cards)), cards):
+        col.metric(label, value, help=help_text)
+
 def render_generator_workspace():
-    """Generator 的左欄：資料來源、JD、策略、優化按鈕。"""
+    """Generator 的左欄：頂部快速統計、資料來源、JD、策略、優化按鈕、可直接編輯的
+    draft table，以及底部的匯出設定與 ATS 分析。"""
+    render_quick_stats()
     with st.container(border=True):
         st.markdown("**Source of Truth**")
         data = st.session_state.resume_data
@@ -1152,7 +1572,7 @@ def render_generator_workspace():
     jd = st.text_area(
         "Job description",
         value=st.session_state.jd_text,
-        height=260,
+        height=140,
         key=f"jd_input_{st.session_state.base_editor_key}",
         placeholder="Paste the job description here...",
     )
@@ -1230,6 +1650,7 @@ def render_generator_workspace():
     if st.session_state.optimized_resume_data:
         if optimized_result_is_stale():
             st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
+        render_optimized_draft_table()
         # The dialog stays outside the fragment: editing the resume has to
         # propagate to the whole script, not just this box.
         if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
@@ -1256,6 +1677,10 @@ def render_generator_workspace():
                         st.session_state.ats_metrics = ai.keyword_report(
                             keywords, st.session_state.resume_data, optimized
                         ) if keywords else None
+                        # Wholesale replacement: the draft table's widgets are keyed
+                        # off opt_editor_key so they reseed from the freshly imported
+                        # data instead of writing back whatever they last held.
+                        st.session_state.opt_editor_key += 1
                         st.session_state.pending_toast = "Manual result applied."
                         st.rerun()
                 except Exception as e:
@@ -1275,10 +1700,195 @@ def render_generator_workspace():
                     st.session_state.changelog = ""
                     st.session_state.optimized_source_snapshot = None
                     clear_pdf_outputs_and_tracking()
+                    # Same reason as Manual Result Import above: force the draft
+                    # table to reseed from this import instead of the previous data.
+                    st.session_state.opt_editor_key += 1
                     st.toast("Manual data applied.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Invalid JSON: {e}")
+
+    # 右欄現在只剩 PDF 本身 (render_preview)，匯出設定與 ATS 分析改放在左欄底部。
+    render_export_settings()
+
+    st.markdown("**ATS Analysis**")
+    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
+    if st.session_state.optimized_resume_data:
+        render_ats_analysis()
+    else:
+        st.caption("Optimize a resume to see how it scores against the job description.")
+
+def render_optimized_draft_table():
+    """The optimized result as a directly-editable table. Called only once
+    st.session_state.optimized_resume_data exists (guarded by the caller,
+    render_generator_workspace()).
+
+    Auto-saves into st.session_state.optimized_resume_data on every rerun -
+    st.data_editor's return value already reflects the latest edit on the
+    very rerun it happens, so there is no separate Save button, the same
+    pattern render_resume_form_editor() already uses for the base profile in
+    Profile view.
+
+    Field scope follows the task literally: target company/role/summary as
+    labelled inputs above the table (three unrelated scalars read worse as a
+    one-row grid than as normal fields), and experience/education/projects/
+    skills as st.data_editor grids - the resume's genuinely tabular parts.
+    Heading, cover letter, the "about me" notes and patents are NOT part of
+    this table; they stay reachable only through Edit Optimized JSON below
+    (edit_opt_dialog(), unchanged, still not gated behind
+    show_advanced_tools - see tests/test_tracker_guard.py's
+    test_advanced_optimized_json_import_resets_tracked_application_id, which
+    depends on that button always being visible). This table is an
+    additional, friendlier surface, not a replacement for the dialog. Any key
+    this table does not manage (patents, heading, ...) passes through
+    unchanged via **current below, so a manually-imported JSON's fields are
+    never silently dropped just because this table has no column for them.
+
+    Change detection compares the widgets' output (`updated`) against a
+    `baseline` built by running the *unedited* seed data through the exact
+    same seed -> data_editor -> compact-rows pipeline, rather than against
+    `current` (the raw pre-conversion dict) directly. The pipeline is not a
+    lossless round trip on its own - skills_to_rows()/rows_to_skills() in
+    particular normalises a missing or empty "skills" dict into a non-empty
+    default ({"set1": {"title": "Skills", "items": []}}) even with zero user
+    edits. Comparing against raw `current` would treat that normalisation
+    alone as an "edit" on the very first render after every optimize/import,
+    wiping resume_preview_bytes/resume_dl_data (clear_pdf_outputs() below)
+    before the user ever downloaded anything from the new result - confirmed
+    against tests/test_tracker_guard.py's download-button tests, several of
+    which set a sparse optimized_resume_data (e.g. only "target_company")
+    alongside pre-set resume_dl_data and assert the download button is still
+    there. Comparing two values produced by the *same* pipeline cancels that
+    normalisation noise out and leaves only genuine widget-level edits.
+    """
+    current = st.session_state.optimized_resume_data or {}
+    # Manual Data Import, Manual Result Import and Advanced Optimized JSON
+    # Import all accept arbitrary pasted JSON with no shape validation, so
+    # optimized_resume_data can be a list, string, number, etc. instead of an
+    # object - current.get(...) a few lines down would crash the whole
+    # Generator view over it. Coerce to {} so the table below just renders
+    # itself empty instead (compact_rows() above is the matching per-row
+    # guard for the fields that are objects but whose own contents are not).
+    if not isinstance(current, dict):
+        current = {}
+    ekey = st.session_state.opt_editor_key
+
+    with st.container(border=True):
+        st.markdown("**Optimized Draft**")
+        st.caption(
+            "Edit any cell in place - changes save automatically and feed the next "
+            "Generate PDF. For every other field (heading, cover letter, patents, "
+            "...), use Edit Optimized JSON below."
+        )
+
+        c1, c2 = st.columns(2)
+        with c1:
+            target_company = st.text_input(
+                "Target Company", value=current.get("target_company", ""), key=f"draft_company_{ekey}"
+            )
+        with c2:
+            target_role = st.text_input(
+                "Target Role", value=current.get("target_role", ""), key=f"draft_role_{ekey}"
+            )
+        summary = st.text_area(
+            "Summary", value=current.get("summary", ""), height=100, key=f"draft_summary_{ekey}"
+        )
+
+        st.caption("Experience")
+        exp_seed = experience_seed_rows(current.get("experience"))
+        experience_rows = st.data_editor(
+            exp_seed,
+            key=f"draft_experience_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "company": st.column_config.TextColumn("Company"),
+                "role": st.column_config.TextColumn("Role"),
+                "time_duration": st.column_config.TextColumn("Duration"),
+                "company_location": st.column_config.TextColumn("Location"),
+                "details": st.column_config.TextColumn("Bullets (one per line)", width="large"),
+            },
+        )
+
+        st.caption("Education")
+        education_seed = editable_seed(current.get("education", []), EDUCATION_ROW_FIELDS)
+        education_rows = st.data_editor(
+            education_seed,
+            key=f"draft_education_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "school": st.column_config.TextColumn("School"),
+                "time_period": st.column_config.TextColumn("Time Period"),
+                "degree": st.column_config.TextColumn("Degree"),
+                "school_location": st.column_config.TextColumn("Location"),
+            },
+        )
+
+        st.caption("Projects")
+        projects_seed = editable_seed(current.get("projects", []), PROJECT_ROW_FIELDS)
+        project_rows = st.data_editor(
+            projects_seed,
+            key=f"draft_projects_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "name": st.column_config.TextColumn("Name"),
+                "time": st.column_config.TextColumn("Time"),
+                "description": st.column_config.TextColumn("Description", width="large"),
+            },
+        )
+
+        st.caption("Skills")
+        skills_seed = skills_to_rows(current.get("skills", {}))
+        skill_rows = st.data_editor(
+            skills_seed,
+            key=f"draft_skills_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "key": st.column_config.TextColumn("Set Key"),
+                "title": st.column_config.TextColumn("Category"),
+                "items": st.column_config.TextColumn("Items (comma separated)", width="large"),
+            },
+        )
+
+    updated = {
+        **current,
+        "target_company": target_company,
+        "target_role": target_role,
+        "summary": summary,
+        "experience": rows_to_experience(experience_rows),
+        "education": compact_rows(education_rows, EDUCATION_ROW_FIELDS),
+        "projects": compact_rows(project_rows, PROJECT_ROW_FIELDS),
+        "skills": rows_to_skills(skill_rows),
+    }
+    baseline = {
+        **current,
+        "target_company": current.get("target_company", ""),
+        "target_role": current.get("target_role", ""),
+        "summary": current.get("summary", ""),
+        "experience": rows_to_experience(exp_seed),
+        "education": compact_rows(education_seed, EDUCATION_ROW_FIELDS),
+        "projects": compact_rows(projects_seed, PROJECT_ROW_FIELDS),
+        "skills": rows_to_skills(skills_seed),
+    }
+    if resume_snapshot(updated) != resume_snapshot(baseline):
+        st.session_state.optimized_resume_data = updated
+        # Same call as edit_opt_dialog()'s Save Changes handler -
+        # clear_pdf_outputs(), NOT clear_pdf_outputs_and_tracking(): editing
+        # the current result in place is still the same application, not a
+        # new one, so tracked_application_id must not reset here (see
+        # clear_pdf_outputs_and_tracking()'s own docstring for the dedupe
+        # guard this protects). optimized_source_snapshot is also untouched -
+        # it snapshots resume_data (the base profile) at optimize time, not
+        # optimized_resume_data, so optimized_result_is_stale() (which only
+        # compares those two) is unaffected by draft-table edits either way.
+        clear_pdf_outputs()
 
 @st.dialog("Edit Optimized Data", width="large")
 def edit_opt_dialog():
@@ -1308,7 +1918,7 @@ def edit_opt_dialog():
                 st.error(f"Optimized JSON is invalid: {e}")
 
 def render_ats_analysis():
-    """ATS 分頁的內容；呼叫端已確認有優化結果。"""
+    """ATS 分析區塊的內容（左欄底部）；呼叫端已確認有優化結果。"""
     if st.session_state.changelog:
         st.markdown("### Optimization Changelog")
         st.info(st.session_state.changelog)
@@ -1346,6 +1956,11 @@ def render_ats_analysis():
     elif m is None:
         st.info("No keyword list was available for this result, so coverage was not scored.")
 
+# Shared between render_export_settings() (left column) and render_preview()'s
+# cached base-resume preview (right column) - two different @st.fragments that
+# both need the same durable list of section names.
+BLOCK_ORDER_OPTIONS = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
+
 @st.fragment
 def render_export_settings():
     """Template and section order.
@@ -1353,13 +1968,19 @@ def render_export_settings():
     Kept in its own fragment, separate from the preview: fiddling with the
     template or the section order is the most common interaction here, and it
     previously reran all ~1200 lines and re-encoded the whole PDF into the
-    preview iframe every time.
+    preview iframe every time. Now lives at the bottom of the left column; the
+    preview it feeds (render_preview) is a sibling fragment in the right
+    column - see the app-scope st.rerun() below for why that still works
+    across the column boundary.
     """
     with st.container(border=True):
         st.subheader("Export Settings")
         st.caption("Select your preferred template and section order, then generate the final PDFs.")
         tmpl = st.selectbox("Template", ["Tech", "Business"], key="tm")
-        order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
+        # Keyed (previously wasn't) so render_preview() - a different fragment,
+        # in the right column - can read the current order to build the cache
+        # key for the base-resume preview.
+        order = st.multiselect("Order", BLOCK_ORDER_OPTIONS, default=BLOCK_ORDER_OPTIONS, key="export_order")
         if st.button(
             "Generate PDF",
             type="primary",
@@ -1374,7 +1995,7 @@ def render_export_settings():
                     co = safe_filename_part(d.get('target_company'), 'Company')
                     ro = safe_filename_part(d.get('target_role'), 'Role')
                     clear_pdf_outputs()
-                    rb = generate_preview_pdf_bytes(d, "main.tex" if "Tech" in tmpl else "elsa_main.tex", order)
+                    rb = generate_preview_pdf_bytes(d, template_file_for(tmpl), order)
                     if rb:
                         st.session_state.resume_preview_bytes = rb
                         # 統一檔名格式 (由使用者要求)
@@ -1394,11 +2015,31 @@ def render_export_settings():
 
 @st.fragment
 def render_preview():
-    st.subheader("Preview")
-    if st.session_state.resume_preview_bytes or st.session_state.cover_letter_preview_bytes:
-        ch = st.radio("Target", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed", key="tr")
-        target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
-        dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
+    """Generator 的右欄：只剩 PDF 本身，加左上角切換與右上角下載，不再有分頁。
+
+    優化結果的真實預覽 (resume_preview_bytes / cover_letter_preview_bytes) 一律
+    優先；在那之前，Resume 這一側改顯示 base 履歷的快取預覽 (base_preview_pdf)，
+    讓使用者一進 Generator 右欄就有東西可看，而不是空白一片。Cover Letter 在
+    真正 Generate PDF 之前沒有對應的 base 版本可顯示——這點只有 Resume 有，
+    設計文件裡也只針對 base 履歷本身要求快取。
+    """
+    top_left, top_right = st.columns([2, 3])
+    with top_left:
+        # required=True: 跟舊的 st.radio 一樣永遠恰好選一個，使用者點擊目前
+        # 已選的那個不會把它取消選取（st.segmented_control 預設允許取消選取）。
+        ch = st.segmented_control(
+            "Target",
+            ["Resume", "Cover Letter"],
+            default="Resume",
+            required=True,
+            label_visibility="collapsed",
+            key="tr",
+        )
+
+    target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
+    dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
+
+    with top_right:
         if dl:
             downloaded = st.download_button(
                 f"Download {dl['name']}",
@@ -1418,48 +2059,148 @@ def render_preview():
             # does — from ordinary fragment-body code, not from a callback.
             if downloaded:
                 sync_application_to_tracker()
+
+    if target:
         # Checking the layout only needs page one; rasterising every page on
         # each rerun was pure waste.
         all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
-        if target: render_pdf_js(target, max_pages=None if all_pages else 1)
-        else: st.info(f"The {ch} data is missing.")
-    else: st.info("Click 'Generate PDF' to see preview.")
+        render_pdf_js(target, max_pages=None if all_pages else 1)
+    elif ch == "Resume":
+        data = st.session_state.resume_data
+        if resume_is_empty(data):
+            # 未優化前的預覽必須快取，不能急切編譯 - 履歷是空的就不編譯，
+            # 直接指向 Career Profile，不要拿一份空白 PDF 浪費 lualatex。
+            st.info("Your Career Profile is empty. Build it first — every rewrite starts from it.")
+        else:
+            # `or` here would default an intentionally-cleared multiselect
+            # (export_order == []) back to the full list. render_export_settings
+            # always runs first (left column, above this in render order), so
+            # the key is only ever really absent before that first render.
+            saved_order = st.session_state.get("export_order")
+            order = tuple(saved_order if saved_order is not None else BLOCK_ORDER_OPTIONS)
+            template_label = st.session_state.get("tm") or "Tech"
+            try:
+                base_bytes = base_preview_pdf(resume_snapshot(data), template_file_for(template_label), order)
+            except PreviewCompileFailed:
+                # Same message a returned None used to produce - only the
+                # caching behaviour behind it changed (see base_preview_pdf()'s
+                # docstring, Minor 9).
+                base_bytes = None
+            if base_bytes:
+                all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
+                render_pdf_js(base_bytes, max_pages=None if all_pages else 1)
+            else:
+                st.info("Preview unavailable. Check the LaTeX log above.")
+    else:
+        st.info("Optimize your resume and generate a PDF to preview the cover letter.")
 
-def render_generator_panel():
-    """Generator 的右欄：進度、輸出設定、預覽與 ATS。"""
-    st.caption("THIS APPLICATION")
-    for label, done in workspace.application_progress(
+def render_floating_progress():
+    """Floating pill-shaped progress bar, fixed to the top-centre of the
+    viewport, for the Generator view only.
+
+    Draws the same four (label, done) stages the old vertical checklist did -
+    workspace.application_progress() still owns that logic (unit-tested in
+    tests/test_workspace.py); this function only renders it, it does not
+    re-decide what counts as "done".
+
+    The walker's horizontal position is state-driven, not looping: it rests
+    at the stop for the last-completed stage (the highest index with
+    done=True, or the first stop if nothing is done yet) and CSS transitions
+    `left` so advancing a stage glides it there rather than jumping. Only the
+    legs/bob keep animating in place - see .gp-bob/.gp-legs/.gp-legs2 in the
+    stylesheet.
+    """
+    stages = workspace.application_progress(
         jd_text=st.session_state.jd_text,
         has_optimized=st.session_state.optimized_resume_data is not None,
         has_pdf=st.session_state.resume_preview_bytes is not None,
         is_tracked=st.session_state.get("tracked_application_id") is not None,
-    ):
-        icon = "check_circle" if done else "radio_button_unchecked"
-        colour = TOKENS["success"] if done else TOKENS["muted"]
-        st.markdown(
-            f":material/{icon}: <span style='color:{colour}'>{label}</span>",
-            unsafe_allow_html=True,
+    )
+    total = len(stages)
+    done_indices = [i for i, (_, done) in enumerate(stages) if done]
+    completed = len(done_indices)
+    # Highest-index completed stage, not a running count: the two can differ
+    # if stages ever complete out of order, and "last completed stage" means
+    # the rightmost done stop, not how many are done.
+    walker_index = max(done_indices) if done_indices else 0
+
+    def stop_pct(index):
+        # Evenly spaced stops across whatever the track's actual width ends
+        # up being - a percentage needs no pixel constant shared with the
+        # stylesheet's .gp-track width.
+        return round(index * 100 / (total - 1), 3) if total > 1 else 0.0
+
+    stops_html = "".join(
+        f'<span class="gp-stop{" gp-stop-done" if done else ""}" '
+        f'style="left:{stop_pct(i)}%" title="{label}"></span>'
+        for i, (label, done) in enumerate(stages)
+    )
+
+    if completed == 0:
+        status_text = "Not started"
+    elif completed == total:
+        status_text = f"All steps complete · {completed}/{total}"
+    else:
+        status_text = f"{stages[walker_index][0]} · {completed}/{total}"
+
+    walker_left = stop_pct(walker_index)
+    # theme.walker_svg() is the one place this markup is defined - see its
+    # own docstring for why (shared with ui_feedback.run_ai_call()'s compact
+    # status panel, Task 4).
+    walker_markup = walker_svg()
+
+    st.markdown(
+        f"""<div id="gp-floating-progress" role="group" aria-label="Application progress: {status_text}">
+  <div class="gp-track">
+    <div class="gp-track-fill" style="width:{walker_left}%"></div>
+    {stops_html}
+    <div class="gp-walker-wrap" style="left:{walker_left}%">
+      {walker_markup}
+    </div>
+  </div>
+  <span class="gp-label">{status_text}</span>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+def render_panel_ratio_control():
+    """Top-right three-preset switch for the Generator view's two-column
+    split - see PANEL_RATIOS's own comment for why this exists instead of a
+    real drag handle.
+
+    Persists into st.session_state.panel_ratio (a plain key, not the
+    widget's own `panel_ratio_control`) so the choice survives a rerun where
+    this control is not drawn at all - e.g. a trip to Career Profile and
+    back - the same durable-mirror pattern render_generator_workspace()
+    already uses for the JD text area and Custom Strategy box.
+
+    required=True for the same reason the Resume/Cover Letter switch in
+    render_preview() uses it: exactly one preset must always be selected, so
+    clicking the already-selected option cannot blank the choice (segmented_
+    control allows deselecting by default).
+    """
+    _, control_col = st.columns([3, 2])
+    with control_col:
+        choice = st.segmented_control(
+            "Panel width",
+            list(PANEL_RATIOS.keys()),
+            default=st.session_state.panel_ratio,
+            required=True,
+            key="panel_ratio_control",
         )
-    st.markdown("---")
-
-    render_export_settings()
-
-    preview_tab, ats_tab = st.tabs(["Preview", "ATS"])
-    with preview_tab:
-        render_preview()
-    with ats_tab:
-        st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
-        if st.session_state.optimized_resume_data:
-            render_ats_analysis()
-        else:
-            st.caption("Optimize a resume to see how it scores against the job description.")
+    st.session_state.panel_ratio = choice
 
 if active_view == workspace.GENERATOR:
-    left, right = st.columns([6, 4])
+    render_floating_progress()
+    render_panel_ratio_control()
+    ratio = PANEL_RATIOS.get(st.session_state.panel_ratio, PANEL_RATIOS["Even"])
+    left, right = st.columns(ratio)
     with left:
         render_generator_workspace()
     with right:
-        render_generator_panel()
+        # 右欄現在只有 render_preview() 自己：切換、下載、PDF 本身，沒有分頁。
+        # 進度已移至頂端懸浮 bar；輸出設定與 ATS 已移進左欄底部。
+        render_preview()
 
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
