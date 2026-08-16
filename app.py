@@ -1569,15 +1569,35 @@ st.markdown("<style>\n" + css_root_block() + """
        block). The live drag width is set as inline styles by that
        function's injected script directly on the two stColumn elements,
        not through this class. */
+    /* The handle is absolutely positioned so it consumes NO flex space.
+       It used to be `flex: 0 0 auto` - an ordinary flex child - which broke
+       the layout outright: Streamlit's stHorizontalBlock is `flex-wrap: wrap`
+       with a 12px gap, and the two columns are sized to sum to exactly 100%,
+       so adding an 8px child plus a second 12px gap overflowed the row and
+       wrapped the preview column onto its own line *below* the workspace.
+       Measured in a browser before the fix: row 969px wide vs 978px of
+       children, preview column's top 1266px below the workspace column's -
+       which is exactly the "預覽全部都在左邊" the owner reported.
+
+       Out of flow, the handle can never overflow the row again. The row gets
+       `position: relative` to anchor it, and `flex-wrap: nowrap` as a second
+       guard so a future stray child cannot reintroduce the same wrap. */
+    [data-testid="stHorizontalBlock"]:has(> .gp-split-handle) {
+        position: relative;
+        flex-wrap: nowrap !important;
+    }
+
     .gp-split-handle {
-        flex: 0 0 auto;
-        align-self: stretch;
+        position: absolute;
+        top: 0;
+        bottom: 0;
         width: 8px;
-        margin: 0 -0.25rem;
+        margin-left: -4px;
         border-radius: 999px;
         background: var(--border);
         cursor: col-resize;
         touch-action: none;
+        z-index: 2;
         transition: background-color var(--ease);
     }
 
@@ -2748,12 +2768,21 @@ def render_generator_splitter():
     return { row: row, left: left, right: right };
   }
 
-  function applyRatio(left, right, pct) {
+  // GAP_PX must match stHorizontalBlock's own `gap`. With the handle out of
+  // flow the row has exactly two flex children and therefore one gap, so the
+  // columns have to sum to (100% - GAP_PX) or the row overflows and wraps -
+  // which is the bug this whole arrangement exists to avoid. Splitting the
+  // gap evenly keeps the handle centred on the true boundary.
+  var GAP_PX = 12;
+
+  function applyRatio(left, right, pct, handle) {
     var rightPct = 100 - pct;
-    left.style.flex = "0 0 " + pct + "%";
-    left.style.maxWidth = pct + "%";
-    right.style.flex = "0 0 " + rightPct + "%";
-    right.style.maxWidth = rightPct + "%";
+    var half = GAP_PX / 2;
+    left.style.flex = "0 0 calc(" + pct + "% - " + half + "px)";
+    left.style.maxWidth = "calc(" + pct + "% - " + half + "px)";
+    right.style.flex = "0 0 calc(" + rightPct + "% - " + half + "px)";
+    right.style.maxWidth = "calc(" + rightPct + "% - " + half + "px)";
+    if (handle) handle.style.left = pct + "%";
   }
 
   function findHandle(row) {
@@ -2785,7 +2814,7 @@ def render_generator_splitter():
 
     function onMove(e) {
       if (!dragging) return;
-      applyRatio(left, right, pctFromEvent(e));
+      applyRatio(left, right, pctFromEvent(e), handle);
     }
 
     function onUp(e) {
@@ -2830,10 +2859,15 @@ def render_generator_splitter():
       var doc = window.parent.document;
       var found = findSplit(doc);
       if (!found) return; // Not on Generator, or the DOM is not ready yet.
-      applyRatio(found.left, found.right, loadRatio());
-      if (findHandle(found.row)) return; // Already attached - idempotent no-op.
-      var handle = makeHandle(doc, found.row, found.left, found.right);
-      found.row.insertBefore(handle, found.right);
+      // Handle first, ratio second: applyRatio() also positions the handle, so
+      // it needs one to exist. Creating it is the only non-idempotent step -
+      // everything after re-applies cleanly on every MutationObserver tick.
+      var handle = findHandle(found.row);
+      if (!handle) {
+        handle = makeHandle(doc, found.row, found.left, found.right);
+        found.row.insertBefore(handle, found.right);
+      }
+      applyRatio(found.left, found.right, loadRatio(), handle);
     } catch (e) {
       /* A DOM shape this script did not anticipate, or same-origin access
          unexpectedly denied - never let that break the host page. */
