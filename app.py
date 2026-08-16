@@ -1176,8 +1176,11 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        reason several rules below already needed it - no local way to check
        whether Streamlit's own gap styling is inline or class-based in this
        version, so this beats either. */
+    /* Breathing room between blocks. The Task 4 density pass pulled this to
+       0.6rem to fill an empty-looking screen; with the page now full, that
+       same value reads as cramped. This is the reversal, done deliberately. */
     [data-testid="stVerticalBlock"] {
-        gap: 0.6rem !important;
+        gap: 1.35rem !important;
     }
 
     [data-testid="stHorizontalBlock"] {
@@ -1227,11 +1230,31 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4 {
         color: var(--navy);
-        letter-spacing: 0;
+        letter-spacing: -0.01em;
         font-weight: 600 !important;
         line-height: 1.25 !important;
-        padding-top: 0.3rem !important;
-        padding-bottom: 0.4rem !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        margin-bottom: 0.35rem !important;
+    }
+
+    /* One deliberate scale instead of Streamlit's defaults, which had
+       "Export Settings" rendering roughly twice the size of "Source of Truth"
+       purely because one is a subheader and the other a markdown bold. */
+    [data-testid="stHeading"] h1 { font-size: 1.5rem !important; }
+    [data-testid="stHeading"] h2 { font-size: 1.2rem !important; }
+    [data-testid="stHeading"] h3 { font-size: 1.05rem !important; }
+    [data-testid="stHeading"] h4 { font-size: 0.95rem !important; }
+
+    /* The description under a heading: smaller, muted, and given room before
+       whatever follows, so the pair reads as one unit rather than three lines
+       of equal weight. */
+    [data-testid="stHeading"] + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] {
+        font-size: 0.85rem !important;
+        color: var(--muted) !important;
+        line-height: 1.55 !important;
+        margin-bottom: 0.5rem !important;
     }
 
     /* Visual-polish pass, item 4: every plain widget label (st.text_input,
@@ -1393,6 +1416,37 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         margin: 0.75rem 0;
     }
 
+    /* st.container(border=True) - the cards that hold Source of Truth, Export
+       Settings and the rest. Streamlit's own padding sits tight against the
+       frame; the owner asked for the frame to stand further off its contents,
+       so this sets it explicitly rather than inheriting. */
+    [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"] > div {
+        padding: 1.5rem 1.6rem !important;
+    }
+
+    /* The preview's Resume / Cover Letter switch must never stack. Measured at
+       the default split: the group's box is 185px and its two options need
+       186px, so any drag that narrows the preview tips it into wrapping - the
+       two options land on separate lines and the control stops reading as one
+       switch. Keeping the row nowrap and letting the options give up their
+       side padding degrades gracefully instead. */
+    [class*="st-key-tr"] [data-testid="stButtonGroup"] {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+    }
+
+    [class*="st-key-tr"] [data-testid="stButtonGroup"] button {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        white-space: nowrap !important;
+        padding-left: 0.55rem !important;
+        padding-right: 0.55rem !important;
+    }
+
     [data-testid="stAlert"] {
         border-radius: var(--radius);
         border: 1px solid var(--border);
@@ -1406,8 +1460,9 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        /* Task 4 density pass: 0.85rem 1rem -> 0.6rem 0.85rem. */
-        padding: 0.6rem 0.85rem;
+        /* Roomier than the Task 4 density pass (0.6rem 0.85rem) - the owner
+           wants the frame further from its contents. */
+        padding: 1.25rem 1.4rem;
         box-shadow: var(--shadow-sm);
     }
 
@@ -2253,7 +2308,7 @@ def render_generator_workspace():
     st.html('<span data-gp-col="workspace" style="display:none"></span>')
     render_quick_stats()
     with st.container(border=True):
-        st.markdown("**Source of Truth**")
+        st.subheader("Source of Truth")
         data = st.session_state.resume_data
         if resume_is_empty(data):
             st.caption("Your Career Profile is empty. Build it first — every rewrite starts from it.")
@@ -2266,7 +2321,7 @@ def render_generator_workspace():
             st.session_state.active_view = workspace.PROFILE
             st.rerun()
 
-    st.markdown("**Target & Strategy**")
+    st.subheader("Target & Strategy")
     # Both inputs mirror into durable keys. A widget key alone is dropped by
     # Streamlit on any rerun where the widget is not rendered, which is what
     # silently emptied the JD whenever the user switched workspace.
