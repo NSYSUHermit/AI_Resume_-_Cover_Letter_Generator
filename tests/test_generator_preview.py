@@ -56,6 +56,21 @@ def run_app(**session_overrides):
     return at
 
 
+def preview_empty_cards(at):
+    """The white waiting-card render_preview_empty_state() (app.py) emits via
+    st.html() for each of the preview column's three empty states - replaces
+    st.info()'s blue alert box (visual-match follow-up, Item 1). st.html()
+    elements surface in AppTest's tree with `.type == "html"`, not through a
+    dedicated `at.info`-style accessor (confirmed empirically: no `at.html`
+    attribute exists on this streamlit version) - `at.get("html")` is the
+    documented general-purpose accessor by element type, and each node's raw
+    HTML string lives on `.proto.body`. Filtered to the one class this app's
+    stylesheet actually styles, so a `st.html()` call added elsewhere later
+    (e.g. the workspace/preview zero-content markers already in app.py)
+    cannot be mistaken for one of these cards."""
+    return [n.proto.body for n in at.get("html") if "gp-preview-empty" in n.proto.body]
+
+
 def resume_with_experience(name):
     """A minimal non-empty resume - just enough for resume_is_empty() to say
     False, so render_preview() takes the base-preview branch instead of the
@@ -197,12 +212,12 @@ def test_failed_base_preview_compile_is_retried_not_cached(monkeypatch):
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Failing Compile Candidate"))
     assert not at.exception
     assert len(calls) == 1
-    assert any("Preview unavailable" in i.value for i in at.info)
+    assert any("Preview unavailable" in body for body in preview_empty_cards(at))
 
     at.run()
     assert not at.exception
     assert len(calls) == 2  # still failing -> retried, not served from a remembered failure
-    assert any("Preview unavailable" in i.value for i in at.info)
+    assert any("Preview unavailable" in body for body in preview_empty_cards(at))
 
 
 def test_empty_base_resume_compiles_nothing(monkeypatch):
@@ -216,6 +231,24 @@ def test_empty_base_resume_compiles_nothing(monkeypatch):
     at = run_app(active_view="Generator")
     assert not at.exception
     assert calls == []
+
+
+def test_no_preview_empty_state_renders_an_info_alert():
+    """Item 1 (visual-match follow-up), verification ask verbatim: no preview
+    empty state may render an st.info() alert any more - a blue alert box
+    reads as a warning, not the reference's plain white waiting card. This
+    exercises the one of render_preview()'s three empty-state branches the
+    rest of this file does not already touch (the other two -
+    test_failed_base_preview_compile_is_retried_not_cached and
+    test_cover_letter_target_before_generation_shows_placeholder - now assert
+    via preview_empty_cards() instead of the old at.info check, but did not
+    also assert at.info is empty; this pins that explicitly, for all three,
+    in one place): a fresh session, landing on Generator with an empty
+    Career Profile, base_preview_pdf never even attempted."""
+    at = run_app(active_view="Generator")
+    assert not at.exception
+    assert len(at.info) == 0
+    assert any("Your Career Profile is empty" in body for body in preview_empty_cards(at))
 
 
 def test_real_preview_takes_precedence_and_skips_base_compile(monkeypatch):
@@ -250,17 +283,20 @@ def test_generator_view_has_no_tabs():
 def target_switch(at):
     """render_preview()'s Resume/Cover Letter switch, found by its own widget
     key ("tr") rather than by list position - selecting by key is robust
-    regardless of how many other st.segmented_control widgets the view ever
+    regardless of how many other st.selectbox widgets the view ever
     grows (there was briefly a second one, the now-removed panel-ratio
     control - see tests/test_generator_splitter.py's
     test_panel_width_control_is_gone)."""
-    matches = [sc for sc in at.segmented_control if sc.key == "tr"]
+    matches = [sc for sc in at.selectbox if sc.key == "tr"]
     assert len(matches) == 1
     return matches[0]
 
 
-def test_segmented_control_defaults_to_resume():
-    """st.segmented_control replaces the old st.radio("Target", ...), which
+def test_target_selectbox_defaults_to_resume():
+    """st.selectbox replaces the segmented control, which replaced the old
+    st.radio("Target", ...). The segmented control wrapped onto two lines once
+    the splitter narrowed the preview panel; a dropdown has no minimum width.
+    The original st.radio
     defaulted to its first option ("Resume") on a fresh render. Preserve that
     default exactly."""
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Default Target Candidate"))
@@ -276,7 +312,7 @@ def test_cover_letter_target_before_generation_shows_placeholder():
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Cover Letter Candidate"))
     target_switch(at).set_value("Cover Letter").run()
     assert not at.exception
-    assert any("preview the cover letter" in i.value for i in at.info)
+    assert any("preview the cover letter" in body for body in preview_empty_cards(at))
 
 
 def test_export_settings_and_ats_moved_into_generator_view():

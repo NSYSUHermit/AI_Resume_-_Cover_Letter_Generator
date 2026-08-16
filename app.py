@@ -82,6 +82,7 @@ if "last_synced_at" not in st.session_state: st.session_state.last_synced_at = N
 if "tracked_application_id" not in st.session_state: st.session_state.tracked_application_id = None
 # Plain state, not a widget key: the sidebar nav is built from buttons, so
 # nothing owns this value except us.
+if "sidebar_collapsed" not in st.session_state: st.session_state.sidebar_collapsed = False
 if "active_view" not in st.session_state:
     st.session_state.active_view = workspace.initial_view(
         resume_is_empty(st.session_state.resume_data)
@@ -877,7 +878,241 @@ main_container_padding_top = (
 )
 
 # Lightweight visual system: native CSS only, no UI/animation framework.
-st.markdown("<style>\n" + css_root_block() + """
+# Sidebar width is locked from CSS rather than left to Streamlit's own
+# resizable wrapper. Read off the live DOM: Streamlit writes the width as an
+# INLINE style on [data-testid="stSidebar"] (`width: 300px`, alongside the
+# `user-select`/`position: relative` signature of a re-resizable wrapper) and
+# its drag handle rewrites that inline value. A CSS `!important` width beats an
+# inline declaration, so pinning it here makes dragging a no-op without having
+# to target the handle's volatile emotion-hash class at all. The owner asked
+# for exactly one control - a collapse button - and no width dragging.
+SIDEBAR_EXPANDED_PX = 300
+
+# The collapsed rail is 96px of *visible* sidebar - the same w-24 the owner's
+# reference app uses (Dashboard.tsx:67).
+#
+# Getting there needs a trick, because Streamlit clamps the sidebar section to
+# a 200px floor from JS rather than CSS: probed in a live browser, a stylesheet
+# !important, a higher-specificity selector, and even an inline
+# style.setProperty(..., "important") all left getComputedStyle reporting
+# min-width: 200px, because React owns that attribute and rewrites it.
+#
+# So the section stays at its 200px floor and is slid left by the difference,
+# hanging the surplus off the left edge of the viewport; the content is padded
+# by the same amount so the icons land inside the strip that is still visible.
+# Flex layout accounts for the negative margin, so the main content column
+# follows to ~108px instead of staying at 200. Verified in the browser:
+# section 200px wide, left -104, right 96, main content left 108.
+SIDEBAR_RAIL_PX = 96
+# The section's real width, which no CSS this app writes can change - measured
+# rather than assumed. A `width: !important` is ignored exactly like the
+# min-width above, so the <section> stays at Streamlit's own 300px in both
+# states and the slide below has to be computed against 300, not against the
+# 200px min-width floor. (Getting this wrong left the rail 196px wide with its
+# icons centred for 96 - visibly lopsided.)
+SIDEBAR_RAIL_FLOOR_PX = SIDEBAR_EXPANDED_PX
+SIDEBAR_RAIL_OFFSET_PX = SIDEBAR_RAIL_FLOOR_PX - SIDEBAR_RAIL_PX
+# Side of the square icon tiles, and the basis for centring them on the rail.
+SIDEBAR_RAIL_ICON_PX = 52
+
+_SIDEBAR_WIDTH_CSS = """
+    /* Both the <section> and its inner content div carry the width; pinning
+       only one leaves the other free to disagree during a drag. */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        width: %(w)dpx !important;
+        min-width: %(w)dpx !important;
+        max-width: %(w)dpx !important;
+    }
+
+    /* Streamlit's own collapse button hides the sidebar outright. The owner
+       wants it to shrink to an icon rail instead, so the native control is
+       removed and replaced by the one rendered inside the sidebar itself. */
+    [data-testid="stSidebarCollapseButton"] { display: none !important; }
+
+    /* The toggle straddles the sidebar's right edge as a circular chip, the
+       way the owner's reference app does it
+       (Dashboard.tsx:71 - `absolute -right-3.5 top-8 rounded-full`, revealed
+       on sidebar hover). Streamlit renders the button in normal flow, so it
+       is lifted out with position:absolute; the sidebar <section> already
+       carries position:relative from Streamlit's own inline style, which is
+       what this anchors against.
+
+       overflow must stay visible on the ancestors or a chip hanging 14px past
+       the edge gets clipped. */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        overflow: visible !important;
+    }
+
+    [data-testid="stSidebar"] .st-key-sidebar_toggle {
+        position: absolute !important;
+        top: 2rem;
+        right: -14px;
+        width: auto !important;
+        z-index: 30;
+        opacity: 0;
+        transition: opacity var(--ease), transform var(--ease);
+    }
+
+    /* Revealed on hover, and always while focused so it stays keyboard
+       reachable - the reference's pure opacity-0 would strand keyboard users. */
+    [data-testid="stSidebar"]:hover .st-key-sidebar_toggle,
+    [data-testid="stSidebar"] .st-key-sidebar_toggle:focus-within {
+        opacity: 1;
+    }
+
+    [data-testid="stSidebar"] .st-key-sidebar_toggle button {
+        width: 28px !important;
+        height: 28px !important;
+        min-height: 28px !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        box-shadow: var(--shadow-sm) !important;
+        color: var(--muted) !important;
+    }
+
+    [data-testid="stSidebar"] .st-key-sidebar_toggle button:hover {
+        color: var(--brand) !important;
+        transform: scale(1.1);
+    }
+"""
+
+_SIDEBAR_RAIL_CSS = """
+    /* Collapsed rail. Modelled on the owner's own reference app, whose
+       MobileNavItem stacks the icon above a 10px label and centres both
+       (frontend/src/components/Dashboard.tsx) - rather than hiding the label
+       outright. That matters here because Streamlit will not let the sidebar
+       go below 200px: an icon-only column inside a 200px shell leaves a wide
+       dead margin and reads as broken, which is exactly the "太扁" the owner
+       reported. Keeping a small centred label makes 200px look deliberate.
+
+       Streamlit renders the icon and the label as siblings inside the button
+       ([data-testid="stIconMaterial"] and [data-testid="stMarkdownContainer"],
+       confirmed against the live DOM), so column-stacking their shared parent
+       is all this needs - no bespoke button markup. */
+    /* Icons only - no labels at all, matching the rail the owner sketched:
+       a stack of outline icons, the active one a filled navy square, generous
+       vertical rhythm, dividers between groups. */
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button [data-testid="stMarkdownContainer"] {
+        display: none !important;
+    }
+
+    /* Scoped to the nav buttons only. Scoping this to every .stButton in the
+       sidebar also caught the collapse toggle, inflating it from its 28px
+       circle to a 52px square that hung past the rail's edge - the owner saw
+       that as "收折前後大小不一樣". */
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button {
+        justify-content: center !important;
+        width: 52px !important;
+        height: 52px !important;
+        min-height: 52px !important;
+        padding: 0 !important;
+        /* auto side margins, not just the bottom one: the button sits inside a
+           full-width stElementContainer, so without them a 52px tile pins to
+           the left of a 96px rail (measured centre 26 against a rail centre of
+           48). align-items on the vertical block does not reach it - that
+           centres the containers, which are already full width. */
+        margin: 0 auto 0.75rem auto !important;
+        border-radius: 14px !important;
+    }
+
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button [data-testid="stIconMaterial"] {
+        font-size: 24px !important;
+    }
+
+    /* Monogram stays, centred on the rail - the reference keeps its "G" tile
+       at the top of the collapsed sidebar. */
+    [data-testid="stSidebar"] .sb-logo {
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
+    [data-testid="stSidebar"] .sb-brand {
+        justify-content: center !important;
+        /* The wordmark is display:none, but .sb-brand's row gap still counts
+           against the flex line, pushing the monogram half a gap off centre
+           (measured: centre 38 against a rail centre of 48). */
+        gap: 0 !important;
+    }
+
+    /* Chrome that carries no meaning at rail width: the wordmark beside the
+       monogram, the group labels, and the whole signed-out auth block. The
+       nav itself and the account avatar stay - the owner asked for the rail
+       to keep showing things, not to empty out. */
+    [data-testid="stSidebar"] .sb-micro-label,
+    [data-testid="stSidebar"] .sb-wordmark,
+    [data-testid="stSidebar"] .sb-account-text,
+    [data-testid="stSidebar"] [data-testid="stForm"],
+    [data-testid="stSidebar"] [data-testid="stRadio"],
+    [data-testid="stSidebar"] [data-testid="stExpander"],
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        display: none !important;
+    }
+"""
+
+
+_SIDEBAR_RAIL_SLIDE_CSS = """
+    /* Slide the surplus off-screen so only SIDEBAR_RAIL_PX stays visible. See
+       the constants' comment for why the section itself cannot simply be made
+       narrower. */
+    [data-testid="stSidebar"] {
+        margin-left: -%(off)dpx !important;
+    }
+
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        padding-left: %(off)dpx !important;
+    }
+
+    /* Centre the rail's contents by letting the content box keep the rail's
+       full width and centring children inside it - NOT by padding the box down
+       to icon width. Padding it symmetrically was the previous attempt and it
+       is what made the rail look crooked: it left a 32px box that both the
+       52px icon tiles and the 38px monogram overflowed, by different amounts,
+       so their centres landed 10px apart (48 vs 38). A column flex with
+       align-items:center centres every child on the same line regardless of
+       its own width. */
+    /* Two things are needed, and neither is align-items.
+
+       1. The content box must actually span the rail. Streamlit leaves ~20px
+          of right padding on the sidebar content, so the box measured 76px
+          inside a 96px rail - everything centred in it landed on 38 instead of
+          48, which is the crookedness the owner kept seeing.
+
+       2. The button must be centred as an INLINE-level box. Streamlit renders
+          it display:inline-flex, and `margin: 0 auto` does nothing on an
+          inline-level element (computed marginLeft came back 0px). text-align
+          on its block parent is what actually moves it. */
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        padding-right: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+        padding-right: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [class*="st-key-nav_"],
+    [data-testid="stSidebar"] [class*="st-key-nav_"] [data-testid="stButton"],
+    [data-testid="stSidebar"] .sb-brand {
+        text-align: center !important;
+    }
+"""
+
+
+def _sidebar_css():
+    collapsed = st.session_state.get("sidebar_collapsed", False)
+    width = SIDEBAR_RAIL_FLOOR_PX if collapsed else SIDEBAR_EXPANDED_PX
+    css = _SIDEBAR_WIDTH_CSS % {"w": width}
+    if collapsed:
+        css += _SIDEBAR_RAIL_SLIDE_CSS % {"off": SIDEBAR_RAIL_OFFSET_PX}
+        css += _SIDEBAR_RAIL_CSS
+    return css
+
+
+st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     html, body, [data-testid="stAppViewContainer"] {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -941,8 +1176,11 @@ st.markdown("<style>\n" + css_root_block() + """
        reason several rules below already needed it - no local way to check
        whether Streamlit's own gap styling is inline or class-based in this
        version, so this beats either. */
+    /* Breathing room between blocks. The Task 4 density pass pulled this to
+       0.6rem to fill an empty-looking screen; with the page now full, that
+       same value reads as cramped. This is the reversal, done deliberately. */
     [data-testid="stVerticalBlock"] {
-        gap: 0.6rem !important;
+        gap: 1.35rem !important;
     }
 
     [data-testid="stHorizontalBlock"] {
@@ -980,23 +1218,66 @@ st.markdown("<style>\n" + css_root_block() + """
        base styles, which load once up front, this order isn't guaranteed the
        same way for every rerun, so !important removes the "should" the same
        way the two gap rules above already do. */
-    /* Visual-polish pass, item 4 (typography): reference-design headings are
-       dark navy, medium weight, with a tighter line-height than Streamlit's
-       own default (~1.4-ish for h1-h4, per the same bundle inspection cited
-       above). font-weight/line-height get the same !important as padding
-       above and for the same reason - Streamlit's own heading rule sets
-       both explicitly on that (0,1,1)-specificity compound selector, so
-       plain cascade order is not something to rely on for them either. */
+    /* Visual-polish pass, item 4 (typography), corrected in the visual-match
+       follow-up (Item 3): every actual <hN> in the reference - not just
+       icons/buttons, which do use --color-primary - is near-black, not navy.
+       Confirmed by reading every heading tag in ResumeBuilder.tsx/Dashboard.tsx:
+       the one h2 page title ("Resume Generator", ResumeBuilder.tsx:368) is
+       `text-slate-950` (#020617, exactly TOKENS["navy-dark"]); every h3/h4
+       section heading actually used ("Target & Strategy" :395, "Generate
+       Preview" :458, "Professional Preview" :537, "Draft Table" :655,
+       "Source of Truth" h4 :378, Dashboard.tsx's pricing h2/h3 :272,:299) is
+       `text-gray-900` (#111827, exactly TOKENS["text"]) - `text-primary`
+       never appears on a heading tag itself in either file, only on icons and
+       buttons next to them. This app never calls st.title/st.header (grepped
+       app.py - zero hits), so h3 (st.subheader) and h4 (st.markdown "####")
+       are the only levels actually reachable; h1/h2 are corrected too, for
+       when/if this app ever grows one, but that half is unverified in this
+       app today. Weight follows the same source: font-bold (700) on every
+       h3/h4 above, font-extrabold (800) on the one h2. Line-height/spacing
+       unchanged - Streamlit's own heading rule sets those explicitly on a
+       same-specificity compound selector, so plain cascade order is not
+       something to rely on for them either, same as the padding rule above. */
+    [data-testid="stHeading"] h1,
+    [data-testid="stHeading"] h2 {
+        color: var(--navy-dark);
+        font-weight: 800 !important;
+    }
+
+    [data-testid="stHeading"] h3,
+    [data-testid="stHeading"] h4 {
+        color: var(--text);
+        font-weight: 700 !important;
+    }
+
     [data-testid="stHeading"] h1,
     [data-testid="stHeading"] h2,
     [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4 {
-        color: var(--navy);
-        letter-spacing: 0;
-        font-weight: 600 !important;
+        letter-spacing: -0.01em;
         line-height: 1.25 !important;
-        padding-top: 0.3rem !important;
-        padding-bottom: 0.4rem !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        margin-bottom: 0.35rem !important;
+    }
+
+    /* One deliberate scale instead of Streamlit's defaults, which had
+       "Export Settings" rendering roughly twice the size of "Source of Truth"
+       purely because one is a subheader and the other a markdown bold. */
+    [data-testid="stHeading"] h1 { font-size: 1.5rem !important; }
+    [data-testid="stHeading"] h2 { font-size: 1.2rem !important; }
+    [data-testid="stHeading"] h3 { font-size: 1.05rem !important; }
+    [data-testid="stHeading"] h4 { font-size: 0.95rem !important; }
+
+    /* The description under a heading: smaller, muted, and given room before
+       whatever follows, so the pair reads as one unit rather than three lines
+       of equal weight. */
+    [data-testid="stHeading"] + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] {
+        font-size: 0.85rem !important;
+        color: var(--muted) !important;
+        line-height: 1.55 !important;
+        margin-bottom: 0.5rem !important;
     }
 
     /* Visual-polish pass, item 4: every plain widget label (st.text_input,
@@ -1071,8 +1352,14 @@ st.markdown("<style>\n" + css_root_block() + """
         border-radius: var(--radius) !important;
         min-height: 42px !important;
         font-weight: 650 !important;
-        border: 1px solid transparent !important;
-        background: var(--surface-soft) !important;
+        /* A visible edge, not a transparent one. Measured in the browser: the
+           label was already 16.19:1 against the old fill, so "看不到字" was
+           never a text-contrast problem - it was that a borderless #f1f5f9
+           fill on an #f8fafc page has no edge at all, so the control does not
+           read as a button. The reference app's secondary is
+           `bg-white border border-gray-200` (ResumeBuilder.tsx:424). */
+        border: 1px solid var(--border) !important;
+        background: var(--surface) !important;
         color: var(--text) !important;
         box-shadow: var(--shadow-sm);
     }
@@ -1090,7 +1377,9 @@ st.markdown("<style>\n" + css_root_block() + """
     .stButton button:hover,
     .stDownloadButton button:hover,
     .stFormSubmitButton button:hover {
-        border-color: var(--border-strong) !important;
+        /* Reference: `hover:border-primary hover:text-primary`. */
+        border-color: var(--navy) !important;
+        color: var(--navy) !important;
         box-shadow: var(--shadow-md);
         transform: translateY(-1px);
     }
@@ -1102,9 +1391,9 @@ st.markdown("<style>\n" + css_root_block() + """
        type="primary" for whichever view is current (`with st.sidebar:`,
        further down), so it inherits this same rule rather than needing a
        separate one. */
-    .stButton button[kind="primary"],
-    .stDownloadButton button[kind="primary"],
-    .stFormSubmitButton button[kind="primary"] {
+    .stButton button[kind^="primary"],
+    .stDownloadButton button[kind^="primary"],
+    .stFormSubmitButton button[kind^="primary"] {
         background: var(--navy) !important;
         border-color: var(--navy) !important;
         /* TOKENS has no dedicated "on-dark text" token, but --surface is
@@ -1115,9 +1404,9 @@ st.markdown("<style>\n" + css_root_block() + """
         color: var(--surface) !important;
     }
 
-    .stButton button[kind="primary"]:hover,
-    .stDownloadButton button[kind="primary"]:hover,
-    .stFormSubmitButton button[kind="primary"]:hover {
+    .stButton button[kind^="primary"]:hover,
+    .stDownloadButton button[kind^="primary"]:hover,
+    .stFormSubmitButton button[kind^="primary"]:hover {
         background: var(--navy-dark) !important;
         border-color: var(--navy-dark) !important;
     }
@@ -1144,10 +1433,91 @@ st.markdown("<style>\n" + css_root_block() + """
         line-height: 1.55 !important;
     }
 
+    /* Item 2 (typography): the JD / Custom Strategy fields specifically -
+       owner said this block's type was badly sized. Reference recipe
+       (ResumeBuilder.tsx:396-419, both fields share one className): `mt-1.5
+       w-full bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm
+       focus:outline-none focus:ring-2 focus:ring-primary/10`. rounded-lg
+       (8px) and border-gray-200 (#E5E7EB, near-identical to var(--border)
+       #e2e8f0) were already covered by the generic input/textarea rule just
+       above; what was missing is bg-gray-50 (a light fill, not the plain
+       white every other textarea gets) and p-4/text-sm (generous 1rem
+       padding and 0.875rem body text, instead of Streamlit's own tighter
+       default). var(--surface-soft) (#f1f5f9) stands in for bg-gray-50
+       (#F9FAFB) - both light neutral fills, and already an existing TOKENS
+       entry rather than a new literal.
+       Scoped to just these two fields, not every textarea in the app (the
+       Summary/About Me/Cover Letter/manual-JSON-import fields keep the
+       plain white background) via the `st-key-jd_input_<n>` /
+       `st-key-cp_input_<n>` class Streamlit's key= emits - same substring-
+       match pattern the [class*="st-key-tr"] rule below already relies on -
+       because both keys carry a `base_editor_key` suffix that increments on
+       every profile edit/import, so only the stable prefix can be matched.
+       The micro-label above these fields (JOB DESCRIPTION / CUSTOM STRATEGY)
+       is deliberately left on the shared [data-testid="stWidgetLabel"] rule
+       above rather than duplicated here: reference values there are close
+       but not identical (text-xs/font-extrabold/tracking-widest/#9CA3AF vs.
+       this rule's 0.66rem/700/0.08em/var(--muted)) - visually close, but
+       changing it would restyle every widget label in the app, not just
+       these two, so it was left alone rather than guessed at. */
+    [class*="st-key-jd_input_"] textarea,
+    [class*="st-key-cp_input_"] textarea {
+        background: var(--surface-soft) !important;
+        padding: 1rem !important;
+        font-size: 0.875rem !important;
+    }
+
     hr {
         border-color: var(--border);
         /* Task 4 density pass: 1.1rem -> 0.75rem. */
         margin: 0.75rem 0;
+    }
+
+    /* st.container(border=True) - the cards that hold Source of Truth, Export
+       Settings and the rest. Streamlit's own padding sits tight against the
+       frame; the owner asked for the frame to stand further off its contents,
+       so this sets it explicitly rather than inheriting.
+       Radius corrected in the visual-match follow-up (Item 3): every card
+       variant in the reference - the Draft Table wrapper (ResumeBuilder.tsx
+       :656), the Professional Preview panel (:548), the per-block skill card
+       (:797), Source of Truth (:372) - uses `rounded-lg`, Tailwind's 0.5rem
+       (8px), never a larger radius; the 12px this used to hard-code had no
+       reference number behind it. var(--radius) is already 8px
+       (theme.css_root_block()), so this now just defers to that token
+       instead of overriding it, which is also what "TOKENS for all colours"
+       (this is the one non-colour token css_root_block() also defines)
+       already intends every other radius in this stylesheet to do.
+       Padding (1.5rem 1.6rem, below) is deliberately left alone: the
+       reference has no single equivalent to copy - its cards range from
+       p-3.5 (14px) to p-12 (48px) depending on which one - and this app's
+       st.container(border=True) is reused for many sections the reference
+       renders with different, unrelated recipes, so no single number from it
+       would be "the" match either. */
+    [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
+        border-radius: var(--radius) !important;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"] > div {
+        padding: 1.5rem 1.6rem !important;
+    }
+
+    /* The preview's Resume / Cover Letter switch must never stack. Measured at
+       the default split: the group's box is 185px and its two options need
+       186px, so any drag that narrows the preview tips it into wrapping - the
+       two options land on separate lines and the control stops reading as one
+       switch. Keeping the row nowrap and letting the options give up their
+       side padding degrades gracefully instead. */
+    [class*="st-key-tr"] [data-testid="stButtonGroup"] {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+    }
+
+    [class*="st-key-tr"] [data-testid="stButtonGroup"] button {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        white-space: nowrap !important;
+        padding-left: 0.55rem !important;
+        padding-right: 0.55rem !important;
     }
 
     [data-testid="stAlert"] {
@@ -1163,8 +1533,9 @@ st.markdown("<style>\n" + css_root_block() + """
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        /* Task 4 density pass: 0.85rem 1rem -> 0.6rem 0.85rem. */
-        padding: 0.6rem 0.85rem;
+        /* Roomier than the Task 4 density pass (0.6rem 0.85rem) - the owner
+           wants the frame further from its contents. */
+        padding: 1.25rem 1.4rem;
         box-shadow: var(--shadow-sm);
     }
 
@@ -1270,7 +1641,15 @@ st.markdown("<style>\n" + css_root_block() + """
            left no room for one the way the old pill's own +0.75rem gap
            had. */
         top: 3.75rem;
-        left: 0;
+        /* Starts at the sidebar's right edge, not at 0. Measured in the
+           browser: with left:0 the strip ran 0→1440 at z-index 999 while the
+           sidebar occupies 0→300 at z-index 999991, so the sidebar painted
+           over the strip's leftmost 300px - the owner's "被 side bar 擋住".
+           Raising the strip's z-index instead would put it *over* the
+           sidebar, which is worse. The offset is interpolated from the same
+           Python constant that sets the sidebar width, so it tracks the
+           collapse state automatically instead of hard-coding 300. */
+        left: __SIDEBAR_W__px;
         right: 0;
         z-index: 999;
         display: flex;
@@ -1359,6 +1738,39 @@ st.markdown("<style>\n" + css_root_block() + """
     .gp-status-line span {
         color: var(--text);
         font-size: 0.92rem;
+    }
+
+    /* Item 4: Optimize Resume's in-flight state (ui_feedback.run_ai_call()'s
+       `target` path - see that function's own docstring for the full
+       rationale). Same footprint as the primary button it replaces
+       (min-height, radius, filled navy - matching the `.stButton button
+       [kind^="primary"]` rule above) so the swap reads as the same control
+       changing state, not a different element appearing - the button's own
+       row becomes the status row, nothing is added below it. */
+    .gp-btn-status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 42px;
+        width: 100%;
+        border-radius: var(--radius);
+        background: var(--navy);
+        box-sizing: border-box;
+        padding: 0 1rem;
+    }
+
+    .gp-btn-status .gp-walker {
+        flex: none;
+    }
+
+    .gp-btn-status span {
+        color: var(--surface);
+        font-weight: 650;
+        font-size: 0.92rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     /* Walk cycle: two leg groups alternate via steps(), plus a slight bob.
@@ -1551,12 +1963,96 @@ st.markdown("<style>\n" + css_root_block() + """
        of the splitter script below (plain CSS, present on first paint, not
        waiting on any JS to run) - dragging only ever changes width, never
        colour, so the two are safe to keep decoupled. */
+    /* The workspace side is white edge to edge - the owner wants grey only on
+       the preview panel. Stretching it means the app background cannot show
+       through below the content, which is where the stray grey band came
+       from. */
     [data-testid="stColumn"]:has([data-gp-col="workspace"]) {
         background: var(--surface) !important;
+        align-self: stretch !important;
+        min-height: calc(100vh - 7rem);
+        padding: 1.25rem 1.5rem 2rem 0 !important;
     }
 
     [data-testid="stColumn"]:has([data-gp-col="preview"]) {
         background: var(--bg) !important;
+        border-left: 1px solid var(--border);
+        padding: 1.25rem 1.25rem 2rem !important;
+    }
+
+    /* The preview stays in view while the left workspace scrolls. Both columns
+       live in one scroll container, so without this the PDF scrolls away as
+       soon as the editing side gets long - the owner reads that as the preview
+       "not moving with" the page. Sticky keeps it pinned below the status
+       strip instead. align-self is required: a stretched flex item has no
+       spare room to slide within, so sticky would never engage.
+       min-height matches the workspace column's own min-height (above) -
+       align-self: flex-start means this column would otherwise only be as
+       tall as whatever it holds, so a short empty-state message left the
+       grey fill stopping partway down the page instead of reaching the
+       bottom (Item 1: "右邊預覽就是全灰底" - the grey must be the *whole*
+       column, not just a band behind the content). Same value as max-height
+       just below, so the column is a fixed height regardless of content;
+       overflow-y: auto still lets a genuinely taller PDF scroll inside it. */
+    [data-testid="stColumn"]:has([data-gp-col="preview"]) {
+        position: sticky !important;
+        top: 5.5rem;
+        align-self: flex-start !important;
+        min-height: calc(100vh - 7rem);
+        max-height: calc(100vh - 7rem);
+        overflow-y: auto;
+    }
+
+    /* White card inside the grey panel, matching the reference's
+       "Professional Preview" surface. */
+    [data-testid="stColumn"]:has([data-gp-col="preview"]) [data-testid="stIFrame"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: var(--shadow-sm);
+    }
+
+    /* Item 1: the preview column's three empty states (render_preview_empty_
+       state(), app.py) - a white waiting-card instead of st.info()'s blue
+       alert box. Numbers from the reference's own empty-preview card
+       (ResumeBuilder.tsx:548,564-566): `bg-white rounded-lg shadow-xl border
+       border-gray-200`, empty content `flex flex-col items-center
+       justify-center p-12 text-center opacity-40`, a 64px FileText icon in
+       text-gray-300, `font-bold text-gray-400` copy. rounded-lg is 8px
+       (var(--radius), same correction as the card-radius rule above);
+       shadow-xl itself was judged too heavy for a page-level empty state -
+       "soft shadow" per the task brief - so this uses var(--shadow-md)
+       instead, the softer of this file's own two shadow tokens, rather than
+       inventing a third. p-12 is 3rem. opacity-40 is approximated as 0.45 on
+       the icon/text individually (var(--muted) already carries most of that
+       fade, so a flat opacity on the whole card would also wash out the
+       border/shadow, which the reference's own card keeps solid). */
+    .gp-preview-empty {
+        min-height: 60vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 1rem;
+        padding: 3rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+    }
+
+    .gp-preview-empty svg {
+        color: var(--muted);
+        opacity: 0.45;
+    }
+
+    .gp-preview-empty p {
+        margin: 0;
+        max-width: 26rem;
+        color: var(--muted) !important;
+        font-weight: 700;
+        font-size: 0.95rem;
     }
 
     /* Item 1: the draggable splitter's own handle - see
@@ -1569,15 +2065,35 @@ st.markdown("<style>\n" + css_root_block() + """
        block). The live drag width is set as inline styles by that
        function's injected script directly on the two stColumn elements,
        not through this class. */
+    /* The handle is absolutely positioned so it consumes NO flex space.
+       It used to be `flex: 0 0 auto` - an ordinary flex child - which broke
+       the layout outright: Streamlit's stHorizontalBlock is `flex-wrap: wrap`
+       with a 12px gap, and the two columns are sized to sum to exactly 100%,
+       so adding an 8px child plus a second 12px gap overflowed the row and
+       wrapped the preview column onto its own line *below* the workspace.
+       Measured in a browser before the fix: row 969px wide vs 978px of
+       children, preview column's top 1266px below the workspace column's -
+       which is exactly the "預覽全部都在左邊" the owner reported.
+
+       Out of flow, the handle can never overflow the row again. The row gets
+       `position: relative` to anchor it, and `flex-wrap: nowrap` as a second
+       guard so a future stray child cannot reintroduce the same wrap. */
+    [data-testid="stHorizontalBlock"]:has(> .gp-split-handle) {
+        position: relative;
+        flex-wrap: nowrap !important;
+    }
+
     .gp-split-handle {
-        flex: 0 0 auto;
-        align-self: stretch;
+        position: absolute;
+        top: 0;
+        bottom: 0;
         width: 8px;
-        margin: 0 -0.25rem;
+        margin-left: -4px;
         border-radius: 999px;
         background: var(--border);
         cursor: col-resize;
         touch-action: none;
+        z-index: 2;
         transition: background-color var(--ease);
     }
 
@@ -1585,7 +2101,14 @@ st.markdown("<style>\n" + css_root_block() + """
     .gp-split-handle.gp-split-active {
         background: var(--brand);
     }
-</style>""", unsafe_allow_html=True)
+</style>""").replace(
+    # Plain string replace, not %-formatting: the stylesheet is full of literal
+    # percentages (100%, 50%) that %-formatting would choke on.
+    "__SIDEBAR_W__",
+    # The *visible* rail width, not the section's clamped 200 - the strip has
+    # to start where the sidebar visually ends.
+    str(SIDEBAR_RAIL_PX if st.session_state.get("sidebar_collapsed") else SIDEBAR_EXPANDED_PX),
+), unsafe_allow_html=True)
 
 st.markdown(
     "<div id='small-screen-notice'>This app is built for a desktop browser. "
@@ -1693,6 +2216,23 @@ def render_sidebar_account_block(email):
     )
 
 with st.sidebar:
+    # One control, at the top, always visible in both states - the owner asked
+    # for a single collapse button and nothing else. Icon-only so it reads the
+    # same width whether the rail is open or shut.
+    if st.button(
+        "",
+        key="sidebar_toggle",
+        help="Expand sidebar" if st.session_state.sidebar_collapsed else "Collapse to icons",
+        icon=":material/menu:" if st.session_state.sidebar_collapsed else ":material/menu_open:",
+    ):
+        st.session_state.sidebar_collapsed = not st.session_state.sidebar_collapsed
+        # The width lives in the stylesheet, which is emitted near the top of
+        # the script - so the new state only takes effect on a fresh run.
+        st.rerun()
+
+    # Always rendered - the owner wants the monogram to survive the collapse,
+    # the way their reference rail keeps its "G" tile at the top. Only the
+    # wordmark beside it is hidden, by the .sb-brand-text rule in the rail CSS.
     render_sidebar_brand()
 
     render_sidebar_group_label("WORKSPACE")
@@ -1958,7 +2498,7 @@ def render_generator_workspace():
     st.html('<span data-gp-col="workspace" style="display:none"></span>')
     render_quick_stats()
     with st.container(border=True):
-        st.markdown("**Source of Truth**")
+        st.subheader("Source of Truth")
         data = st.session_state.resume_data
         if resume_is_empty(data):
             st.caption("Your Career Profile is empty. Build it first — every rewrite starts from it.")
@@ -1971,7 +2511,7 @@ def render_generator_workspace():
             st.session_state.active_view = workspace.PROFILE
             st.rerun()
 
-    st.markdown("**Target & Strategy**")
+    st.subheader("Target & Strategy")
     # Both inputs mirror into durable keys. A widget key alone is dropped by
     # Streamlit on any rerun where the widget is not rendered, which is what
     # silently emptied the JD whenever the user switched workspace.
@@ -2008,19 +2548,56 @@ def render_generator_workspace():
         st.caption("Connect a Gemini API key above to enable optimization.")
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=not st.session_state.api_key):
+        # Item 4 (visual-polish follow-up), owner: 「optimizing resume 的動畫就
+        # 跑在同一顆按鈕上就好不要額外延展」. st.empty() gives the button its own
+        # placeholder slot so run_ai_call(..., target=optimize_slot) can
+        # overwrite that exact slot with the in-flight spinner+milestone line
+        # (ui_feedback.run_ai_call()'s own docstring has the full rationale)
+        # instead of opening a panel below it - the button's row becomes the
+        # status row, nothing new is added to the layout. Confirmed in
+        # streamlit==1.61.1 via a standalone AppTest script before writing
+        # this: a placeholder holding a clicked button can be overwritten
+        # with st.markdown() in the same run with no exception, and the
+        # button is cleanly gone from the tree afterward.
+        optimize_slot = st.empty()
+        optimize_clicked = optimize_slot.button(
+            "Optimize Resume",
+            type="primary",
+            use_container_width=True,
+            disabled=not st.session_state.api_key,
+            key="optimize_resume_btn",
+        )
+        if optimize_clicked:
             if jd:
                 clear_generated_outputs()
                 ok, rep = run_ai_call(
                     "Optimizing resume",
                     lambda report: ai_optimize_and_update(jd, strategy, report),
                     success=lambda r: r[0],
+                    target=optimize_slot,
                 )
                 if ok:
                     # The banner was filled in by ai_optimize_and_update with
                     # the real numbers; no toast needed.
                     st.rerun()
-                else: st.error(rep)
+                else:
+                    # No rerun on failure (see run_ai_call()'s docstring), so
+                    # optimize_slot is left showing the frozen failure
+                    # message - redraw the real button into it here so the
+                    # row is clickable again immediately, instead of dead
+                    # until some unrelated interaction happens to rerun the
+                    # page. A second explicit key: Streamlit raises on two
+                    # elements sharing one key in the same run, even through
+                    # the same placeholder (confirmed the same way, via
+                    # AppTest, before relying on it).
+                    optimize_slot.button(
+                        "Optimize Resume",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=not st.session_state.api_key,
+                        key="optimize_resume_btn_retry",
+                    )
+                    st.error(rep)
             else:
                 st.warning("Paste a job description before optimizing.")
     with c2:
@@ -2430,6 +3007,37 @@ def render_export_settings():
                 else:
                     st.error("No PDF was generated.")
 
+def render_preview_empty_state(message):
+    """White waiting-card for the preview column's three empty states.
+
+    Owner's spec, verbatim: 「左邊就是全白 右邊預覽就是全灰底中間留著白色預覽空間等待
+    pdf進來顯示」 (left entirely white, right entirely grey, with a white card in
+    the middle waiting for the PDF to arrive). These three call sites used to
+    be st.info(), which renders Streamlit's blue alert box - a warning, not a
+    waiting state. Matches the reference's own empty-preview card
+    (ResumeBuilder.tsx:548,564-566 - the desktop "Professional Preview" panel):
+    a tall bordered white surface holding a centred muted document glyph above
+    centred muted copy (`h-full flex flex-col items-center justify-center p-12
+    text-center opacity-40`, a 64px FileText icon in text-gray-300, `font-bold
+    text-gray-400` copy) - not an alert. Message wording is exactly whatever
+    the caller used to pass to st.info(); only the presentation changed.
+    Rendered via st.html() rather than components.html(): st.html() inserts
+    into the main document, not an iframe, so the .gp-preview-empty class
+    (app.py's stylesheet block) and its var(--...) colours are visible to it -
+    an iframe could not see those custom properties at all (see theme.py's
+    own module docstring on exactly this iframe limitation).
+    """
+    st.html(
+        '<div class="gp-preview-empty">'
+        '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+        '<path d="M14 2v6h6"/>'
+        '</svg>'
+        f'<p>{html.escape(message)}</p>'
+        '</div>'
+    )
+
 @st.fragment
 def render_preview():
     """Generator 的右欄：只剩 PDF 本身，加左上角切換與右上角下載，不再有分頁。
@@ -2448,15 +3056,19 @@ def render_preview():
     # it is an idempotent, display:none marker, not state. See the workspace
     # marker's comment for why this is st.html() and not an empty container.
     st.html('<span data-gp-col="preview" style="display:none"></span>')
+    # A selectbox, not a segmented control. The two-option segmented control
+    # needed 156px of intrinsic width and this row gives its left cell only
+    # 2/5 of the preview panel - measured 95px once the splitter narrowed the
+    # panel to 239px - so the two options wrapped onto separate lines and
+    # stopped reading as one switch. CSS could not fix that: the wrap happens
+    # in the column above the widget, not inside it. A dropdown has no minimum
+    # width to satisfy, so it degrades cleanly at any panel width.
     top_left, top_right = st.columns([2, 3])
     with top_left:
-        # required=True: 跟舊的 st.radio 一樣永遠恰好選一個，使用者點擊目前
-        # 已選的那個不會把它取消選取（st.segmented_control 預設允許取消選取）。
-        ch = st.segmented_control(
+        ch = st.selectbox(
             "Target",
             ["Resume", "Cover Letter"],
-            default="Resume",
-            required=True,
+            index=0,
             label_visibility="collapsed",
             key="tr",
         )
@@ -2492,7 +3104,7 @@ def render_preview():
         if resume_is_empty(data):
             # 未優化前的預覽必須快取，不能急切編譯 - 履歷是空的就不編譯，
             # 直接指向 Career Profile，不要拿一份空白 PDF 浪費 lualatex。
-            st.info("Your Career Profile is empty. Build it first — every rewrite starts from it.")
+            render_preview_empty_state("Your Career Profile is empty. Build it first — every rewrite starts from it.")
         else:
             # `or` here would default an intentionally-cleared multiselect
             # (export_order == []) back to the full list. render_export_settings
@@ -2511,9 +3123,9 @@ def render_preview():
             if base_bytes:
                 render_pdf_js(base_bytes)
             else:
-                st.info("Preview unavailable. Check the LaTeX log above.")
+                render_preview_empty_state("Preview unavailable. Check the LaTeX log above.")
     else:
-        st.info("Optimize your resume and generate a PDF to preview the cover letter.")
+        render_preview_empty_state("Optimize your resume and generate a PDF to preview the cover letter.")
 
 def render_progress_strip():
     """Thin full-width status strip pinned to the very top of the Generator
@@ -2580,6 +3192,41 @@ def render_progress_strip():
 </div>""",
         unsafe_allow_html=True,
     )
+
+def remove_generator_splitter():
+    """Strip a leftover drag handle from the parent document.
+
+    Counterpart to render_generator_splitter(). The handle lives in
+    window.parent.document, not in the component iframe, so it survives the
+    iframe being removed when the user leaves Generator - the bar stayed
+    painted across Profile and Tracker until this ran.
+
+    Also clears the inline flex-basis the splitter wrote onto the two columns,
+    so a later view's columns are not left carrying Generator's ratio.
+    """
+    components.html(
+        """<script>
+        (function () {
+          try {
+            var doc = window.parent.document;
+            var handles = doc.querySelectorAll(".gp-split-handle");
+            for (var i = 0; i < handles.length; i++) {
+              if (handles[i].parentElement) handles[i].parentElement.removeChild(handles[i]);
+            }
+            var cols = doc.querySelectorAll('[data-testid="stColumn"]');
+            for (var j = 0; j < cols.length; j++) {
+              cols[j].style.removeProperty("flex");
+              cols[j].style.removeProperty("max-width");
+            }
+          } catch (e) {
+            /* Same posture as the injector: never let a DOM surprise break
+               the host page. */
+          }
+        })();
+        </script>""",
+        height=0,
+    )
+
 
 def render_generator_splitter():
     """Draggable resize handle between the Generator's two columns.
@@ -2748,12 +3395,21 @@ def render_generator_splitter():
     return { row: row, left: left, right: right };
   }
 
-  function applyRatio(left, right, pct) {
+  // GAP_PX must match stHorizontalBlock's own `gap`. With the handle out of
+  // flow the row has exactly two flex children and therefore one gap, so the
+  // columns have to sum to (100% - GAP_PX) or the row overflows and wraps -
+  // which is the bug this whole arrangement exists to avoid. Splitting the
+  // gap evenly keeps the handle centred on the true boundary.
+  var GAP_PX = 12;
+
+  function applyRatio(left, right, pct, handle) {
     var rightPct = 100 - pct;
-    left.style.flex = "0 0 " + pct + "%";
-    left.style.maxWidth = pct + "%";
-    right.style.flex = "0 0 " + rightPct + "%";
-    right.style.maxWidth = rightPct + "%";
+    var half = GAP_PX / 2;
+    left.style.flex = "0 0 calc(" + pct + "% - " + half + "px)";
+    left.style.maxWidth = "calc(" + pct + "% - " + half + "px)";
+    right.style.flex = "0 0 calc(" + rightPct + "% - " + half + "px)";
+    right.style.maxWidth = "calc(" + rightPct + "% - " + half + "px)";
+    if (handle) handle.style.left = pct + "%";
   }
 
   function findHandle(row) {
@@ -2785,7 +3441,7 @@ def render_generator_splitter():
 
     function onMove(e) {
       if (!dragging) return;
-      applyRatio(left, right, pctFromEvent(e));
+      applyRatio(left, right, pctFromEvent(e), handle);
     }
 
     function onUp(e) {
@@ -2830,10 +3486,15 @@ def render_generator_splitter():
       var doc = window.parent.document;
       var found = findSplit(doc);
       if (!found) return; // Not on Generator, or the DOM is not ready yet.
-      applyRatio(found.left, found.right, loadRatio());
-      if (findHandle(found.row)) return; // Already attached - idempotent no-op.
-      var handle = makeHandle(doc, found.row, found.left, found.right);
-      found.row.insertBefore(handle, found.right);
+      // Handle first, ratio second: applyRatio() also positions the handle, so
+      // it needs one to exist. Creating it is the only non-idempotent step -
+      // everything after re-applies cleanly on every MutationObserver tick.
+      var handle = findHandle(found.row);
+      if (!handle) {
+        handle = makeHandle(doc, found.row, found.left, found.right);
+        found.row.insertBefore(handle, found.right);
+      }
+      applyRatio(found.left, found.right, loadRatio(), handle);
     } catch (e) {
       /* A DOM shape this script did not anticipate, or same-origin access
          unexpectedly denied - never let that break the host page. */
@@ -2880,6 +3541,13 @@ if active_view == workspace.GENERATOR:
     # client-side, after the whole page has painted, so it would work
     # regardless of where in this Python script it was called from.
     render_generator_splitter()
+else:
+    # The handle is inserted into window.parent.document, so it outlives the
+    # component iframe that created it: navigating away from Generator tore
+    # down the iframe but left the bar sitting across Profile and Tracker.
+    # Nothing inside that iframe can clean up after itself once it is gone,
+    # so removal has to be driven from the view that is actually rendering.
+    remove_generator_splitter()
 
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:

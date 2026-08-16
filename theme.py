@@ -26,7 +26,7 @@ TOKENS = {
     # Added rather than repurposing --brand-dark (#1d4ed8), which is still a
     # saturated blue, not navy. Two shades, same pattern as brand/brand-dark,
     # so hover/active states have somewhere to go.
-    "navy": "#0f172a",
+    "navy": "#1e3a5f",
     "navy-dark": "#020617",
 }
 

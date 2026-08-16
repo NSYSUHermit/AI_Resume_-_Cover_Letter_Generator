@@ -1,6 +1,10 @@
 __pycache__/
 *.py[cod]
 
+# Local virtual environments
+.venv/
+venv/
+
 # Local secrets and credentials
 .env
 .streamlit/secrets.toml
