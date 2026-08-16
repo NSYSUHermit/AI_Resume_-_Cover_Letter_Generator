@@ -3193,6 +3193,41 @@ def render_progress_strip():
         unsafe_allow_html=True,
     )
 
+def remove_generator_splitter():
+    """Strip a leftover drag handle from the parent document.
+
+    Counterpart to render_generator_splitter(). The handle lives in
+    window.parent.document, not in the component iframe, so it survives the
+    iframe being removed when the user leaves Generator - the bar stayed
+    painted across Profile and Tracker until this ran.
+
+    Also clears the inline flex-basis the splitter wrote onto the two columns,
+    so a later view's columns are not left carrying Generator's ratio.
+    """
+    components.html(
+        """<script>
+        (function () {
+          try {
+            var doc = window.parent.document;
+            var handles = doc.querySelectorAll(".gp-split-handle");
+            for (var i = 0; i < handles.length; i++) {
+              if (handles[i].parentElement) handles[i].parentElement.removeChild(handles[i]);
+            }
+            var cols = doc.querySelectorAll('[data-testid="stColumn"]');
+            for (var j = 0; j < cols.length; j++) {
+              cols[j].style.removeProperty("flex");
+              cols[j].style.removeProperty("max-width");
+            }
+          } catch (e) {
+            /* Same posture as the injector: never let a DOM surprise break
+               the host page. */
+          }
+        })();
+        </script>""",
+        height=0,
+    )
+
+
 def render_generator_splitter():
     """Draggable resize handle between the Generator's two columns.
 
@@ -3506,6 +3541,13 @@ if active_view == workspace.GENERATOR:
     # client-side, after the whole page has painted, so it would work
     # regardless of where in this Python script it was called from.
     render_generator_splitter()
+else:
+    # The handle is inserted into window.parent.document, so it outlives the
+    # component iframe that created it: navigating away from Generator tore
+    # down the iframe but left the bar sitting across Profile and Tracker.
+    # Nothing inside that iframe can clean up after itself once it is gone,
+    # so removal has to be driven from the view that is actually rendering.
+    remove_generator_splitter()
 
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
