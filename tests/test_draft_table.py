@@ -43,7 +43,42 @@ def run_app(**session_overrides):
     for key, value in session_overrides.items():
         at.session_state[key] = value
     at.run()
+    # UI item 2 moved the draft table behind a dialog (render_optimized_
+    # draft_table(), app.py, now @st.dialog-decorated, opened by the
+    # "Draft Table" button keyed "open_draft_table_dialog"). Every test
+    # below that inspects the table's own widgets or its "Optimized Draft"
+    # markdown needs it open first - doing that once here, right after the
+    # initial run, covers every test that reads the table immediately
+    # after run_app() returns with no further .run() of its own.
+    #
+    # Tests that ALSO preset a data_editor's (or plain widget's)
+    # session_state and call .run() again afterward need one more step of
+    # their own: see reopen_draft_table() below. A bare .run() consumes the
+    # opener button's one-shot click, so without re-staging it, that
+    # additional run re-evaluates `if st.button(...): render_optimized_
+    # draft_table()` fresh, finds the button not clicked, and closes the
+    # dialog again before the widget inside it is even instantiated - so
+    # any preset staged for that widget is never processed. Same mechanism
+    # test_tracker_guard.py's
+    # test_advanced_optimized_json_import_resets_tracked_application_id
+    # documents for edit_opt_dialog(), the sibling dialog beside this one.
+    # Confirmed empirically (all six affected tests below failed with a
+    # bare .run() here, before adding reopen_draft_table()) before writing
+    # it this way.
+    openers = [b for b in at.button if b.key == "open_draft_table_dialog"]
+    if openers:
+        openers[0].click().run()
     return at
+
+
+def reopen_draft_table(at):
+    """Re-stage a click on the Draft Table opener button before an
+    additional at.run(). See run_app()'s own comment above for why a bare
+    .run() would otherwise close the dialog before a preset data_editor (or
+    other widget) edit inside it is ever processed."""
+    openers = [b for b in at.button if b.key == "open_draft_table_dialog"]
+    assert len(openers) == 1, "Draft Table opener button not found - is the dialog already open, or the table absent?"
+    openers[0].click()
 
 
 def forbid_subprocess(*args, **kwargs):
@@ -116,6 +151,7 @@ def test_draft_table_edit_lands_in_optimized_resume_data():
         "added_rows": [],
         "deleted_rows": [],
     }
+    reopen_draft_table(at)
     at.run()
 
     assert not at.exception
@@ -133,7 +169,9 @@ def test_draft_table_scalar_input_lands_in_optimized_resume_data():
     at = run_app(active_view="Generator", optimized_resume_data=optimized_with_one_role())
     ekey = at.session_state["opt_editor_key"]
 
-    at.text_input(key=f"draft_company_{ekey}").input("Globex Corp").run()
+    at.text_input(key=f"draft_company_{ekey}").input("Globex Corp")
+    reopen_draft_table(at)
+    at.run()
 
     assert not at.exception
     assert at.session_state["optimized_resume_data"]["target_company"] == "Globex Corp"
@@ -157,6 +195,7 @@ def test_draft_table_edit_to_skills_lands_in_optimized_resume_data():
         "added_rows": [],
         "deleted_rows": [],
     }
+    reopen_draft_table(at)
     at.run()
 
     assert not at.exception
@@ -181,6 +220,7 @@ def test_draft_table_preserves_fields_it_does_not_manage():
         "added_rows": [],
         "deleted_rows": [],
     }
+    reopen_draft_table(at)
     at.run()
 
     assert not at.exception
@@ -251,6 +291,7 @@ def test_draft_table_edit_clears_stale_pdf_but_keeps_tracked_flag():
         "added_rows": [],
         "deleted_rows": [],
     }
+    reopen_draft_table(at)
     at.run()
 
     assert not at.exception
@@ -346,6 +387,7 @@ def test_draft_table_string_details_survive_an_unrelated_cell_edit():
         "added_rows": [],
         "deleted_rows": [],
     }
+    reopen_draft_table(at)
     at.run()
 
     assert not at.exception

@@ -2673,10 +2673,20 @@ def render_generator_workspace():
     if st.session_state.optimized_resume_data:
         if optimized_result_is_stale():
             st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
-        render_optimized_draft_table()
-        # The dialog stays outside the fragment: editing the resume has to
-        # propagate to the whole script, not just this box.
-        if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
+        # Item 2: the draft table used to render inline here, which made the
+        # left column enormous (every experience/education/projects/skills
+        # grid stacked at once, above Edit Optimized JSON, above Export
+        # Settings, above ATS analysis). It now lives behind a dialog, opened
+        # by this button, beside the existing Edit Optimized JSON button that
+        # opens the other dialog. Both dialogs stay outside the fragment:
+        # editing the resume has to propagate to the whole script, not just
+        # this box.
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            if st.button("Draft Table", use_container_width=True, key="open_draft_table_dialog"):
+                render_optimized_draft_table()
+        with dcol2:
+            if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
     # 手動匯入外部推論結果
     if st.session_state.get("show_advanced_tools"):
@@ -2739,6 +2749,7 @@ def render_generator_workspace():
     else:
         st.caption("Optimize a resume to see how it scores against the job description.")
 
+@st.dialog("Draft table", width="large")
 def render_optimized_draft_table():
     """The optimized result as a directly-editable table. Called only once
     st.session_state.optimized_resume_data exists (guarded by the caller,
@@ -3106,10 +3117,8 @@ def render_preview():
     with top_right:
         if dl:
             downloaded = st.download_button(
-                f"Download {dl['name']}",
-                dl["bytes"],
-                dl["name"],
-                use_container_width=True,
+                "", dl["bytes"], dl["name"],
+                icon=":material/download:", help=f"Download {dl['name']}",
             )
             if st.session_state.logged_in:
                 if st.session_state.get("tracked_application_id") is not None:
