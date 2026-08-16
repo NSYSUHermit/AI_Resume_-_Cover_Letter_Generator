@@ -1659,21 +1659,70 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        moment, not just after scrolling back up. Fixed-positioned onto the
        strip's right end (strip is z-index 999, this sits just above it) and
        its now-empty flow container is collapsed so it leaves no gap.
-       Same `top` as the strip, so the two share a row. */
+
+       It is *inset* into the strip rather than filling it: at the default
+       button height it was exactly as tall as the 30px strip, so its pill
+       outline landed on the strip's own top/bottom edges and read as a
+       control hovering in front of the bar instead of living in it. 22px
+       tall, centred in the 30px row, leaves 4px of strip visible above and
+       below - and `right` matches the strip's own 1.25rem padding so it
+       lines up with the strip's content, not with the window. */
     [class*="st-key-new_application"] {
         position: fixed !important;
-        top: 3.75rem;
-        right: 1rem;
+        /* Strip top + half of the 30px-vs-22px height difference. */
+        top: calc(3.75rem + 4px);
+        right: 1.25rem;
         width: auto !important;
         z-index: 1000;
         margin: 0 !important;
     }
 
+    /* Quiet ghost pill: the strip is a hairline status bar, so a filled or
+       heavily outlined button shouts over the progress track it sits next
+       to. Transparent until hovered, hairline border, label weight matched
+       to .gp-strip-label's 650. */
     [class*="st-key-new_application"] button {
-        min-height: 30px !important;
-        padding: 0.1rem 0.7rem !important;
-        font-size: 0.78rem !important;
+        min-height: 22px !important;
+        height: 22px !important;
+        padding: 0 0.65rem !important;
+        gap: 0.25rem !important;
+        font-size: 0.72rem !important;
+        font-weight: 650 !important;
+        line-height: 1 !important;
+        white-space: nowrap;
         border-radius: 999px !important;
+        color: var(--muted) !important;
+        background: transparent !important;
+        border: 1px solid var(--border) !important;
+        box-shadow: none !important;
+        transition: background var(--ease), border-color var(--ease),
+                    color var(--ease);
+    }
+
+    [class*="st-key-new_application"] button:hover,
+    [class*="st-key-new_application"] button:focus-visible {
+        color: var(--brand) !important;
+        background: var(--surface-soft) !important;
+        border-color: var(--border-strong) !important;
+    }
+
+    /* The label lives in a nested stMarkdownContainer > p that carries its
+       own 14px font-size, so the font-size on the button element alone does
+       not reach it - it has to be set here too or the pill stays as wide as
+       a full-size button with small padding. */
+    [class*="st-key-new_application"] button [data-testid="stMarkdownContainer"],
+    [class*="st-key-new_application"] button p {
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+    }
+
+    /* Streamlit renders `icon=":material/add:"` as a ligature span sized for
+       a full-height button; left alone it is taller than this pill. */
+    [class*="st-key-new_application"] button span[data-testid="stIconMaterial"] {
+        font-size: 14px !important;
+        width: 14px !important;
+        height: 14px !important;
+        line-height: 14px !important;
     }
 
     #gp-status-strip {
@@ -1706,6 +1755,13 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         align-items: center;
         gap: 0.75rem;
         padding: 0.35rem 1.25rem;
+        /* Right gutter reserved for the fixed "New application" button, which
+           rides this same row at z-index 1000 and would otherwise paint over
+           the .gp-strip-label at the strip's right end. Measured in the
+           browser: the pill is 125px wide plus its own right:1.25rem offset,
+           i.e. ~9rem of occupied space - 10rem leaves a visible gap between
+           label and button instead of butting them together. */
+        padding-right: 10rem;
         background: var(--surface);
         border-bottom: 1px solid var(--border);
     }
