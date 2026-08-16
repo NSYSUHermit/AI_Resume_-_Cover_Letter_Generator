@@ -82,6 +82,7 @@ if "last_synced_at" not in st.session_state: st.session_state.last_synced_at = N
 if "tracked_application_id" not in st.session_state: st.session_state.tracked_application_id = None
 # Plain state, not a widget key: the sidebar nav is built from buttons, so
 # nothing owns this value except us.
+if "sidebar_collapsed" not in st.session_state: st.session_state.sidebar_collapsed = False
 if "active_view" not in st.session_state:
     st.session_state.active_view = workspace.initial_view(
         resume_is_empty(st.session_state.resume_data)
@@ -877,7 +878,78 @@ main_container_padding_top = (
 )
 
 # Lightweight visual system: native CSS only, no UI/animation framework.
-st.markdown("<style>\n" + css_root_block() + """
+# Sidebar width is locked from CSS rather than left to Streamlit's own
+# resizable wrapper. Read off the live DOM: Streamlit writes the width as an
+# INLINE style on [data-testid="stSidebar"] (`width: 300px`, alongside the
+# `user-select`/`position: relative` signature of a re-resizable wrapper) and
+# its drag handle rewrites that inline value. A CSS `!important` width beats an
+# inline declaration, so pinning it here makes dragging a no-op without having
+# to target the handle's volatile emotion-hash class at all. The owner asked
+# for exactly one control - a collapse button - and no width dragging.
+SIDEBAR_EXPANDED_PX = 300
+# 200, not the ~72 the owner's reference design uses. Probed in a live browser:
+# Streamlit clamps the sidebar section to a 200px floor from JS, not CSS - a
+# stylesheet `!important`, a higher-specificity selector, and even an inline
+# `style.setProperty(..., "important")` all left getComputedStyle reporting
+# min-width: 200px, because React owns that style attribute and rewrites it.
+# 200 is therefore the narrowest icon rail achievable without abandoning
+# st.sidebar altogether and hand-rolling a fixed-position nav column.
+SIDEBAR_RAIL_PX = 200
+
+_SIDEBAR_WIDTH_CSS = """
+    /* Both the <section> and its inner content div carry the width; pinning
+       only one leaves the other free to disagree during a drag. */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        width: %(w)dpx !important;
+        min-width: %(w)dpx !important;
+        max-width: %(w)dpx !important;
+    }
+
+    /* Streamlit's own collapse button hides the sidebar outright. The owner
+       wants it to shrink to an icon rail instead, so the native control is
+       removed and replaced by the one rendered inside the sidebar itself. */
+    [data-testid="stSidebarCollapseButton"] { display: none !important; }
+"""
+
+_SIDEBAR_RAIL_CSS = """
+    /* Collapsed: an icon rail, never a disappearing sidebar. The label and the
+       icon are separate elements in Streamlit's button markup
+       ([data-testid="stMarkdownContainer"] vs [data-testid="stIconMaterial"],
+       confirmed against the rendered DOM), so hiding the former leaves a
+       centred icon behind with no bespoke button markup needed. */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+    [data-testid="stSidebar"] .sb-micro-label,
+    [data-testid="stSidebar"] .sb-brand-text,
+    [data-testid="stSidebar"] [data-testid="stForm"],
+    [data-testid="stSidebar"] [data-testid="stRadio"],
+    [data-testid="stSidebar"] [data-testid="stExpander"],
+    [data-testid="stSidebar"] .sb-account-text {
+        display: none !important;
+    }
+
+    [data-testid="stSidebar"] .stButton button {
+        justify-content: center !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+"""
+
+
+def _sidebar_css():
+    collapsed = st.session_state.get("sidebar_collapsed", False)
+    width = SIDEBAR_RAIL_PX if collapsed else SIDEBAR_EXPANDED_PX
+    css = _SIDEBAR_WIDTH_CSS % {"w": width}
+    return css + (_SIDEBAR_RAIL_CSS if collapsed else "")
+
+
+st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
 
     html, body, [data-testid="stAppViewContainer"] {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -1713,7 +1785,22 @@ def render_sidebar_account_block(email):
     )
 
 with st.sidebar:
-    render_sidebar_brand()
+    # One control, at the top, always visible in both states - the owner asked
+    # for a single collapse button and nothing else. Icon-only so it reads the
+    # same width whether the rail is open or shut.
+    if st.button(
+        "",
+        key="sidebar_toggle",
+        help="Expand sidebar" if st.session_state.sidebar_collapsed else "Collapse to icons",
+        icon=":material/menu:" if st.session_state.sidebar_collapsed else ":material/menu_open:",
+    ):
+        st.session_state.sidebar_collapsed = not st.session_state.sidebar_collapsed
+        # The width lives in the stylesheet, which is emitted near the top of
+        # the script - so the new state only takes effect on a fresh run.
+        st.rerun()
+
+    if not st.session_state.sidebar_collapsed:
+        render_sidebar_brand()
 
     render_sidebar_group_label("WORKSPACE")
     for view, label, icon in workspace.VIEWS:
