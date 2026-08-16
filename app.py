@@ -904,8 +904,16 @@ SIDEBAR_EXPANDED_PX = 300
 # follows to ~108px instead of staying at 200. Verified in the browser:
 # section 200px wide, left -104, right 96, main content left 108.
 SIDEBAR_RAIL_PX = 96
-SIDEBAR_RAIL_FLOOR_PX = 200
+# The section's real width, which no CSS this app writes can change - measured
+# rather than assumed. A `width: !important` is ignored exactly like the
+# min-width above, so the <section> stays at Streamlit's own 300px in both
+# states and the slide below has to be computed against 300, not against the
+# 200px min-width floor. (Getting this wrong left the rail 196px wide with its
+# icons centred for 96 - visibly lopsided.)
+SIDEBAR_RAIL_FLOOR_PX = SIDEBAR_EXPANDED_PX
 SIDEBAR_RAIL_OFFSET_PX = SIDEBAR_RAIL_FLOOR_PX - SIDEBAR_RAIL_PX
+# Side of the square icon tiles, and the basis for centring them on the rail.
+SIDEBAR_RAIL_ICON_PX = 52
 
 _SIDEBAR_WIDTH_CSS = """
     /* Both the <section> and its inner content div carry the width; pinning
@@ -1010,6 +1018,10 @@ _SIDEBAR_RAIL_CSS = """
        at the top of the collapsed sidebar. */
     [data-testid="stSidebar"] .sb-brand {
         justify-content: center !important;
+        /* The wordmark is display:none, but .sb-brand's row gap still counts
+           against the flex line, pushing the monogram half a gap off centre
+           (measured: centre 38 against a rail centre of 48). */
+        gap: 0 !important;
     }
 
     /* Chrome that carries no meaning at rail width: the wordmark beside the
@@ -1039,6 +1051,17 @@ _SIDEBAR_RAIL_SLIDE_CSS = """
     [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
         padding-left: %(off)dpx !important;
     }
+
+    /* Centre the rail's contents inside the visible strip. Measured: with only
+       the padding above, stSidebarUserContent starts at x=0 and its children
+       sit flush against the viewport edge - auto margins do not help because
+       Streamlit gives that wrapper no left padding of its own, so "centred in
+       its box" is still hard left on screen. Padding it symmetrically by
+       (rail - icon)/2 puts the icon column on the rail's true centre line. */
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+        padding-left: %(pad)dpx !important;
+        padding-right: %(pad)dpx !important;
+    }
 """
 
 
@@ -1047,7 +1070,10 @@ def _sidebar_css():
     width = SIDEBAR_RAIL_FLOOR_PX if collapsed else SIDEBAR_EXPANDED_PX
     css = _SIDEBAR_WIDTH_CSS % {"w": width}
     if collapsed:
-        css += _SIDEBAR_RAIL_SLIDE_CSS % {"off": SIDEBAR_RAIL_OFFSET_PX}
+        css += _SIDEBAR_RAIL_SLIDE_CSS % {
+            "off": SIDEBAR_RAIL_OFFSET_PX,
+            "pad": (SIDEBAR_RAIL_PX - SIDEBAR_RAIL_ICON_PX) // 2,
+        }
         css += _SIDEBAR_RAIL_CSS
     return css
 
