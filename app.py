@@ -750,7 +750,20 @@ st.markdown("<style>\n" + css_root_block() + """
     /* Renamed from .main .block-container; the old selector matched nothing
        after the 1.6x DOM change, so the width cap was silently not applied. */
     [data-testid="stMainBlockContainer"] {
-        padding-top: 3.25rem;
+        /* 3.25rem plus headroom for the floating progress bar (Generator
+           view only - see #gp-floating-progress below): that bar sits at
+           top:calc(3.75rem + 0.75rem) and is roughly 4.3rem tall, so content
+           must not start before about 3.75+0.75+4.3+0.75 = 9.55rem from the
+           viewport top. Applying the extra 3.25rem here, on the shared rule,
+           rather than only within the Generator branch, is deliberate: the
+           result banner (render_result_banner(), below) can render at the
+           very top of this same container *on* the Generator view, ahead of
+           anything render_floating_progress() itself could push down - only
+           a container-wide padding-top clears it too, regardless of render
+           order. Profile and Tracker pick up the same padding despite never
+           showing the bar; a bit of unused top space there is preferable to
+           the alternative of a floating bar that can cover content. */
+        padding-top: 6.5rem;
         padding-bottom: 3rem;
         max-width: 1320px;
     }
@@ -920,6 +933,115 @@ st.markdown("<style>\n" + css_root_block() + """
     @media (max-width: 900px) {
         #small-screen-notice { display: block; }
     }
+
+    /* Floating progress bar - rendered only on the Generator view, by
+       render_floating_progress() below. Self-contained SVG + keyframes under
+       our own #gp-/.gp- names; nothing here targets a Streamlit-internal
+       class, so a platform upgrade cannot break it the way the old
+       ".main .block-container" selector above once did. The headroom this
+       needs is reserved on the shared stMainBlockContainer rule above, not
+       here - see the comment on that rule for why. */
+    #gp-floating-progress {
+        position: fixed;
+        /* Streamlit's real toolbar height is 3.75rem (theme.sizes.headerHeight
+           in the streamlit==1.61.1 frontend bundle - confirmed by grepping the
+           shipped JS: the header's own styled-component sets
+           height/minHeight:e.sizes.headerHeight, and Streamlit's own toast
+           container docks fixed elements at top:e.sizes.headerHeight, the
+           same pattern used here. 2.875rem is a different constant
+           (fullScreenHeaderHeight) used only for an individual element's
+           fullscreen view, not the app toolbar - using it would sit this bar
+           under the toolbar instead of below it. */
+        top: calc(3.75rem + 0.75rem);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.55rem 1.5rem 0.65rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        box-shadow: var(--shadow-md);
+    }
+
+    .gp-track {
+        position: relative;
+        width: 240px;
+        height: 26px;
+    }
+
+    .gp-track::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 2px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--border);
+    }
+
+    .gp-track-fill {
+        position: absolute;
+        left: 0;
+        bottom: 2px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--brand);
+        transition: width 420ms ease-in-out;
+    }
+
+    .gp-stop {
+        position: absolute;
+        bottom: 0;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--surface);
+        border: 2px solid var(--muted);
+        transform: translateX(-50%);
+    }
+
+    .gp-stop-done {
+        border-color: var(--success);
+        background: var(--success);
+    }
+
+    .gp-walker-wrap {
+        position: absolute;
+        bottom: 4px;
+        transform: translateX(-50%);
+        /* Advancing a stage glides the walker to its new stop instead of
+           jumping - the state-driven counterpart to the old demo, which
+           looped through all four stops on a timer instead of on progress. */
+        transition: left 420ms ease-in-out;
+    }
+
+    .gp-walker {
+        display: block;
+        width: 20px;
+        height: 24px;
+    }
+
+    .gp-label {
+        font-size: 0.75rem;
+        font-weight: 650;
+        color: var(--muted);
+        white-space: nowrap;
+    }
+
+    /* Walk cycle: two leg groups alternate via steps(), plus a slight bob.
+       This keeps looping regardless of the walker's (state-driven) position -
+       only `left` above is ever driven from Python. */
+    .gp-bob { animation: gpbob .42s ease-in-out infinite alternate; }
+    .gp-legs  { animation: gpstep  .42s steps(2,end) infinite; }
+    .gp-legs2 { animation: gpstep2 .42s steps(2,end) infinite; }
+    @keyframes gpstep  { 0%{opacity:1} 50%{opacity:0} }
+    @keyframes gpstep2 { 0%{opacity:0} 50%{opacity:1} }
+    @keyframes gpbob   { from{transform:translateY(0)} to{transform:translateY(-1.5px)} }
 </style>""", unsafe_allow_html=True)
 
 st.markdown(
@@ -1425,23 +1547,88 @@ def render_preview():
         else: st.info(f"The {ch} data is missing.")
     else: st.info("Click 'Generate PDF' to see preview.")
 
-def render_generator_panel():
-    """Generator 的右欄：進度、輸出設定、預覽與 ATS。"""
-    st.caption("THIS APPLICATION")
-    for label, done in workspace.application_progress(
+def render_floating_progress():
+    """Floating pill-shaped progress bar, fixed to the top-centre of the
+    viewport, for the Generator view only.
+
+    Draws the same four (label, done) stages the old vertical checklist did -
+    workspace.application_progress() still owns that logic (unit-tested in
+    tests/test_workspace.py); this function only renders it, it does not
+    re-decide what counts as "done".
+
+    The walker's horizontal position is state-driven, not looping: it rests
+    at the stop for the last-completed stage (the highest index with
+    done=True, or the first stop if nothing is done yet) and CSS transitions
+    `left` so advancing a stage glides it there rather than jumping. Only the
+    legs/bob keep animating in place - see .gp-bob/.gp-legs/.gp-legs2 in the
+    stylesheet.
+    """
+    stages = workspace.application_progress(
         jd_text=st.session_state.jd_text,
         has_optimized=st.session_state.optimized_resume_data is not None,
         has_pdf=st.session_state.resume_preview_bytes is not None,
         is_tracked=st.session_state.get("tracked_application_id") is not None,
-    ):
-        icon = "check_circle" if done else "radio_button_unchecked"
-        colour = TOKENS["success"] if done else TOKENS["muted"]
-        st.markdown(
-            f":material/{icon}: <span style='color:{colour}'>{label}</span>",
-            unsafe_allow_html=True,
-        )
-    st.markdown("---")
+    )
+    total = len(stages)
+    done_indices = [i for i, (_, done) in enumerate(stages) if done]
+    completed = len(done_indices)
+    # Highest-index completed stage, not a running count: the two can differ
+    # if stages ever complete out of order, and "last completed stage" means
+    # the rightmost done stop, not how many are done.
+    walker_index = max(done_indices) if done_indices else 0
 
+    def stop_pct(index):
+        # Evenly spaced stops across whatever the track's actual width ends
+        # up being - a percentage needs no pixel constant shared with the
+        # stylesheet's .gp-track width.
+        return round(index * 100 / (total - 1), 3) if total > 1 else 0.0
+
+    stops_html = "".join(
+        f'<span class="gp-stop{" gp-stop-done" if done else ""}" '
+        f'style="left:{stop_pct(i)}%" title="{label}"></span>'
+        for i, (label, done) in enumerate(stages)
+    )
+
+    if completed == 0:
+        status_text = "Not started"
+    elif completed == total:
+        status_text = f"All steps complete · {completed}/{total}"
+    else:
+        status_text = f"{stages[walker_index][0]} · {completed}/{total}"
+
+    brand = TOKENS["brand"]
+    walker_left = stop_pct(walker_index)
+    walker_svg = f"""<svg class="gp-walker" viewBox="0 0 20 24" fill="none">
+  <g class="gp-bob">
+    <circle cx="10" cy="4.5" r="3.2" fill="{brand}"/>
+    <path d="M10 8v7" stroke="{brand}" stroke-width="2.4" stroke-linecap="round"/>
+    <g class="gp-legs">
+      <path d="M10 15l-3.5 5M10 15l3.5 5" stroke="{brand}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M10 10l-4 2.5M10 10l4 2" stroke="{brand}" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <g class="gp-legs2">
+      <path d="M10 15l-1.5 5.5M10 15l4.5 4" stroke="{brand}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M10 10l-4 1.5M10 10l3.5 3" stroke="{brand}" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>"""
+
+    st.markdown(
+        f"""<div id="gp-floating-progress" role="group" aria-label="Application progress: {status_text}">
+  <div class="gp-track">
+    <div class="gp-track-fill" style="width:{walker_left}%"></div>
+    {stops_html}
+    <div class="gp-walker-wrap" style="left:{walker_left}%">
+      {walker_svg}
+    </div>
+  </div>
+  <span class="gp-label">{status_text}</span>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+def render_generator_panel():
+    """Generator 的右欄：輸出設定、預覽與 ATS。進度已移至頂端懸浮 bar。"""
     render_export_settings()
 
     preview_tab, ats_tab = st.tabs(["Preview", "ATS"])
@@ -1455,6 +1642,7 @@ def render_generator_panel():
             st.caption("Optimize a resume to see how it scores against the job description.")
 
 if active_view == workspace.GENERATOR:
+    render_floating_progress()
     left, right = st.columns([6, 4])
     with left:
         render_generator_workspace()
