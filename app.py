@@ -7,8 +7,9 @@ import json
 import tempfile
 import shutil
 import base64
+import html
 import streamlit.components.v1 as components
-from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block, walker_svg
 import ai
@@ -634,18 +635,26 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
 # ---------------------------------------------------------
 # PDF 渲染
 # ---------------------------------------------------------
-def render_pdf_js(pdf_bytes, max_pages=None, height=800):
-    """Render a PDF inline with pdf.js.
+def render_pdf_js(pdf_bytes, height=800):
+    """Render every page of a PDF inline with pdf.js.
 
-    Re-embedding the document as base64 is the most expensive thing this app
-    does on a rerun, so callers cap `max_pages` unless the user asks for the
-    full document. Canvases are appended synchronously in page order; the
-    previous version appended them from the getPage callback, so pages could
-    land out of order whenever one resolved before an earlier one.
+    This used to take a `max_pages` cap, defaulting to one page behind a
+    "Render all pages" checkbox, on the stated grounds that re-embedding the
+    document as base64 is the most expensive thing this app does on a rerun.
+    That reasoning was wrong: `base64.b64encode` below runs over the whole
+    document regardless of the cap, which only ever limited how many canvases
+    pdf.js painted client-side. The expensive half was paid either way, so the
+    cap bought nothing and cost the user a click plus the hidden pages.
+
+    If the base64 re-embed ever needs fixing for real, cache it on a hash of
+    `pdf_bytes` — that is the part that is actually expensive.
+
+    Canvases are appended synchronously in page order; an earlier version
+    appended them from the getPage callback, so pages could land out of order
+    whenever one resolved before an earlier one.
     """
     if not pdf_bytes: return
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    cap = "null" if max_pages is None else str(int(max_pages))
     pdf_js_html = f"""<!DOCTYPE html><html><head>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
@@ -658,8 +667,7 @@ var b=window.atob('{base64_pdf}');
 var bytes=new Uint8Array(b.length);
 for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);
 pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{
-  var cap={cap};
-  var last=(cap===null)?pdf.numPages:Math.min(pdf.numPages,cap);
+  var last=pdf.numPages;
   for(var i=1;i<=last;i++){{
     (function(n){{
       var c=document.createElement('canvas');
@@ -671,9 +679,7 @@ pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{
       }});
     }})(i);
   }}
-  if(last<pdf.numPages){{
-    document.getElementById('note').textContent='Showing '+last+' of '+pdf.numPages+' pages. Tick "Render all pages" to see the rest.';
-  }}
+  document.getElementById('note').textContent=pdf.numPages+(pdf.numPages===1?' page':' pages');
 }});</script></body></html>"""
     components.html(pdf_js_html, height=height, scrolling=True)
 
@@ -1294,6 +1300,149 @@ st.markdown("<style>\n" + css_root_block() + """
     @keyframes gpstep  { 0%{opacity:1} 50%{opacity:0} }
     @keyframes gpstep2 { 0%{opacity:0} 50%{opacity:1} }
     @keyframes gpbob   { from{transform:translateY(0)} to{transform:translateY(-1.5px)} }
+
+    /* Sidebar redesign: brand lockup, uppercase group micro-labels,
+       recent-applications rows, and the bottom account block. Own `.sb-`
+       prefix, the same convention `.gp-` above already uses, so neither can
+       ever collide with a Streamlit-internal class name. All colour still
+       comes from the :root variables at the top of this block (i.e. from
+       TOKENS, via css_root_block()) - nothing here hard-codes a hex value. */
+    .sb-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        padding: 0.2rem 0.1rem 0.6rem;
+    }
+
+    .sb-logo {
+        flex: none;
+        width: 38px;
+        height: 38px;
+        border-radius: var(--radius);
+        background: var(--brand-dark);
+        color: var(--surface);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 0.95rem;
+        letter-spacing: 0.02em;
+    }
+
+    .sb-wordmark-name {
+        color: var(--text);
+        font-weight: 750;
+        font-size: 0.98rem;
+        line-height: 1.18;
+    }
+
+    /* Shared by every uppercase group/section label in the sidebar: the
+       brand block's "APPLICATION WORKSPACE", the "WORKSPACE" nav-group
+       label, "RECENT APPLICATIONS", and the account block's
+       "ACCOUNT · SETTINGS". */
+    .sb-micro-label {
+        font-size: 0.66rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0.3rem 0 0.4rem 0.05rem;
+    }
+
+    .sb-brand .sb-micro-label,
+    .sb-account .sb-micro-label {
+        margin: 0.15rem 0 0;
+    }
+
+    .sb-hairline {
+        border-color: var(--border);
+        margin: 0 0 0.6rem;
+    }
+
+    /* Recent-applications rows (workspace.recent_applications()): lighter
+       than the WORKSPACE nav buttons above them - these read as a list to
+       scan, not as another set of primary actions. */
+    [class*="st-key-recent_app_"] button {
+        min-height: 34px !important;
+        padding: 0.3rem 0.6rem !important;
+        border-color: transparent !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        font-weight: 500 !important;
+        justify-content: flex-start !important;
+        overflow: hidden !important;
+    }
+
+    [class*="st-key-recent_app_"] button:hover {
+        background: var(--surface-soft) !important;
+        border-color: var(--border) !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    /* Truncates the "Company — Role" label instead of wrapping or
+       overflowing the sidebar - min-width:0 is needed because the label is
+       a flex child (of the icon+label row Streamlit's own button markup
+       builds) and would otherwise refuse to shrink below its text's natural
+       width, which would silently defeat text-overflow:ellipsis below. */
+    [class*="st-key-recent_app_"] button p {
+        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    /* Status-dot colour: a fixed vocabulary of 5 token names
+       (brand/warning/success/danger/muted - workspace.recent_applications()
+       picks one per row) carried as a suffix on that row's own st.button
+       key (recent_app_<index>_<token>). This stylesheet is injected before
+       this session's Tracker data even exists, so it cannot know in advance
+       which of up to 3 rows will need which colour - only the fixed set of
+       colours a status could ever map to, which is what these 5 rules
+       enumerate. Substring match, not exact class equality, because
+       Streamlit may append its own class(es) after st-key-<key> on the same
+       attribute. */
+    [class*="st-key-recent_app_"][class*="_brand"] [data-testid="stIconMaterial"] { color: var(--brand) !important; }
+    [class*="st-key-recent_app_"][class*="_warning"] [data-testid="stIconMaterial"] { color: var(--warning) !important; }
+    [class*="st-key-recent_app_"][class*="_success"] [data-testid="stIconMaterial"] { color: var(--success) !important; }
+    [class*="st-key-recent_app_"][class*="_danger"] [data-testid="stIconMaterial"] { color: var(--danger) !important; }
+    [class*="st-key-recent_app_"][class*="_muted"] [data-testid="stIconMaterial"] { color: var(--muted) !important; }
+
+    .sb-account {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.15rem 0.1rem 0.3rem;
+    }
+
+    .sb-avatar {
+        flex: none;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--surface-soft);
+        border: 1px solid var(--border);
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.82rem;
+    }
+
+    .sb-account-info {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .sb-account-email {
+        color: var(--text);
+        font-weight: 650;
+        font-size: 0.85rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 </style>""", unsafe_allow_html=True)
 
 st.markdown(
@@ -1302,11 +1451,109 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    st.markdown("### AI Resume Studio")
-    st.caption("Resume, cover letter, and application tracking.")
+def render_sidebar_brand():
+    """Logo chip + two-line wordmark + sub-label, as a single injected
+    fragment, plus the hairline rule that separates it from the nav below.
 
-    st.caption("WORKSPACE")
+    Deliberately one st.markdown() call, not three-plus stacked ones
+    (st.markdown for the wordmark, st.caption for the sub-label, ...): the
+    [data-testid="stVerticalBlock"] gap rule above applies between every
+    direct child Streamlit puts in the sidebar, so stacked calls would read
+    as loose, disconnected lines instead of one lockup anchoring the sidebar.
+    A single fragment has only one such child, so there is nothing for that
+    gap rule to apply between. Colour comes entirely from the .sb- classes
+    in the stylesheet (var(--brand-dark), var(--surface), var(--muted), ...),
+    themselves sourced from TOKENS via css_root_block() - nothing here is a
+    literal hex value.
+    """
+    st.markdown(
+        """<div class="sb-brand">
+  <div class="sb-logo">AR</div>
+  <div class="sb-wordmark">
+    <div class="sb-wordmark-name">AI Resume<br>Studio</div>
+    <div class="sb-micro-label">APPLICATION WORKSPACE</div>
+  </div>
+</div>
+<hr class="sb-hairline">""",
+        unsafe_allow_html=True,
+    )
+
+def render_sidebar_group_label(text):
+    """One uppercase, letter-spaced micro-label - the "WORKSPACE" /
+    "RECENT APPLICATIONS" style headers grouping the sidebar's sections."""
+    st.markdown(f'<div class="sb-micro-label">{text}</div>', unsafe_allow_html=True)
+
+def render_sidebar_recent_applications():
+    """Up to three most-recent tracker rows, or nothing at all.
+
+    This is the one section with a real cost trap: it needs Firestore data,
+    but the sidebar renders on every rerun of every view. Two things keep
+    that cheap:
+
+    1. Logged-out sessions return before get_db() is even called, so there is
+       never a Firestore round-trip (not even an init attempt) for a signed-
+       out visitor.
+    2. firebase_dashboard.fetch_applications() is itself the caching layer -
+       it is keyed by st.session_state.app_records_email (so switching
+       accounts can never serve the previous user's rows) and only re-hits
+       Firestore when force_refresh_apps is set, which save_application()
+       already flips to True on every successful write (see
+       sync_application_to_tracker() in this file). Calling it again here on
+       every sidebar render is therefore a session_state read, not a new
+       Firestore call, on every rerun after the first. No second cache is
+       layered on top of it here.
+
+    If the fetch fails or simply returns nothing, this renders nothing at
+    all - not even the group label - rather than an empty list or fabricated
+    placeholder rows.
+    """
+    if not st.session_state.logged_in:
+        return
+    db = get_db()
+    if db is None:
+        return
+    records = fetch_applications(db, st.session_state.user_email)
+    rows = workspace.recent_applications(records)
+    if not rows:
+        return
+    render_sidebar_group_label("RECENT APPLICATIONS")
+    for i, row in enumerate(rows):
+        label = f"{row['company']} — {row['role']}" if row["role"] else row["company"]
+        if st.button(
+            label,
+            key=f"recent_app_{i}_{row['status_dot_token']}",
+            icon=":material/fiber_manual_record:",
+            use_container_width=True,
+            help=label,
+        ):
+            st.session_state.active_view = workspace.TRACKER
+            st.rerun()
+
+def render_sidebar_account_block(email):
+    """Avatar + email + "ACCOUNT · SETTINGS" micro-label, as one fragment -
+    same reasoning as render_sidebar_brand() above: this is one visual unit,
+    not three separately-spaced Streamlit elements. email is user-controlled
+    (whatever they registered with) and lands in raw HTML, so it is escaped
+    before interpolation; the truncation itself is CSS (text-overflow:
+    ellipsis in .sb-account-email), not string slicing, so the full address
+    is still available via the title tooltip."""
+    initial = html.escape((email or "?")[:1].upper())
+    safe_email = html.escape(email or "")
+    st.markdown(
+        f"""<div class="sb-account">
+  <div class="sb-avatar">{initial}</div>
+  <div class="sb-account-info">
+    <div class="sb-account-email" title="{safe_email}">{safe_email}</div>
+    <div class="sb-micro-label">ACCOUNT · SETTINGS</div>
+  </div>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+with st.sidebar:
+    render_sidebar_brand()
+
+    render_sidebar_group_label("WORKSPACE")
     for view, label, icon in workspace.VIEWS:
         if st.button(
             label,
@@ -1320,10 +1567,13 @@ with st.sidebar:
             # itself for the previous view, so without this the highlight and
             # the content below would disagree until the next interaction.
             st.rerun()
+
+    render_sidebar_recent_applications()
+
     st.markdown("---")
 
     if st.session_state.logged_in:
-        st.success(f"**User:** `{st.session_state.user_email}`")
+        render_sidebar_account_block(st.session_state.user_email)
         if st.session_state.get("sync_error"):
             st.error(f"Cloud sync failed: {st.session_state.sync_error}")
         elif st.session_state.last_synced_at:
@@ -2061,10 +2311,7 @@ def render_preview():
                 sync_application_to_tracker()
 
     if target:
-        # Checking the layout only needs page one; rasterising every page on
-        # each rerun was pure waste.
-        all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
-        render_pdf_js(target, max_pages=None if all_pages else 1)
+        render_pdf_js(target)
     elif ch == "Resume":
         data = st.session_state.resume_data
         if resume_is_empty(data):
@@ -2087,8 +2334,7 @@ def render_preview():
                 # docstring, Minor 9).
                 base_bytes = None
             if base_bytes:
-                all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
-                render_pdf_js(base_bytes, max_pages=None if all_pages else 1)
+                render_pdf_js(base_bytes)
             else:
                 st.info("Preview unavailable. Check the LaTeX log above.")
     else:

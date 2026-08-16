@@ -294,3 +294,41 @@ def test_export_settings_and_ats_moved_into_generator_view():
     assert not at.exception
     assert any(h.value == "Export Settings" for h in at.subheader)
     assert any("Optimize a resume to see how it scores" in c.value for c in at.caption)
+
+
+# ---------------------------------------------------------------------------
+# Every page renders, always
+# ---------------------------------------------------------------------------
+# render_pdf_js() used to take a `max_pages` cap that defaulted to 1, exposed
+# through a "Render all pages" checkbox. Its stated justification was that
+# re-embedding the document as base64 is the most expensive thing the app does
+# on a rerun - but base64.b64encode() runs over the whole document either way,
+# and the cap only limited how many canvases pdf.js painted client-side. The
+# expensive half was paid regardless, so the cap hid pages for nothing. These
+# tests pin its removal.
+
+
+def test_no_render_all_pages_checkbox_anywhere():
+    at = run_app(active_view="Generator", resume_data=resume_with_experience("Pagecap One"))
+    labels = [c.label for c in at.checkbox]
+    assert not any("Render all pages" in (label or "") for label in labels), labels
+
+
+def test_pdf_renderer_takes_no_page_cap():
+    """The cap is gone from the signature, not merely defaulted to None.
+
+    Read from source rather than called: render_pdf_js() emits an iframe via
+    components.html and needs real PDF bytes, neither of which this assertion
+    is about.
+    """
+    source = (Path(__file__).resolve().parent.parent / "app.py").read_text()
+    signature = next(line for line in source.splitlines() if line.startswith("def render_pdf_js"))
+    assert "max_pages" not in signature, signature
+
+
+def test_pdf_renderer_paints_every_page():
+    """The emitted pdf.js loop must run to pdf.numPages with nothing clamping it."""
+    source = (Path(__file__).resolve().parent.parent / "app.py").read_text()
+    body = source[source.index("def render_pdf_js"):source.index("def escape_latex_chars")]
+    assert "var last=pdf.numPages;" in body
+    assert "Math.min(pdf.numPages" not in body
