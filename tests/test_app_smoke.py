@@ -72,8 +72,8 @@ def test_density_pass_css_values_are_pinned():
     not just Generator - this deliberately runs on a fresh session (no
     active_view override) rather than duplicating a Generator-specific check.
     Regression guard in the same spirit as
-    test_floating_progress.py's test_main_container_padding_covers_the_floating_bar:
-    if these literals drift back toward their pre-Task-4 values, the density
+    test_floating_progress.py's test_main_container_padding_is_pinned: if
+    these literals drift back toward their pre-Task-4 values, the density
     pass has silently been undone. Cannot assert anything about how this
     actually looks - that's the visual judgement call listed as unverified in
     this task's own report."""
@@ -82,10 +82,14 @@ def test_density_pass_css_values_are_pinned():
     style_matches = [m for m in at.markdown if "stMainBlockContainer" in m.value]
     assert len(style_matches) == 1
     css = style_matches[0].value
-    # padding-top: 6.5rem is a DIFFERENT pinned value (Task 1's floating-bar
-    # headroom, already guarded in test_floating_progress.py) - deliberately
-    # not re-asserted here so this test cannot pass for the wrong reason if
-    # that one is ever legitimately revised.
+    # padding-top is a DIFFERENT pinned value (the floating-bar headroom,
+    # scoped to the Generator view only since the UI final-review fix wave -
+    # already guarded in test_floating_progress.py) - deliberately not
+    # re-asserted here so this test cannot pass for the wrong reason if that
+    # one is ever legitimately revised. Also why this test does not care that
+    # a fresh session (no active_view override, as used below) lands on
+    # Profile rather than Generator - padding-top differs by view now, but
+    # nothing this test actually checks does.
     assert "padding-bottom: 2rem;" in css
     assert '[data-testid="stVerticalBlock"]' in css
     assert "gap: 0.6rem !important;" in css

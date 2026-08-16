@@ -269,6 +269,95 @@ def test_draft_table_absent_without_optimized_result():
 
 
 # ---------------------------------------------------------------------------
+# UI final-review fix wave, Important 4: the draft table must degrade rather
+# than crash on JSON shapes the merge base tolerated. optimized_resume_data
+# reaches this table with zero shape validation from three places - Manual
+# Data Import and Manual Result Import (both parse arbitrary pasted JSON,
+# see their own st.caption()s in app.py) and ai.rewrite_resume() (ai.py,
+# whose FORMAT block shows "education": [] etc. with no element schema) -
+# so a bare list of strings where the table expects a list of dicts, or a
+# JSON array instead of an object at the top level, both have to be
+# survivable. Confirmed against a copy of app.py with the compact_rows()/
+# current-isinstance guards reverted that all three reproduce
+# AttributeError: 'str'/'list' object has no attribute 'get' before writing
+# these tests.
+# ---------------------------------------------------------------------------
+
+def test_draft_table_survives_education_as_list_of_strings():
+    """{"education": ["MIT BS"]} - a plausible hand-pasted shortcut, and
+    exactly the kind of thing Manual Data Import's free-form JSON invites -
+    used to crash compact_rows() (row.get(...) on the string "MIT BS") on
+    every single render, taking down everything render_generator_workspace()
+    draws after it, including the only two surfaces that could fix the bad
+    data (Manual Data Import itself and Edit Optimized JSON)."""
+    at = run_app(active_view="Generator", optimized_resume_data={"education": ["MIT BS"]})
+    assert not at.exception
+    assert any("Optimized Draft" in m.value for m in at.markdown)
+
+
+def test_draft_table_survives_projects_as_list_of_strings():
+    """Same shape of bug, the other field the finding named: {"projects":
+    ["p1"]} crashed the same way, one function call later
+    (compact_rows(project_rows, PROJECT_ROW_FIELDS))."""
+    at = run_app(active_view="Generator", optimized_resume_data={"projects": ["p1"]})
+    assert not at.exception
+    assert any("Optimized Draft" in m.value for m in at.markdown)
+
+
+def test_draft_table_survives_list_shaped_optimized_resume_data():
+    """optimized_resume_data itself does not have to be an object - a JSON
+    array pasted into Manual Data Import satisfies "if
+    st.session_state.optimized_resume_data:" (a non-empty list is truthy)
+    just as well as a dict does, and used to crash the very first
+    current.get(...) call (current = the list itself; render_optimized_draft_table()
+    now coerces a non-dict current to {} before this point)."""
+    at = run_app(active_view="Generator", optimized_resume_data=["p1"])
+    assert not at.exception
+    assert any("Optimized Draft" in m.value for m in at.markdown)
+
+
+# ---------------------------------------------------------------------------
+# UI final-review fix wave, Important 5: details_to_text() must not explode
+# a string "details" into one row per character.
+# ---------------------------------------------------------------------------
+
+def test_draft_table_string_details_survive_an_unrelated_cell_edit():
+    """experience[0]["details"] as a bare string (not a list of
+    {"description": ...} dicts - reachable the same three ways as the shapes
+    above) used to survive seeding the table (details_to_text() iterated the
+    string character by character but nothing forced a write-back yet), then
+    get silently shredded into one {"description": <single char>} entry per
+    non-space character the moment ANY other cell in the table was edited -
+    here, an unrelated field (role) - because that edit is what makes
+    render_optimized_draft_table() compare `updated` against `baseline` as
+    genuinely different and write `updated` back into
+    st.session_state.optimized_resume_data. Confirmed against a copy of
+    details_to_text() with its isinstance(details, str) branch reverted that
+    this exact edit turns "Led the migration.\\nCut latency 40%." into 30
+    single-character entries before writing this test."""
+    optimized = optimized_with_one_role()
+    optimized["experience"][0]["details"] = "Led the migration.\nCut latency 40%."
+    at = run_app(active_view="Generator", optimized_resume_data=optimized)
+    ekey = at.session_state["opt_editor_key"]
+    exp_key = f"draft_experience_{ekey}"
+
+    at.session_state[exp_key] = {
+        "edited_rows": {0: {"role": "Senior SWE"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+
+    assert not at.exception
+    experience = at.session_state["optimized_resume_data"]["experience"]
+    assert experience[0]["role"] == "Senior SWE"
+    assert experience[0]["details"] == [
+        {"description": "Led the migration."},
+        {"description": "Cut latency 40%."},
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Manual-import reseeding: opt_editor_key must bump on all wholesale
 # replacements, not only Optimize Resume and the dialog's own two paths
 # ---------------------------------------------------------------------------

@@ -161,6 +161,50 @@ def test_base_preview_show_spinner_change_preserves_hit_miss_semantics(monkeypat
     assert len(calls) == 2  # back to A: still served from its own cache entry
 
 
+def fake_failing_lualatex(calls):
+    """Same shape as fake_lualatex() above, but simulates the failure path:
+    a nonzero returncode and no .pdf ever written -
+    generate_preview_pdf_bytes() (app.py) turns exactly this into a returned
+    None."""
+    class FakeFailedProcess:
+        returncode = 1
+        stdout = "! LaTeX Error: fake failure for test purposes.\n"
+        stderr = ""
+
+    def run(cmd, cwd=None, capture_output=None, text=None, **kwargs):
+        calls.append(cmd)
+        return FakeFailedProcess()
+
+    return run
+
+
+def test_failed_base_preview_compile_is_retried_not_cached(monkeypatch):
+    """Minor 9 (UI final-review fix wave): base_preview_pdf() used to return
+    generate_preview_pdf_bytes()'s None straight through on a failed compile,
+    and st.cache_data caches a returned None exactly like any other result -
+    so a transient lualatex failure stuck until the resume, template or
+    section order changed, unlike a genuine success (already covered by
+    test_base_preview_is_cached_and_compiles_at_most_once, above). Fixed by
+    raising instead of returning None on failure, which st.cache_data never
+    writes to the cache (confirmed against streamlit==1.61.1's own
+    runtime/caching/cache_utils.py, and empirically with a standalone script,
+    before writing this test). Two renders of the exact same (still-failing)
+    resume must therefore both pay the compile cost - the mirror image of
+    the cached-success test, proving the miss path no longer sticks."""
+    calls = []
+    monkeypatch.setattr("subprocess.run", fake_failing_lualatex(calls))
+
+    at = run_app(active_view="Generator", resume_data=resume_with_experience("Failing Compile Candidate"))
+    assert not at.exception
+    assert len(calls) == 1
+    assert any("Preview unavailable" in i.value for i in at.info)
+
+    at.run()
+    assert not at.exception
+    assert len(calls) == 2  # still failing -> retried, not served from a remembered failure
+    assert any("Preview unavailable" in i.value for i in at.info)
+
+
 def test_empty_base_resume_compiles_nothing(monkeypatch):
     """resume_is_empty() gates the cached base preview: a first-time user
     with nothing in their Career Profile yet must never pay the lualatex

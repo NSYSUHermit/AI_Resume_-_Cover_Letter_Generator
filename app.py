@@ -274,6 +274,18 @@ def editor_rows(value):
 def compact_rows(rows, fields):
     cleaned = []
     for row in editor_rows(rows):
+        # A row is not always a dict: editable_seed()/editor_rows() pass a
+        # list straight through unchanged (unlike experience_seed_rows(),
+        # which already filters to dicts), so a malformed optimized_resume_data
+        # - e.g. {"education": ["MIT BS"]} instead of a list of {"school":
+        # ...} dicts, reachable via Manual Data Import's free-form JSON paste,
+        # or ai.rewrite_resume(), which does not validate element shapes -
+        # seeds this with bare strings. row.get(...) below would crash the
+        # whole draft table (and everything the Generator view renders after
+        # it) over one bad row; skip what cannot be read as a row instead and
+        # let the table degrade to showing what it can.
+        if not isinstance(row, dict):
+            continue
         item = {field: str(row.get(field, "") or "").strip() for field in fields}
         if any(item.values()):
             cleaned.append(item)
@@ -286,6 +298,18 @@ def editable_seed(rows, fields):
     return [{field: "" for field in fields}]
 
 def details_to_text(details):
+    if isinstance(details, str):
+        # A malformed optimized_resume_data can carry "details" as an
+        # already-joined string instead of a list of {"description": ...}
+        # dicts (ai.rewrite_resume() does not validate element shapes, and
+        # Manual Data Import accepts arbitrary pasted JSON). Falling through
+        # to the loop below would iterate the string CHARACTER BY CHARACTER
+        # ("details or []" is truthy for any non-empty string, so the for
+        # loop walks it directly) - silently exploding one bullet into one
+        # row per letter the next time anything round-trips through
+        # text_to_details(), its inverse. Treat a string as already the text
+        # this function exists to produce instead.
+        return "\n".join(line.strip() for line in details.splitlines() if line.strip())
     lines = []
     for detail in details or []:
         if isinstance(detail, dict):
@@ -715,6 +739,14 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
         st.error(f"Resume PDF generation error: {e}")
     return None
 
+class PreviewCompileFailed(Exception):
+    """Raised by base_preview_pdf() on a failed compile - see its docstring.
+
+    Never meant to reach a user; render_preview() catches it right where it
+    calls base_preview_pdf() and shows the same "Preview unavailable" message
+    a returned None used to produce.
+    """
+
 @st.cache_data(show_spinner="Compiling your resume preview...", max_entries=8)
 def base_preview_pdf(snapshot, template_name, block_order):
     """Base 履歷的預覽。
@@ -749,8 +781,29 @@ def base_preview_pdf(snapshot, template_name, block_order):
     works there unchanged, but it's converted back to a list anyway to keep
     that function's contract (a list) exactly as it was before this wrapper
     existed.
+
+    Raises PreviewCompileFailed instead of returning None on a failed
+    compile (UI final-review fix wave, Minor 9): generate_preview_pdf_bytes()
+    returns None on a LaTeX failure, and a plain `return None` here would
+    cache that None under this call's (snapshot, template_name, block_order)
+    key exactly like any other result, so a transient lualatex failure would
+    stick until one of those three changed. st.cache_data only writes a
+    result to the cache after this function returns (confirmed by reading
+    streamlit==1.61.1's own runtime/caching/cache_utils.py -
+    CachedFunc._handle_cache_miss() calls cache.write_result() only after
+    self._info.func(...) returns, with nothing catching an exception raised
+    from that call in between - and empirically: a cache_data-wrapped
+    function made to raise on every call was confirmed to re-run on every
+    call, not just the first), so raising instead of returning means a later
+    call with the very same arguments retries the compile instead of
+    replaying the old failure. The error itself was already shown via
+    st.error/st.code inside generate_preview_pdf_bytes() above; this only
+    keeps that failure from being remembered.
     """
-    return generate_preview_pdf_bytes(json.loads(snapshot), template_name, list(block_order))
+    pdf_bytes = generate_preview_pdf_bytes(json.loads(snapshot), template_name, list(block_order))
+    if pdf_bytes is None:
+        raise PreviewCompileFailed()
+    return pdf_bytes
 
 def generate_cover_letter_pdf_bytes(data):
     try:
@@ -821,6 +874,20 @@ if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
     del st.session_state.pending_toast
 
+# UI final-review fix wave, Important 1 + Minor 7: the floating progress bar
+# (#gp-floating-progress, further down) renders only on the Generator view
+# (render_floating_progress()'s own guard), so only Generator's copy of the
+# shared stMainBlockContainer rule below needs the extra headroom that clears
+# it - see the comment on that rule for the arithmetic and for why this is a
+# container-wide padding rather than a spacer element. st.session_state.active_view
+# is already set by this point (session init near the top of this file), and
+# every nav click that changes it calls st.rerun() before any more render
+# code runs, so this always reflects the view actually being drawn this run,
+# regardless of where in the script it is read from.
+main_container_padding_top = (
+    "9.5rem" if st.session_state.active_view == workspace.GENERATOR else "3.25rem"
+)
+
 # Lightweight visual system: native CSS only, no UI/animation framework.
 st.markdown("<style>\n" + css_root_block() + """
 
@@ -833,24 +900,37 @@ st.markdown("<style>\n" + css_root_block() + """
     /* Renamed from .main .block-container; the old selector matched nothing
        after the 1.6x DOM change, so the width cap was silently not applied. */
     [data-testid="stMainBlockContainer"] {
-        /* 3.25rem plus headroom for the floating progress bar (Generator
-           view only - see #gp-floating-progress below): that bar sits at
-           top:calc(3.75rem + 0.75rem) and is roughly 4.3rem tall, so content
-           must not start before about 3.75+0.75+4.3+0.75 = 9.55rem from the
-           viewport top. Applying the extra 3.25rem here, on the shared rule,
-           rather than only within the Generator branch, is deliberate: the
-           result banner (render_result_banner(), below) can render at the
-           very top of this same container *on* the Generator view, ahead of
-           anything render_floating_progress() itself could push down - only
-           a container-wide padding-top clears it too, regardless of render
-           order. Profile and Tracker pick up the same padding despite never
-           showing the bar; a bit of unused top space there is preferable to
-           the alternative of a floating bar that can cover content. */
-        padding-top: 6.5rem;
+        /* Base value: 3.25rem, same as before the floating progress bar
+           existed. This is what Career Profile and Tracker actually render
+           with - neither ever shows the bar, so neither needs more.
+
+           Generator needs more (see main_container_padding_top, computed in
+           Python just above this block, before this string is built): the
+           bar sits at top:calc(3.75rem + 0.75rem) and is roughly 4.3rem
+           tall, so content must not start before about
+           3.75 + 0.75 + 4.3 + 0.75 = 9.55rem from the viewport top - close
+           enough to treat as 9.5rem given "roughly 4.3rem tall" is already
+           an approximation. (A previous version of this rule derived that
+           same 9.55rem here and then wrote 6.5rem below it - the bug an
+           earlier review round found and this comment now guards against
+           recurring.)
+
+           This has to stay a padding-top on the whole container, not a
+           spacer element scoped to the Generator branch: render_result_banner()
+           (below) runs before the per-view dispatch, so on the Generator view
+           it can render at the very top of this same container, ahead of
+           anything a spacer placed inside the Generator branch could push
+           down. A container-wide padding-top clears it too, regardless of
+           render order - which is also why the Generator-vs-not decision has
+           to happen in Python before this string is built, rather than
+           through some DOM-order-dependent trick. */
+        padding-top: """ + main_container_padding_top + """;
         /* Task 4 density pass: 3rem -> 2rem. padding-top is untouched - it is
-           pinned to the floating-bar headroom arithmetic explained above and
-           guarded by tests/test_floating_progress.py's
-           test_main_container_padding_covers_the_floating_bar. */
+           pinned to the headroom arithmetic explained above and guarded by
+           tests/test_floating_progress.py's
+           test_main_container_padding_is_pinned (the Generator value) and
+           tests/test_app_smoke.py's test_density_pass_css_values_are_pinned
+           (the shared base value). */
         padding-bottom: 2rem;
         max-width: 1320px;
     }
@@ -888,13 +968,33 @@ st.markdown("<style>\n" + css_root_block() + """
         margin-bottom: 0.35rem;
     }
 
-    h1, h2, h3, h4 {
+    /* Task 4 density pass, corrected in the UI final-review fix wave
+       (Important 3): a bare `h1, h2, h3, h4 { margin-top/bottom }` selector
+       never applied. Confirmed by grepping the shipped streamlit==1.61.1
+       bundle (StreamlitMarkdown.<hash>.js): Streamlit puts its own
+       "h1, h2, h3, h4, h5, h6": {margin: 0} rule on an emotion class on the
+       stMarkdownContainer div nested inside stHeading, i.e. a compound
+       selector like `.cssHash h1` at specificity (0,1,1) - which always beat
+       a bare `h1` at (0,0,1), so the margin-top/bottom below were dead code.
+       Worse, Streamlit's own heading spacing is padding, not margin (same
+       bundle: h1 padding is spacing.xl 0 spacing.lg 0, h2 is lg 0 lg 0, h3 is
+       md 0 lg 0, h4 is sm 0 lg 0) - so even a winning margin rule would have
+       ADDED space on top of that padding instead of tightening it.
+       [data-testid="stHeading"] h1 matches Streamlit's own (0,1,1)
+       specificity exactly (an attribute selector counts the same as a class),
+       so plain cascade order (this stylesheet renders after Streamlit's own
+       initial styles) should be enough on its own - but unlike Streamlit's
+       base styles, which load once up front, this order isn't guaranteed the
+       same way for every rerun, so !important removes the "should" the same
+       way the two gap rules above already do. */
+    [data-testid="stHeading"] h1,
+    [data-testid="stHeading"] h2,
+    [data-testid="stHeading"] h3,
+    [data-testid="stHeading"] h4 {
         color: var(--text);
         letter-spacing: 0;
-        /* Task 4 density pass: explicit, tightened heading margins instead of
-           relying on Streamlit's own (more spacious) heading defaults. */
-        margin-top: 0.3rem;
-        margin-bottom: 0.4rem;
+        padding-top: 0.3rem !important;
+        padding-bottom: 0.4rem !important;
     }
 
     p, label, [data-testid="stCaptionContainer"] {
@@ -1662,6 +1762,15 @@ def render_optimized_draft_table():
     normalisation noise out and leaves only genuine widget-level edits.
     """
     current = st.session_state.optimized_resume_data or {}
+    # Manual Data Import, Manual Result Import and Advanced Optimized JSON
+    # Import all accept arbitrary pasted JSON with no shape validation, so
+    # optimized_resume_data can be a list, string, number, etc. instead of an
+    # object - current.get(...) a few lines down would crash the whole
+    # Generator view over it. Coerce to {} so the table below just renders
+    # itself empty instead (compact_rows() above is the matching per-row
+    # guard for the fields that are objects but whose own contents are not).
+    if not isinstance(current, dict):
+        current = {}
     ekey = st.session_state.opt_editor_key
 
     with st.container(border=True):
@@ -1970,7 +2079,13 @@ def render_preview():
             saved_order = st.session_state.get("export_order")
             order = tuple(saved_order if saved_order is not None else BLOCK_ORDER_OPTIONS)
             template_label = st.session_state.get("tm") or "Tech"
-            base_bytes = base_preview_pdf(resume_snapshot(data), template_file_for(template_label), order)
+            try:
+                base_bytes = base_preview_pdf(resume_snapshot(data), template_file_for(template_label), order)
+            except PreviewCompileFailed:
+                # Same message a returned None used to produce - only the
+                # caching behaviour behind it changed (see base_preview_pdf()'s
+                # docstring, Minor 9).
+                base_bytes = None
             if base_bytes:
                 all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
                 render_pdf_js(base_bytes, max_pages=None if all_pages else 1)

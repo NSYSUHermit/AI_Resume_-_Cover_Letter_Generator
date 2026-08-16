@@ -146,12 +146,38 @@ def test_result_banner_and_progress_bar_coexist_without_exception():
     assert len(progress_bar_markup(at)) == 1
 
 
-def test_main_container_padding_covers_the_floating_bar():
-    """Regression guard for the headroom computation: if this literal value
-    drifts back toward the pre-bar 3.25rem, the bar (top:calc(3.75rem +
-    0.75rem), roughly 4.3rem tall) would cover the top of Generator's content
-    again. See the comment on this rule in app.py for the arithmetic."""
+def test_main_container_padding_is_pinned():
+    """Pinned-value drift guard for the Generator top-padding literal - NOT a
+    coverage proof. This harness has no browser, so it can only confirm the
+    number in the stylesheet has not silently drifted back toward something
+    too small to clear the floating bar (e.g. the pre-bar 3.25rem, or the
+    6.5rem an earlier review round found already sitting short of its own
+    documented arithmetic); it cannot confirm the bar and the content below
+    it actually stay clear of each other on screen - that would need a real
+    browser. See the comment on the stMainBlockContainer rule in app.py for
+    the arithmetic behind this specific number. (Renamed from
+    test_main_container_padding_covers_the_floating_bar, which claimed more
+    than a value-equality assertion can back up - that name would not have
+    caught the previous version of this same test still passing while the
+    pinned 6.5rem literal it asserted on was already short of the headroom
+    the bar needs.)"""
     at = run_app(active_view="Generator")
     style_matches = [m for m in at.markdown if "stMainBlockContainer" in m.value]
     assert len(style_matches) == 1
-    assert "padding-top: 6.5rem;" in style_matches[0].value
+    assert "padding-top: 9.5rem;" in style_matches[0].value
+
+
+def test_main_container_padding_is_smaller_outside_generator():
+    """Minor 7: Career Profile and Tracker never render the floating bar
+    (test_floating_progress_bar_absent_outside_generator_view, above), so
+    unlike Generator neither needs the headroom that clears it. Pins the
+    other half of the same scoping this fix wave introduced - the shared
+    stMainBlockContainer rule now carries the Generator-only 9.5rem only
+    conditionally, falling back to the pre-bar 3.25rem everywhere else -
+    so Profile/Tracker go back to only as much top padding as they need."""
+    for view in ("Profile", "Tracker"):
+        at = run_app(active_view=view)
+        style_matches = [m for m in at.markdown if "stMainBlockContainer" in m.value]
+        assert len(style_matches) == 1
+        assert "padding-top: 3.25rem;" in style_matches[0].value
+        assert "padding-top: 9.5rem;" not in style_matches[0].value
