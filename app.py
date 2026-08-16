@@ -1083,50 +1083,67 @@ if active_view == workspace.PROFILE:      # 原 "Source"
                 except json.JSONDecodeError as e:
                     st.error(f"Source JSON is invalid: {e}")
 
-if active_view == workspace.GENERATOR:    # 原 "Target"，Task 4 會把 ATS/Review 併進來
+def render_generator_workspace():
+    """Generator 的左欄：資料來源、JD、策略、優化按鈕。"""
     with st.container(border=True):
-        st.subheader("Job Details")
-        # Both inputs mirror into durable keys. A widget key alone is dropped by
-        # Streamlit on any rerun where the widget is not rendered, which is what
-        # silently emptied the JD whenever the user switched workspace.
-        jd = st.text_area(
-            "JD Content",
-            value=st.session_state.jd_text,
-            height=300,
-            key=f"jd_input_{st.session_state.base_editor_key}",
-        )
+        st.markdown("**Source of Truth**")
+        data = st.session_state.resume_data
+        if resume_is_empty(data):
+            st.caption("Your Career Profile is empty. Build it first — every rewrite starts from it.")
+        else:
+            st.caption(
+                f"Career Profile  ·  {len(data.get('experience') or [])} roles"
+                f"  ·  {len(data.get('education') or [])} schools"
+            )
+        if st.button("Edit Career Profile", use_container_width=True, icon=":material/arrow_forward:"):
+            st.session_state.active_view = workspace.PROFILE
+            st.rerun()
+
+    st.markdown("**Target & Strategy**")
+    # Both inputs mirror into durable keys. A widget key alone is dropped by
+    # Streamlit on any rerun where the widget is not rendered, which is what
+    # silently emptied the JD whenever the user switched workspace.
+    jd = st.text_area(
+        "Job description",
+        value=st.session_state.jd_text,
+        height=260,
+        key=f"jd_input_{st.session_state.base_editor_key}",
+        placeholder="Paste the job description here...",
+    )
+    with st.expander("Custom Strategy"):
         strategy = st.text_area(
             "Strategy",
             value=st.session_state.custom_prompt,
-            height=150,
+            height=200,
             key=f"cp_input_{st.session_state.base_editor_key}",
+            label_visibility="collapsed",
         )
-        st.session_state.jd_text = jd
-        st.session_state.custom_prompt = strategy
+    st.session_state.jd_text = jd
+    st.session_state.custom_prompt = strategy
 
-        if not st.session_state.api_key:
-            st.caption("Connect a Gemini API key above to enable optimization.")
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=not st.session_state.api_key):
-                if jd:
-                    clear_generated_outputs()
-                    ok, rep = run_ai_call(
-                        "Optimizing resume",
-                        lambda report: ai_optimize_and_update(jd, strategy, report),
-                        success=lambda r: r[0],
-                    )
-                    if ok:
-                        # The banner was filled in by ai_optimize_and_update with
-                        # the real numbers; no toast needed.
-                        st.rerun()
-                    else: st.error(rep)
-                else:
-                    st.warning("Paste a job description before optimizing.")
-        with c2:
-            p_text = ai.build_rewrite_prompt(jd if jd else "JD", st.session_state.resume_data, strategy)
-            b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
-            components.html(f"""
+    if not st.session_state.api_key:
+        st.caption("Connect a Gemini API key above to enable optimization.")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=not st.session_state.api_key):
+            if jd:
+                clear_generated_outputs()
+                ok, rep = run_ai_call(
+                    "Optimizing resume",
+                    lambda report: ai_optimize_and_update(jd, strategy, report),
+                    success=lambda r: r[0],
+                )
+                if ok:
+                    # The banner was filled in by ai_optimize_and_update with
+                    # the real numbers; no toast needed.
+                    st.rerun()
+                else: st.error(rep)
+            else:
+                st.warning("Paste a job description before optimizing.")
+    with c2:
+        p_text = ai.build_rewrite_prompt(jd if jd else "JD", st.session_state.resume_data, strategy)
+        b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
+        components.html(f"""
             <body style="margin:0; padding:0;">
                 <button id="copyPromptBtn" onclick="copyPrompt()" style="
                     width:100%; height:42px; border-radius:8px;
@@ -1164,9 +1181,12 @@ if active_view == workspace.GENERATOR:    # 原 "Target"，Task 4 會把 ATS/Rev
             </script>
             """, height=44)
 
-if active_view == workspace.GENERATOR:    # 原 "ATS"，暫時與上面的 Target 區塊一起渲染，Task 4/5 才整併成單一版面
-    st.subheader("ATS Analysis")
-    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
+    if st.session_state.optimized_resume_data:
+        if optimized_result_is_stale():
+            st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
+        # The dialog stays outside the fragment: editing the resume has to
+        # propagate to the whole script, not just this box.
+        if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
     # 手動匯入外部推論結果
     if st.session_state.get("show_advanced_tools"):
@@ -1194,6 +1214,59 @@ if active_view == workspace.GENERATOR:    # 原 "ATS"，暫時與上面的 Targe
                         st.rerun()
                 except Exception as e:
                     st.error(f"Invalid JSON: {e}")
+
+    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
+    if st.session_state.get("show_advanced_tools"):
+        with st.expander("Manual Data Import"):
+            st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
+            manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
+            if st.button("Apply Manual Data", use_container_width=True):
+                try:
+                    manual_data = json.loads(manual_opt_json)
+                    st.session_state.optimized_resume_data = manual_data
+                    st.session_state.ats_analysis = None
+                    st.session_state.ats_metrics = None
+                    st.session_state.changelog = ""
+                    st.session_state.optimized_source_snapshot = None
+                    clear_pdf_outputs()
+                    st.toast("Manual data applied.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Invalid JSON: {e}")
+
+@st.dialog("Edit Optimized Data", width="large")
+def edit_opt_dialog():
+    edit = render_resume_form_editor(
+        st.session_state.optimized_resume_data,
+        key_prefix=f"opt_form_{st.session_state.opt_editor_key}",
+    )
+    if st.button("Save Changes", use_container_width=True):
+        st.session_state.optimized_resume_data = edit
+        st.session_state.opt_editor_key += 1
+        clear_pdf_outputs()
+        st.rerun()
+
+    with st.expander("Advanced Optimized JSON Import"):
+        raw_opt_import = render_json_editor(
+            json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
+            key=f"opt_json_import_{st.session_state.opt_editor_key}",
+            height=320,
+        )
+        if st.button("Apply Optimized JSON Import", use_container_width=True):
+            try:
+                st.session_state.optimized_resume_data = json.loads(raw_opt_import)
+                st.session_state.opt_editor_key += 1
+                clear_pdf_outputs()
+                st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(f"Optimized JSON is invalid: {e}")
+
+if active_view == workspace.GENERATOR:    # 左欄；右欄留給 Task 5 併入
+    render_generator_workspace()
+
+if active_view == workspace.GENERATOR:    # 原 "ATS"；右欄內容，留給 Task 5 併入版面
+    st.subheader("ATS Analysis")
+    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
 
     if st.session_state.optimized_resume_data:
         if st.session_state.changelog:
@@ -1233,33 +1306,6 @@ if active_view == workspace.GENERATOR:    # 原 "ATS"，暫時與上面的 Targe
         elif m is None:
             st.info("No keyword list was available for this result, so coverage was not scored.")
     else: st.info("Run optimization first.")
-
-@st.dialog("Edit Optimized Data", width="large")
-def edit_opt_dialog():
-    edit = render_resume_form_editor(
-        st.session_state.optimized_resume_data,
-        key_prefix=f"opt_form_{st.session_state.opt_editor_key}",
-    )
-    if st.button("Save Changes", use_container_width=True):
-        st.session_state.optimized_resume_data = edit
-        st.session_state.opt_editor_key += 1
-        clear_pdf_outputs()
-        st.rerun()
-
-    with st.expander("Advanced Optimized JSON Import"):
-        raw_opt_import = render_json_editor(
-            json.dumps(st.session_state.optimized_resume_data, indent=4, ensure_ascii=False),
-            key=f"opt_json_import_{st.session_state.opt_editor_key}",
-            height=320,
-        )
-        if st.button("Apply Optimized JSON Import", use_container_width=True):
-            try:
-                st.session_state.optimized_resume_data = json.loads(raw_opt_import)
-                st.session_state.opt_editor_key += 1
-                clear_pdf_outputs()
-                st.rerun()
-            except json.JSONDecodeError as e:
-                st.error(f"Optimized JSON is invalid: {e}")
 
 @st.fragment
 def render_export_settings():
@@ -1319,32 +1365,8 @@ def render_preview():
         else: st.info(f"The {ch} data is missing.")
     else: st.info("Click 'Generate PDF' to see preview.")
 
-if active_view == workspace.GENERATOR:    # 原 "Review"，暫時與上面兩個區塊一起渲染，Task 4/5 才整併成單一版面
-    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
-    if st.session_state.get("show_advanced_tools"):
-        with st.expander("Manual Data Import"):
-            st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
-            manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
-            if st.button("Apply Manual Data", use_container_width=True):
-                try:
-                    manual_data = json.loads(manual_opt_json)
-                    st.session_state.optimized_resume_data = manual_data
-                    st.session_state.ats_analysis = None
-                    st.session_state.ats_metrics = None
-                    st.session_state.changelog = ""
-                    st.session_state.optimized_source_snapshot = None
-                    clear_pdf_outputs()
-                    st.toast("Manual data applied.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Invalid JSON: {e}")
-
+if active_view == workspace.GENERATOR:    # 原 "Review"；右欄內容，留給 Task 5 併入版面
     if st.session_state.optimized_resume_data:
-        if optimized_result_is_stale():
-            st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
-        # The dialog stays outside the fragment: editing the resume has to
-        # propagate to the whole script, not just this box.
-        if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
         cl1, cl2 = st.columns([4, 6])
         with cl1:
             render_export_settings()
