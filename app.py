@@ -474,7 +474,7 @@ def sync_application_to_tracker():
     st.session_state.tracked_application_id = st.session_state.optimized_resume_data.get('target_company') or "recorded"
     st.session_state.pending_toast = "Recorded to tracker."
     # render_preview 是 @st.fragment。"Saved to tracker" 那格進度在
-    # render_generator_panel()，在 fragment 之外，不會跟著 fragment-scoped
+    # render_floating_progress()，在 fragment 之外，不會跟著 fragment-scoped
     # rerun 更新——使用者得再點別的東西才看得到。跟 render_export_settings
     # 同樣的作法：app-scope st.rerun()（預設值 scope="app"）逼出全頁重繪。
     st.rerun()
@@ -639,6 +639,15 @@ def escape_latex_chars(obj):
         return {k: escape_latex_chars(v) for k, v in obj.items()}
     return obj
 
+def template_file_for(template_label):
+    """Map the Template selectbox's label to its .tex file.
+
+    Shared by render_export_settings() (the real export, left column) and
+    render_preview()'s cached base-resume preview (right column) so the two
+    can never silently drift apart on what "Tech" / "Business" resolve to.
+    """
+    return "main.tex" if "Tech" in template_label else "elsa_main.tex"
+
 def generate_preview_pdf_bytes(data, template_name, block_order):
     try:
         escaped_data = escape_latex_chars(data)
@@ -668,6 +677,22 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
     except Exception as e:
         st.error(f"Resume PDF generation error: {e}")
     return None
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def base_preview_pdf(snapshot, template_name, block_order):
+    """Base 履歷的預覽。
+
+    以 snapshot 字串當 key，履歷沒變就不會重新編譯。lualatex 要跑好幾秒，
+    每次 rerun 都編譯一次會讓整個 app 失去反應。
+
+    `block_order` must be a tuple, not a list, from the caller: lists are not
+    hashable, and st.cache_data hashes every argument to build the cache key.
+    generate_preview_pdf_bytes only ever iterates/truth-tests it, so a tuple
+    works there unchanged, but it's converted back to a list anyway to keep
+    that function's contract (a list) exactly as it was before this wrapper
+    existed.
+    """
+    return generate_preview_pdf_bytes(json.loads(snapshot), template_name, list(block_order))
 
 def generate_cover_letter_pdf_bytes(data):
     try:
@@ -1252,7 +1277,7 @@ if active_view == workspace.PROFILE:      # 原 "Source"
                     st.error(f"Source JSON is invalid: {e}")
 
 def render_generator_workspace():
-    """Generator 的左欄：資料來源、JD、策略、優化按鈕。"""
+    """Generator 的左欄：資料來源、JD、策略、優化按鈕，以及底部的匯出設定與 ATS 分析。"""
     with st.container(border=True):
         st.markdown("**Source of Truth**")
         data = st.session_state.resume_data
@@ -1402,6 +1427,16 @@ def render_generator_workspace():
                 except Exception as e:
                     st.error(f"Invalid JSON: {e}")
 
+    # 右欄現在只剩 PDF 本身 (render_preview)，匯出設定與 ATS 分析改放在左欄底部。
+    render_export_settings()
+
+    st.markdown("**ATS Analysis**")
+    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
+    if st.session_state.optimized_resume_data:
+        render_ats_analysis()
+    else:
+        st.caption("Optimize a resume to see how it scores against the job description.")
+
 @st.dialog("Edit Optimized Data", width="large")
 def edit_opt_dialog():
     edit = render_resume_form_editor(
@@ -1430,7 +1465,7 @@ def edit_opt_dialog():
                 st.error(f"Optimized JSON is invalid: {e}")
 
 def render_ats_analysis():
-    """ATS 分頁的內容；呼叫端已確認有優化結果。"""
+    """ATS 分析區塊的內容（左欄底部）；呼叫端已確認有優化結果。"""
     if st.session_state.changelog:
         st.markdown("### Optimization Changelog")
         st.info(st.session_state.changelog)
@@ -1468,6 +1503,11 @@ def render_ats_analysis():
     elif m is None:
         st.info("No keyword list was available for this result, so coverage was not scored.")
 
+# Shared between render_export_settings() (left column) and render_preview()'s
+# cached base-resume preview (right column) - two different @st.fragments that
+# both need the same durable list of section names.
+BLOCK_ORDER_OPTIONS = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
+
 @st.fragment
 def render_export_settings():
     """Template and section order.
@@ -1475,13 +1515,19 @@ def render_export_settings():
     Kept in its own fragment, separate from the preview: fiddling with the
     template or the section order is the most common interaction here, and it
     previously reran all ~1200 lines and re-encoded the whole PDF into the
-    preview iframe every time.
+    preview iframe every time. Now lives at the bottom of the left column; the
+    preview it feeds (render_preview) is a sibling fragment in the right
+    column - see the app-scope st.rerun() below for why that still works
+    across the column boundary.
     """
     with st.container(border=True):
         st.subheader("Export Settings")
         st.caption("Select your preferred template and section order, then generate the final PDFs.")
         tmpl = st.selectbox("Template", ["Tech", "Business"], key="tm")
-        order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
+        # Keyed (previously wasn't) so render_preview() - a different fragment,
+        # in the right column - can read the current order to build the cache
+        # key for the base-resume preview.
+        order = st.multiselect("Order", BLOCK_ORDER_OPTIONS, default=BLOCK_ORDER_OPTIONS, key="export_order")
         if st.button(
             "Generate PDF",
             type="primary",
@@ -1496,7 +1542,7 @@ def render_export_settings():
                     co = safe_filename_part(d.get('target_company'), 'Company')
                     ro = safe_filename_part(d.get('target_role'), 'Role')
                     clear_pdf_outputs()
-                    rb = generate_preview_pdf_bytes(d, "main.tex" if "Tech" in tmpl else "elsa_main.tex", order)
+                    rb = generate_preview_pdf_bytes(d, template_file_for(tmpl), order)
                     if rb:
                         st.session_state.resume_preview_bytes = rb
                         # 統一檔名格式 (由使用者要求)
@@ -1516,11 +1562,31 @@ def render_export_settings():
 
 @st.fragment
 def render_preview():
-    st.subheader("Preview")
-    if st.session_state.resume_preview_bytes or st.session_state.cover_letter_preview_bytes:
-        ch = st.radio("Target", ["Resume", "Cover Letter"], horizontal=True, label_visibility="collapsed", key="tr")
-        target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
-        dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
+    """Generator 的右欄：只剩 PDF 本身，加左上角切換與右上角下載，不再有分頁。
+
+    優化結果的真實預覽 (resume_preview_bytes / cover_letter_preview_bytes) 一律
+    優先；在那之前，Resume 這一側改顯示 base 履歷的快取預覽 (base_preview_pdf)，
+    讓使用者一進 Generator 右欄就有東西可看，而不是空白一片。Cover Letter 在
+    真正 Generate PDF 之前沒有對應的 base 版本可顯示——這點只有 Resume 有，
+    設計文件裡也只針對 base 履歷本身要求快取。
+    """
+    top_left, top_right = st.columns([2, 3])
+    with top_left:
+        # required=True: 跟舊的 st.radio 一樣永遠恰好選一個，使用者點擊目前
+        # 已選的那個不會把它取消選取（st.segmented_control 預設允許取消選取）。
+        ch = st.segmented_control(
+            "Target",
+            ["Resume", "Cover Letter"],
+            default="Resume",
+            required=True,
+            label_visibility="collapsed",
+            key="tr",
+        )
+
+    target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
+    dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
+
+    with top_right:
         if dl:
             downloaded = st.download_button(
                 f"Download {dl['name']}",
@@ -1540,12 +1606,34 @@ def render_preview():
             # does — from ordinary fragment-body code, not from a callback.
             if downloaded:
                 sync_application_to_tracker()
+
+    if target:
         # Checking the layout only needs page one; rasterising every page on
         # each rerun was pure waste.
         all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
-        if target: render_pdf_js(target, max_pages=None if all_pages else 1)
-        else: st.info(f"The {ch} data is missing.")
-    else: st.info("Click 'Generate PDF' to see preview.")
+        render_pdf_js(target, max_pages=None if all_pages else 1)
+    elif ch == "Resume":
+        data = st.session_state.resume_data
+        if resume_is_empty(data):
+            # 未優化前的預覽必須快取，不能急切編譯 - 履歷是空的就不編譯，
+            # 直接指向 Career Profile，不要拿一份空白 PDF 浪費 lualatex。
+            st.info("Your Career Profile is empty. Build it first — every rewrite starts from it.")
+        else:
+            # `or` here would default an intentionally-cleared multiselect
+            # (export_order == []) back to the full list. render_export_settings
+            # always runs first (left column, above this in render order), so
+            # the key is only ever really absent before that first render.
+            saved_order = st.session_state.get("export_order")
+            order = tuple(saved_order if saved_order is not None else BLOCK_ORDER_OPTIONS)
+            template_label = st.session_state.get("tm") or "Tech"
+            base_bytes = base_preview_pdf(resume_snapshot(data), template_file_for(template_label), order)
+            if base_bytes:
+                all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
+                render_pdf_js(base_bytes, max_pages=None if all_pages else 1)
+            else:
+                st.info("Preview unavailable. Check the LaTeX log above.")
+    else:
+        st.info("Optimize your resume and generate a PDF to preview the cover letter.")
 
 def render_floating_progress():
     """Floating pill-shaped progress bar, fixed to the top-centre of the
@@ -1627,27 +1715,15 @@ def render_floating_progress():
         unsafe_allow_html=True,
     )
 
-def render_generator_panel():
-    """Generator 的右欄：輸出設定、預覽與 ATS。進度已移至頂端懸浮 bar。"""
-    render_export_settings()
-
-    preview_tab, ats_tab = st.tabs(["Preview", "ATS"])
-    with preview_tab:
-        render_preview()
-    with ats_tab:
-        st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
-        if st.session_state.optimized_resume_data:
-            render_ats_analysis()
-        else:
-            st.caption("Optimize a resume to see how it scores against the job description.")
-
 if active_view == workspace.GENERATOR:
     render_floating_progress()
     left, right = st.columns([6, 4])
     with left:
         render_generator_workspace()
     with right:
-        render_generator_panel()
+        # 右欄現在只有 render_preview() 自己：切換、下載、PDF 本身，沒有分頁。
+        # 進度已移至頂端懸浮 bar；輸出設定與 ATS 已移進左欄底部。
+        render_preview()
 
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
