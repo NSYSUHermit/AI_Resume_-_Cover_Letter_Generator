@@ -1857,12 +1857,44 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        of the splitter script below (plain CSS, present on first paint, not
        waiting on any JS to run) - dragging only ever changes width, never
        colour, so the two are safe to keep decoupled. */
+    /* The workspace side is white edge to edge - the owner wants grey only on
+       the preview panel. Stretching it means the app background cannot show
+       through below the content, which is where the stray grey band came
+       from. */
     [data-testid="stColumn"]:has([data-gp-col="workspace"]) {
         background: var(--surface) !important;
+        align-self: stretch !important;
+        min-height: calc(100vh - 7rem);
+        padding: 1.25rem 1.5rem 2rem 0 !important;
     }
 
     [data-testid="stColumn"]:has([data-gp-col="preview"]) {
         background: var(--bg) !important;
+        border-left: 1px solid var(--border);
+        padding: 1.25rem 1.25rem 2rem !important;
+    }
+
+    /* The preview stays in view while the left workspace scrolls. Both columns
+       live in one scroll container, so without this the PDF scrolls away as
+       soon as the editing side gets long - the owner reads that as the preview
+       "not moving with" the page. Sticky keeps it pinned below the status
+       strip instead. align-self is required: a stretched flex item has no
+       spare room to slide within, so sticky would never engage. */
+    [data-testid="stColumn"]:has([data-gp-col="preview"]) {
+        position: sticky !important;
+        top: 5.5rem;
+        align-self: flex-start !important;
+        max-height: calc(100vh - 7rem);
+        overflow-y: auto;
+    }
+
+    /* White card inside the grey panel, matching the reference's
+       "Professional Preview" surface. */
+    [data-testid="stColumn"]:has([data-gp-col="preview"]) [data-testid="stIFrame"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: var(--shadow-sm);
     }
 
     /* Item 1: the draggable splitter's own handle - see
@@ -2798,15 +2830,19 @@ def render_preview():
     # it is an idempotent, display:none marker, not state. See the workspace
     # marker's comment for why this is st.html() and not an empty container.
     st.html('<span data-gp-col="preview" style="display:none"></span>')
+    # A selectbox, not a segmented control. The two-option segmented control
+    # needed 156px of intrinsic width and this row gives its left cell only
+    # 2/5 of the preview panel - measured 95px once the splitter narrowed the
+    # panel to 239px - so the two options wrapped onto separate lines and
+    # stopped reading as one switch. CSS could not fix that: the wrap happens
+    # in the column above the widget, not inside it. A dropdown has no minimum
+    # width to satisfy, so it degrades cleanly at any panel width.
     top_left, top_right = st.columns([2, 3])
     with top_left:
-        # required=True: 跟舊的 st.radio 一樣永遠恰好選一個，使用者點擊目前
-        # 已選的那個不會把它取消選取（st.segmented_control 預設允許取消選取）。
-        ch = st.segmented_control(
+        ch = st.selectbox(
             "Target",
             ["Resume", "Cover Letter"],
-            default="Resume",
-            required=True,
+            index=0,
             label_visibility="collapsed",
             key="tr",
         )

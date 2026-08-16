@@ -250,17 +250,20 @@ def test_generator_view_has_no_tabs():
 def target_switch(at):
     """render_preview()'s Resume/Cover Letter switch, found by its own widget
     key ("tr") rather than by list position - selecting by key is robust
-    regardless of how many other st.segmented_control widgets the view ever
+    regardless of how many other st.selectbox widgets the view ever
     grows (there was briefly a second one, the now-removed panel-ratio
     control - see tests/test_generator_splitter.py's
     test_panel_width_control_is_gone)."""
-    matches = [sc for sc in at.segmented_control if sc.key == "tr"]
+    matches = [sc for sc in at.selectbox if sc.key == "tr"]
     assert len(matches) == 1
     return matches[0]
 
 
-def test_segmented_control_defaults_to_resume():
-    """st.segmented_control replaces the old st.radio("Target", ...), which
+def test_target_selectbox_defaults_to_resume():
+    """st.selectbox replaces the segmented control, which replaced the old
+    st.radio("Target", ...). The segmented control wrapped onto two lines once
+    the splitter narrowed the preview panel; a dropdown has no minimum width.
+    The original st.radio
     defaulted to its first option ("Resume") on a fresh render. Preserve that
     default exactly."""
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Default Target Candidate"))
