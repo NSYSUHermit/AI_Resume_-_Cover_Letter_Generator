@@ -272,3 +272,20 @@ def test_splitter_not_present_on_profile_or_tracker_even_with_generator_state_se
         )
         assert not at.exception
         assert splitter_iframes(at) == []
+
+
+def test_splitter_cleanup_runs_off_generator():
+    """Leaving Generator must actively remove the handle.
+
+    The handle is inserted into window.parent.document, so it outlives the
+    component iframe that created it - navigating away tore down the iframe
+    but left the bar painted across Profile and Tracker. Nothing inside a
+    removed iframe can clean up after itself, so removal is driven from
+    whichever view is rendering instead.
+    """
+    for view in ("Profile", "Tracker"):
+        at = run_app(active_view=view)
+        emitted = " ".join(f.srcdoc for f in at.get("iframe"))
+        assert "gp-split-handle" in emitted, view          # the cleanup script
+        assert "removeChild" in emitted, view
+        assert "pointerdown" not in emitted, view          # but not the injector

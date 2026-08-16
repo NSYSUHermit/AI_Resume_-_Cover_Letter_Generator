@@ -940,15 +940,21 @@ _SIDEBAR_WIDTH_CSS = """
 
        overflow must stay visible on the ancestors or a chip hanging 14px past
        the edge gets clipped. */
-    [data-testid="stSidebar"],
+    /* The sidebar must scroll. An earlier version set `overflow: visible` on
+       both the section and its content so the collapse chip could hang 14px
+       past the right edge - which also killed scrolling, hiding the Settings
+       expander and the whole login form below the fold. Scrolling wins; the
+       chip is tucked just inside the edge instead (see its `right` below).
+       Note CSS cannot split the axes here: setting overflow-x: visible with
+       overflow-y: auto silently computes the x axis to auto as well. */
     [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
-        overflow: visible !important;
+        overflow-y: auto !important;
     }
 
     [data-testid="stSidebar"] .st-key-sidebar_toggle {
         position: absolute !important;
         top: 2rem;
-        right: -14px;
+        right: 6px;
         width: auto !important;
         z-index: 30;
         opacity: 0;
