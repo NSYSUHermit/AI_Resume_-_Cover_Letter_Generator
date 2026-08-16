@@ -996,26 +996,40 @@ _SIDEBAR_RAIL_CSS = """
     /* Icons only - no labels at all, matching the rail the owner sketched:
        a stack of outline icons, the active one a filled navy square, generous
        vertical rhythm, dividers between groups. */
-    [data-testid="stSidebar"] .stButton button [data-testid="stMarkdownContainer"] {
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button [data-testid="stMarkdownContainer"] {
         display: none !important;
     }
 
-    [data-testid="stSidebar"] .stButton button {
+    /* Scoped to the nav buttons only. Scoping this to every .stButton in the
+       sidebar also caught the collapse toggle, inflating it from its 28px
+       circle to a 52px square that hung past the rail's edge - the owner saw
+       that as "收折前後大小不一樣". */
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button {
         justify-content: center !important;
         width: 52px !important;
         height: 52px !important;
         min-height: 52px !important;
         padding: 0 !important;
+        /* auto side margins, not just the bottom one: the button sits inside a
+           full-width stElementContainer, so without them a 52px tile pins to
+           the left of a 96px rail (measured centre 26 against a rail centre of
+           48). align-items on the vertical block does not reach it - that
+           centres the containers, which are already full width. */
         margin: 0 auto 0.75rem auto !important;
         border-radius: 14px !important;
     }
 
-    [data-testid="stSidebar"] .stButton button [data-testid="stIconMaterial"] {
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button [data-testid="stIconMaterial"] {
         font-size: 24px !important;
     }
 
     /* Monogram stays, centred on the rail - the reference keeps its "G" tile
        at the top of the collapsed sidebar. */
+    [data-testid="stSidebar"] .sb-logo {
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
     [data-testid="stSidebar"] .sb-brand {
         justify-content: center !important;
         /* The wordmark is display:none, but .sb-brand's row gap still counts
@@ -1052,15 +1066,38 @@ _SIDEBAR_RAIL_SLIDE_CSS = """
         padding-left: %(off)dpx !important;
     }
 
-    /* Centre the rail's contents inside the visible strip. Measured: with only
-       the padding above, stSidebarUserContent starts at x=0 and its children
-       sit flush against the viewport edge - auto margins do not help because
-       Streamlit gives that wrapper no left padding of its own, so "centred in
-       its box" is still hard left on screen. Padding it symmetrically by
-       (rail - icon)/2 puts the icon column on the rail's true centre line. */
-    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        padding-left: %(pad)dpx !important;
-        padding-right: %(pad)dpx !important;
+    /* Centre the rail's contents by letting the content box keep the rail's
+       full width and centring children inside it - NOT by padding the box down
+       to icon width. Padding it symmetrically was the previous attempt and it
+       is what made the rail look crooked: it left a 32px box that both the
+       52px icon tiles and the 38px monogram overflowed, by different amounts,
+       so their centres landed 10px apart (48 vs 38). A column flex with
+       align-items:center centres every child on the same line regardless of
+       its own width. */
+    /* Two things are needed, and neither is align-items.
+
+       1. The content box must actually span the rail. Streamlit leaves ~20px
+          of right padding on the sidebar content, so the box measured 76px
+          inside a 96px rail - everything centred in it landed on 38 instead of
+          48, which is the crookedness the owner kept seeing.
+
+       2. The button must be centred as an INLINE-level box. Streamlit renders
+          it display:inline-flex, and `margin: 0 auto` does nothing on an
+          inline-level element (computed marginLeft came back 0px). text-align
+          on its block parent is what actually moves it. */
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        padding-right: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+        padding-right: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [class*="st-key-nav_"],
+    [data-testid="stSidebar"] [class*="st-key-nav_"] [data-testid="stButton"],
+    [data-testid="stSidebar"] .sb-brand {
+        text-align: center !important;
     }
 """
 
@@ -1070,10 +1107,7 @@ def _sidebar_css():
     width = SIDEBAR_RAIL_FLOOR_PX if collapsed else SIDEBAR_EXPANDED_PX
     css = _SIDEBAR_WIDTH_CSS % {"w": width}
     if collapsed:
-        css += _SIDEBAR_RAIL_SLIDE_CSS % {
-            "off": SIDEBAR_RAIL_OFFSET_PX,
-            "pad": (SIDEBAR_RAIL_PX - SIDEBAR_RAIL_ICON_PX) // 2,
-        }
+        css += _SIDEBAR_RAIL_SLIDE_CSS % {"off": SIDEBAR_RAIL_OFFSET_PX}
         css += _SIDEBAR_RAIL_CSS
     return css
 
