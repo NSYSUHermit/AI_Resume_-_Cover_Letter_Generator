@@ -202,10 +202,38 @@ def test_draft_table_edit_to_skills_lands_in_optimized_resume_data():
     assert at.session_state["optimized_resume_data"]["skills"]["set1"]["items"] == ["Python", "Go", "Rust"]
 
 
+def test_draft_table_edit_to_patents_lands_in_optimized_resume_data():
+    """Patents got their own grid in this table (they used to be reachable
+    only through Edit Optimized JSON, which is where the owner ran into
+    their absence). Same name/time/description columns as Projects."""
+    optimized = optimized_with_one_role(
+        patents=[{"name": "Patent1", "time": "2022", "description": "A patent"}],
+    )
+    at = run_app(active_view="Generator", optimized_resume_data=optimized)
+    ekey = at.session_state["opt_editor_key"]
+
+    at.session_state[f"draft_patents_{ekey}"] = {
+        "edited_rows": {0: {"name": "Renamed Patent"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    reopen_draft_table(at)
+    at.run()
+
+    assert not at.exception
+    patents = at.session_state["optimized_resume_data"]["patents"]
+    assert patents[0]["name"] == "Renamed Patent"
+    # Editing one cell must not disturb the rest of that row.
+    assert patents[0]["time"] == "2022"
+    assert patents[0]["description"] == "A patent"
+
+
 def test_draft_table_preserves_fields_it_does_not_manage():
-    """heading, cover_letter and patents are out of this table's scope (see
+    """heading and cover_letter are out of this table's scope (see
     render_optimized_draft_table()'s docstring) - they must survive a table
-    edit byte-for-byte, passed through via **current."""
+    edit byte-for-byte, passed through via **current. Patents ARE managed
+    here now, so their assertion below is a round-trip check (untouched
+    grid returns its seed unchanged), not a pass-through one."""
     optimized = optimized_with_one_role(
         heading={"name": "Jane Doe", "email": "jane@x.com"},
         cover_letter="Dear hiring manager...",

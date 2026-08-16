@@ -367,6 +367,12 @@ def rows_to_skills(rows):
 EXPERIENCE_ROW_FIELDS = ["company", "role", "time_duration", "company_location", "details"]
 EDUCATION_ROW_FIELDS = ["school", "time_period", "degree", "school_location"]
 PROJECT_ROW_FIELDS = ["name", "time", "description"]
+# Same three fields as projects (ai.py's schema gives patents the identical
+# name/time/description shape, and main.tex prints the two through the same
+# printItems() under one "SELECTIVE PROJECTS & PATENTS" heading), but named
+# separately so a future divergence in either section does not have to
+# untangle a shared constant.
+PATENT_ROW_FIELDS = ["name", "time", "description"]
 
 def experience_seed_rows(experience_list):
     """experience list (schema shape) -> st.data_editor row dicts."""
@@ -468,7 +474,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Patents")
         patent_rows = st.data_editor(
-            editable_seed(data.get("patents", []), ["name", "time", "description"]),
+            editable_seed(data.get("patents", []), PATENT_ROW_FIELDS),
             key=f"{key_prefix}_patents",
             num_rows="dynamic",
             hide_index=True,
@@ -514,7 +520,7 @@ def render_resume_form_editor(data, key_prefix):
         "education": compact_rows(education_rows, EDUCATION_ROW_FIELDS),
         "experience": experience,
         "projects": compact_rows(project_rows, PROJECT_ROW_FIELDS),
-        "patents": compact_rows(patent_rows, ["name", "time", "description"]),
+        "patents": compact_rows(patent_rows, PATENT_ROW_FIELDS),
         "skills": rows_to_skills(skill_rows),
     }
 
@@ -2838,18 +2844,24 @@ def render_optimized_draft_table():
     pattern render_resume_form_editor() already uses for the base profile in
     Profile view.
 
-    Field scope follows the task literally: target company/role/summary as
-    labelled inputs above the table (three unrelated scalars read worse as a
-    one-row grid than as normal fields), and experience/education/projects/
-    skills as st.data_editor grids - the resume's genuinely tabular parts.
-    Heading, cover letter, the "about me" notes and patents are NOT part of
+    Field scope: target company/role/summary as labelled inputs above the
+    table (three unrelated scalars read worse as a one-row grid than as
+    normal fields), and experience/education/projects/patents/skills as
+    st.data_editor grids - the resume's genuinely tabular parts. Patents
+    were originally left out of this table and reachable only through Edit
+    Optimized JSON; they are a first-class grid here now (same
+    name/time/description columns as Projects, which is the shape ai.py's
+    schema gives them) because the owner hit exactly that gap while editing
+    an optimized result in the Generator.
+
+    Heading, cover letter and the "about me" notes are still NOT part of
     this table; they stay reachable only through Edit Optimized JSON below
     (edit_opt_dialog(), unchanged, still not gated behind
     show_advanced_tools - see tests/test_tracker_guard.py's
     test_advanced_optimized_json_import_resets_tracked_application_id, which
     depends on that button always being visible). This table is an
     additional, friendlier surface, not a replacement for the dialog. Any key
-    this table does not manage (patents, heading, ...) passes through
+    this table does not manage (heading, cover_letter, ...) passes through
     unchanged via **current below, so a manually-imported JSON's fields are
     never silently dropped just because this table has no column for them.
 
@@ -2886,8 +2898,8 @@ def render_optimized_draft_table():
         st.markdown("**Optimized Draft**")
         st.caption(
             "Edit any cell in place - changes save automatically and feed the next "
-            "Generate PDF. For every other field (heading, cover letter, patents, "
-            "...), use Edit Optimized JSON below."
+            "Generate PDF. For every other field (heading, cover letter, ...), "
+            "use Edit Optimized JSON below."
         )
 
         c1, c2 = st.columns(2)
@@ -2951,6 +2963,21 @@ def render_optimized_draft_table():
             },
         )
 
+        st.caption("Patents")
+        patents_seed = editable_seed(current.get("patents", []), PATENT_ROW_FIELDS)
+        patent_rows = st.data_editor(
+            patents_seed,
+            key=f"draft_patents_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "name": st.column_config.TextColumn("Name"),
+                "time": st.column_config.TextColumn("Time"),
+                "description": st.column_config.TextColumn("Description", width="large"),
+            },
+        )
+
         st.caption("Skills")
         skills_seed = skills_to_rows(current.get("skills", {}))
         skill_rows = st.data_editor(
@@ -2974,6 +3001,7 @@ def render_optimized_draft_table():
         "experience": rows_to_experience(experience_rows),
         "education": compact_rows(education_rows, EDUCATION_ROW_FIELDS),
         "projects": compact_rows(project_rows, PROJECT_ROW_FIELDS),
+        "patents": compact_rows(patent_rows, PATENT_ROW_FIELDS),
         "skills": rows_to_skills(skill_rows),
     }
     baseline = {
@@ -2984,6 +3012,7 @@ def render_optimized_draft_table():
         "experience": rows_to_experience(exp_seed),
         "education": compact_rows(education_seed, EDUCATION_ROW_FIELDS),
         "projects": compact_rows(projects_seed, PROJECT_ROW_FIELDS),
+        "patents": compact_rows(patents_seed, PATENT_ROW_FIELDS),
         "skills": rows_to_skills(skills_seed),
     }
     if resume_snapshot(updated) != resume_snapshot(baseline):
