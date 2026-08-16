@@ -11,7 +11,7 @@ import html
 import streamlit.components.v1 as components
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications
 from ui_feedback import run_ai_call
-from theme import TOKENS, FONT_STACK, css_root_block, walker_svg
+from theme import TOKENS, FONT_STACK, css_root_block
 import ai
 import workspace
 
@@ -19,20 +19,6 @@ st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
 def get_db():
     return init_firebase()
-
-# Three preset (left, right) column ratios for the Generator view - the
-# user-approved substitute for a draggable splitter (design doc "需求 8 的
-# 裁決：分段控制取代拖曳"): st.columns' ratios are fixed at render time and
-# Streamlit has no drag API, or real one would need a bidirectional React
-# custom component or JS that rewrites Streamlit's internal DOM (the project
-# has been bitten twice by relying on that - see requirements.txt). Shared
-# between the session-state default below and render_panel_ratio_control()
-# near the bottom of this file.
-PANEL_RATIOS = {
-    "Wide preview":   (4, 6),
-    "Even":           (5, 5),
-    "Wide workspace": (7, 3),
-}
 
 # ---------------------------------------------------------
 # 初始化 Session State
@@ -79,10 +65,6 @@ if "api_key" not in st.session_state: st.session_state.api_key = ""
 # widget is not rendered, so keeping the JD only in the text area's own key lost
 # it the moment the user switched workspace.
 if "jd_text" not in st.session_state: st.session_state.jd_text = ""
-# Durable copy of the panel-ratio choice, same reason as jd_text above: the
-# segmented_control that sets this only renders on the Generator view, so its
-# own widget key would be dropped by a trip to Profile/Tracker and back.
-if "panel_ratio" not in st.session_state: st.session_state.panel_ratio = "Even"
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
@@ -536,7 +518,7 @@ def sync_application_to_tracker():
     st.session_state.tracked_application_id = st.session_state.optimized_resume_data.get('target_company') or "recorded"
     st.session_state.pending_toast = "Recorded to tracker."
     # render_preview 是 @st.fragment。"Saved to tracker" 那格進度在
-    # render_floating_progress()，在 fragment 之外，不會跟著 fragment-scoped
+    # render_progress_strip()，在 fragment 之外，不會跟著 fragment-scoped
     # rerun 更新——使用者得再點別的東西才看得到。跟 render_export_settings
     # 同樣的作法：app-scope st.rerun()（預設值 scope="app"）逼出全頁重繪。
     st.rerun()
@@ -880,18 +862,18 @@ if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
     del st.session_state.pending_toast
 
-# UI final-review fix wave, Important 1 + Minor 7: the floating progress bar
-# (#gp-floating-progress, further down) renders only on the Generator view
-# (render_floating_progress()'s own guard), so only Generator's copy of the
-# shared stMainBlockContainer rule below needs the extra headroom that clears
-# it - see the comment on that rule for the arithmetic and for why this is a
-# container-wide padding rather than a spacer element. st.session_state.active_view
-# is already set by this point (session init near the top of this file), and
-# every nav click that changes it calls st.rerun() before any more render
-# code runs, so this always reflects the view actually being drawn this run,
-# regardless of where in the script it is read from.
+# Visual-polish pass, item 2: the top status strip (#gp-status-strip, further
+# down) renders only on the Generator view (render_progress_strip()'s own
+# guard), so only Generator's copy of the shared stMainBlockContainer rule
+# below needs the extra headroom that clears it - see the comment on that
+# rule for the arithmetic and for why this is a container-wide padding
+# rather than a spacer element. st.session_state.active_view is already set
+# by this point (session init near the top of this file), and every nav
+# click that changes it calls st.rerun() before any more render code runs,
+# so this always reflects the view actually being drawn this run, regardless
+# of where in the script it is read from.
 main_container_padding_top = (
-    "9.5rem" if st.session_state.active_view == workspace.GENERATOR else "3.25rem"
+    "5.75rem" if st.session_state.active_view == workspace.GENERATOR else "3.25rem"
 )
 
 # Lightweight visual system: native CSS only, no UI/animation framework.
@@ -906,20 +888,25 @@ st.markdown("<style>\n" + css_root_block() + """
     /* Renamed from .main .block-container; the old selector matched nothing
        after the 1.6x DOM change, so the width cap was silently not applied. */
     [data-testid="stMainBlockContainer"] {
-        /* Base value: 3.25rem, same as before the floating progress bar
-           existed. This is what Career Profile and Tracker actually render
-           with - neither ever shows the bar, so neither needs more.
+        /* Base value: 3.25rem, same as before the top status strip existed.
+           This is what Career Profile and Tracker actually render with -
+           neither ever shows the strip, so neither needs more.
 
            Generator needs more (see main_container_padding_top, computed in
            Python just above this block, before this string is built): the
-           bar sits at top:calc(3.75rem + 0.75rem) and is roughly 4.3rem
-           tall, so content must not start before about
-           3.75 + 0.75 + 4.3 + 0.75 = 9.55rem from the viewport top - close
-           enough to treat as 9.5rem given "roughly 4.3rem tall" is already
-           an approximation. (A previous version of this rule derived that
-           same 9.55rem here and then wrote 6.5rem below it - the bug an
-           earlier review round found and this comment now guards against
-           recurring.)
+           strip sits flush at top:3.75rem (Streamlit's own toolbar height -
+           see the #gp-status-strip rule below for that constant's source)
+           with no gap of its own, above "pinned to the very top of the page"
+           left no room for one. Its own box is 0.35rem padding top + 0.35rem
+           padding bottom (0.7rem) plus its content row - a 4px/0.25rem
+           progress track sitting behind a 0.7rem-line-height label, so the
+           label (the taller of the two) sets the row height at roughly
+           1rem once its font's own ascent/descent is included. 3.75 + 0.7 +
+           1 = 5.45rem to clear the strip exactly, plus 0.3rem of breathing
+           room before content starts = 5.75rem. (This replaced a pill-
+           shaped bar that needed 9.5rem - the whole point of item 2 was
+           that the strip takes "essentially no vertical space", and this
+           number is the proof: less than half the old headroom.)
 
            This has to stay a padding-top on the whole container, not a
            spacer element scoped to the Generator branch: render_result_banner()
@@ -993,14 +980,63 @@ st.markdown("<style>\n" + css_root_block() + """
        base styles, which load once up front, this order isn't guaranteed the
        same way for every rerun, so !important removes the "should" the same
        way the two gap rules above already do. */
+    /* Visual-polish pass, item 4 (typography): reference-design headings are
+       dark navy, medium weight, with a tighter line-height than Streamlit's
+       own default (~1.4-ish for h1-h4, per the same bundle inspection cited
+       above). font-weight/line-height get the same !important as padding
+       above and for the same reason - Streamlit's own heading rule sets
+       both explicitly on that (0,1,1)-specificity compound selector, so
+       plain cascade order is not something to rely on for them either. */
     [data-testid="stHeading"] h1,
     [data-testid="stHeading"] h2,
     [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4 {
-        color: var(--text);
+        color: var(--navy);
         letter-spacing: 0;
+        font-weight: 600 !important;
+        line-height: 1.25 !important;
         padding-top: 0.3rem !important;
         padding-bottom: 0.4rem !important;
+    }
+
+    /* Visual-polish pass, item 4: every plain widget label (st.text_input,
+       st.text_area, st.selectbox, st.multiselect, ...) becomes an uppercase,
+       letter-spaced micro-label - the same recipe .sb-micro-label already
+       uses in the sidebar (further down), now applied through Streamlit's
+       own stWidgetLabel wrapper instead of being copy-pasted under a second
+       selector. Targets the wrapper itself, not a guessed inner tag: every
+       property below is inheritable, so it reaches whatever nested
+       span/p Streamlit puts the label text in without this rule needing to
+       know that structure. This is what turns "Job description" into
+       "JOB DESCRIPTION" (the reference design's own example) with no
+       per-field changes anywhere in this file.
+
+       Deliberately does not reach st.data_editor's own column_config labels
+       (e.g. "School" on the Education table, Career Profile view) -
+       glide-data-grid paints those onto a <canvas>, not real DOM text, so
+       CSS cannot touch them regardless of selector (confirmed against the
+       streamlit==1.61.1 frontend bundle, which never emits a stWidgetLabel
+       node for a column_config label). Also deliberately does not reach the
+       "Custom Strategy" st.expander's own header text (render_generator_
+       workspace, below) - Streamlit gives expander headers no data-testid
+       of their own to anchor on, and this app has several other expanders
+       (Manual Result Import, Advanced Optimized JSON Import, Settings, ...)
+       whose titles are still meant to read as normal clickable controls;
+       uppercasing every expander header along with it was judged a worse
+       trade than leaving that one label as plain text. The field *inside*
+       that expander is a normal st.text_area labelled "Custom Strategy" (no
+       label_visibility="collapsed" - it used to be collapsed, under the
+       plainer label "Strategy"), so this rule reaches that one exactly like
+       any other field label and does turn it into "CUSTOM STRATEGY" - the
+       reference design's own second example, alongside "Job description"
+       just above it. Only the expander's own clickable header text is out
+       of reach, not the field inside it. */
+    [data-testid="stWidgetLabel"] {
+        font-size: 0.66rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        color: var(--muted) !important;
     }
 
     p, label, [data-testid="stCaptionContainer"] {
@@ -1014,18 +1050,29 @@ st.markdown("<style>\n" + css_root_block() + """
 
     .stButton button,
     .stDownloadButton button,
+    .stFormSubmitButton button,
     input,
     textarea {
         transition: background-color var(--ease), border-color var(--ease), box-shadow var(--ease), color var(--ease), transform var(--ease) !important;
     }
 
+    /* Visual-polish pass, item 5: secondary buttons (the default kind - most
+       buttons in this app) go from a visible 1px hairline border on a plain
+       white surface to borderless-with-a-subtle-fill, matching the reference
+       design ("nearly borderless ... a subtle background instead"). Primary
+       buttons (kind="primary") get their own rule further down: solid
+       filled --navy, no border. Extended to .stFormSubmitButton here (it
+       was previously only in the p/span colour-inherit rule below, so the
+       Login/Create Account buttons - the only two form_submit_buttons in
+       this app - were relying on Streamlit's unstyled default box). */
     .stButton button,
-    .stDownloadButton button {
+    .stDownloadButton button,
+    .stFormSubmitButton button {
         border-radius: var(--radius) !important;
         min-height: 42px !important;
         font-weight: 650 !important;
-        border: 1px solid var(--border) !important;
-        background: var(--surface) !important;
+        border: 1px solid transparent !important;
+        background: var(--surface-soft) !important;
         color: var(--text) !important;
         box-shadow: var(--shadow-sm);
     }
@@ -1041,26 +1088,44 @@ st.markdown("<style>\n" + css_root_block() + """
     }
 
     .stButton button:hover,
-    .stDownloadButton button:hover {
+    .stDownloadButton button:hover,
+    .stFormSubmitButton button:hover {
         border-color: var(--border-strong) !important;
         box-shadow: var(--shadow-md);
         transform: translateY(-1px);
     }
 
-    .stButton button[kind="primary"] {
-        background: var(--brand) !important;
-        border-color: var(--brand) !important;
-        color: #ffffff !important;
+    /* Primary buttons: solid filled --navy, no border - the reference
+       design's primary-action colour (distinct from --brand, which stays in
+       use everywhere else - see TOKENS's own comment in theme.py). This is
+       also, mechanically, the active WORKSPACE nav pill: nav buttons render
+       type="primary" for whichever view is current (`with st.sidebar:`,
+       further down), so it inherits this same rule rather than needing a
+       separate one. */
+    .stButton button[kind="primary"],
+    .stDownloadButton button[kind="primary"],
+    .stFormSubmitButton button[kind="primary"] {
+        background: var(--navy) !important;
+        border-color: var(--navy) !important;
+        /* TOKENS has no dedicated "on-dark text" token, but --surface is
+           already the exact colour this needs (#ffffff) - reused by value
+           rather than adding a second token that would only ever equal the
+           first, so this still flows through TOKENS/css_root_block() like
+           every other colour in this block instead of a hardcoded literal. */
+        color: var(--surface) !important;
     }
 
-    .stButton button[kind="primary"]:hover {
-        background: var(--brand-dark) !important;
-        border-color: var(--brand-dark) !important;
+    .stButton button[kind="primary"]:hover,
+    .stDownloadButton button[kind="primary"]:hover,
+    .stFormSubmitButton button[kind="primary"]:hover {
+        background: var(--navy-dark) !important;
+        border-color: var(--navy-dark) !important;
     }
 
     /* Streamlit dropped BaseWeb entirely, so every data-baseweb hook is gone. */
     .stButton button:focus-visible,
     .stDownloadButton button:focus-visible,
+    .stFormSubmitButton button:focus-visible,
     input:focus,
     textarea:focus {
         outline: none !important;
@@ -1171,14 +1236,26 @@ st.markdown("<style>\n" + css_root_block() + """
         #small-screen-notice { display: block; }
     }
 
-    /* Floating progress bar - rendered only on the Generator view, by
-       render_floating_progress() below. Self-contained SVG + keyframes under
-       our own #gp-/.gp- names; nothing here targets a Streamlit-internal
-       class, so a platform upgrade cannot break it the way the old
-       ".main .block-container" selector above once did. The headroom this
-       needs is reserved on the shared stMainBlockContainer rule above, not
-       here - see the comment on that rule for why. */
-    #gp-floating-progress {
+    /* Visual-polish pass, item 2: thin top status strip - rendered only on
+       the Generator view, by render_progress_strip() below. Replaces the
+       old floating pill (#gp-floating-progress, position:fixed, centred,
+       ~4.3rem tall, pill-radius'd) with a full-width hairline strip pinned
+       flush under Streamlit's own toolbar, "taking essentially no vertical
+       space" per the owner's own framing - see the arithmetic on the
+       stMainBlockContainer padding-top rule above for exactly how little.
+       The walking figure (theme.walker_svg(), still used by ui_feedback.
+       run_ai_call()'s panel, further below) does not appear here: a
+       recognisable walking figure does not compress into a hairline row
+       without either dominating its height or reading as an illegible
+       smudge at the size that would leave it, and the task's own
+       instruction was explicit that dropping it is the correct call in
+       that case ("drop the figure rather than fattening the strip") - so
+       this keeps only the fill bar, the per-stage stop dots, and the status
+       label. Self-contained under our own #gp-/.gp- names; nothing here
+       targets a Streamlit-internal class, so a platform upgrade cannot
+       break it the way the old ".main .block-container" selector above
+       once did. */
+    #gp-status-strip {
         position: fixed;
         /* Streamlit's real toolbar height is 3.75rem (theme.sizes.headerHeight
            in the streamlit==1.61.1 frontend bundle - confirmed by grepping the
@@ -1187,74 +1264,72 @@ st.markdown("<style>\n" + css_root_block() + """
            container docks fixed elements at top:e.sizes.headerHeight, the
            same pattern used here. 2.875rem is a different constant
            (fullScreenHeaderHeight) used only for an individual element's
-           fullscreen view, not the app toolbar - using it would sit this bar
-           under the toolbar instead of below it. */
-        top: calc(3.75rem + 0.75rem);
-        left: 50%;
-        transform: translateX(-50%);
+           fullscreen view, not the app toolbar - using it would sit this
+           strip under the toolbar instead of below it.) Flush against that
+           edge, no extra offset - "pinned to the very top of the page"
+           left no room for one the way the old pill's own +0.75rem gap
+           had. */
+        top: 3.75rem;
+        left: 0;
+        right: 0;
         z-index: 999;
         display: flex;
-        flex-direction: column;
         align-items: center;
-        gap: 0.35rem;
-        padding: 0.55rem 1.5rem 0.65rem;
+        gap: 0.75rem;
+        padding: 0.35rem 1.25rem;
         background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        box-shadow: var(--shadow-md);
+        border-bottom: 1px solid var(--border);
     }
 
-    .gp-track {
+    .gp-strip-track {
         position: relative;
-        width: 240px;
-        height: 26px;
+        flex: 1;
+        height: 4px;
     }
 
-    .gp-track::before {
+    .gp-strip-track::before {
         content: "";
         position: absolute;
         left: 0;
         right: 0;
-        bottom: 2px;
+        top: 0;
         height: 4px;
         border-radius: 999px;
         background: var(--border);
     }
 
-    .gp-track-fill {
+    .gp-strip-fill {
         position: absolute;
         left: 0;
-        bottom: 2px;
+        top: 0;
         height: 4px;
         border-radius: 999px;
         background: var(--brand);
         transition: width 420ms ease-in-out;
     }
 
-    .gp-stop {
+    .gp-strip-stop {
         position: absolute;
-        bottom: 0;
-        width: 8px;
-        height: 8px;
+        top: 2px;
+        width: 6px;
+        height: 6px;
         border-radius: 50%;
         background: var(--surface);
         border: 2px solid var(--muted);
-        transform: translateX(-50%);
+        transform: translate(-50%, -50%);
     }
 
-    .gp-stop-done {
+    .gp-strip-stop-done {
         border-color: var(--success);
         background: var(--success);
     }
 
-    .gp-walker-wrap {
-        position: absolute;
-        bottom: 4px;
-        transform: translateX(-50%);
-        /* Advancing a stage glides the walker to its new stop instead of
-           jumping - the state-driven counterpart to the old demo, which
-           looped through all four stops on a timer instead of on progress. */
-        transition: left 420ms ease-in-out;
+    .gp-strip-label {
+        flex: none;
+        font-size: 0.7rem;
+        font-weight: 650;
+        color: var(--muted);
+        white-space: nowrap;
     }
 
     .gp-walker {
@@ -1263,19 +1338,14 @@ st.markdown("<style>\n" + css_root_block() + """
         height: 24px;
     }
 
-    .gp-label {
-        font-size: 0.75rem;
-        font-weight: 650;
-        color: var(--muted);
-        white-space: nowrap;
-    }
-
     /* Compact generation-status panel (ui_feedback.run_ai_call, Task 4): the
-       same .gp-walker figure from the floating bar above, marching in place
-       (no `left` to drive here - a single blocking call has no horizontal
-       "progress" of its own) beside the current milestone message. Reuses
-       .gp-walker/.gp-bob/.gp-legs/.gp-legs2 and their keyframes as-is; this
-       is only the row layout that did not exist yet. */
+       .gp-walker figure marching in place (no `left` to drive here - a
+       single blocking call has no horizontal "progress" of its own) beside
+       the current milestone message. Reuses .gp-walker/.gp-bob/.gp-legs/
+       .gp-legs2 and their keyframes as-is; this is only the row layout that
+       did not exist yet. This is the figure's only remaining use in the app
+       - see the #gp-status-strip comment above for why the top strip itself
+       does not also show it. */
     .gp-status-line {
         display: flex;
         align-items: center;
@@ -1359,12 +1429,29 @@ st.markdown("<style>\n" + css_root_block() + """
         margin: 0 0 0.6rem;
     }
 
+    /* Visual-polish pass, item 3: WORKSPACE nav buttons get the same
+       explicit left padding and flex-start justification as the RECENT
+       APPLICATIONS rows below (that rule's own padding is the other half of
+       this pair - the two literals must stay equal). Neither this app's
+       base .stButton rule nor Streamlit's own default pins a left padding
+       for a plain button, so without both sides pinned to the identical
+       value here, the icon + label in each group can drift to different
+       left edges the next time either group's styling changes - which is
+       exactly the "not flush left" the owner flagged. */
+    [class*="st-key-nav_"] button {
+        justify-content: flex-start !important;
+        padding-left: 0.75rem !important;
+    }
+
     /* Recent-applications rows (workspace.recent_applications()): lighter
        than the WORKSPACE nav buttons above them - these read as a list to
-       scan, not as another set of primary actions. */
+       scan, not as another set of primary actions. padding-left matches
+       the nav-button rule above exactly (see its comment) so the status
+       dot and company/role text line up under the same left edge as the
+       nav icons and labels. */
     [class*="st-key-recent_app_"] button {
         min-height: 34px !important;
-        padding: 0.3rem 0.6rem !important;
+        padding: 0.3rem 0.6rem 0.3rem 0.75rem !important;
         border-color: transparent !important;
         background: transparent !important;
         box-shadow: none !important;
@@ -1442,6 +1529,61 @@ st.markdown("<style>\n" + css_root_block() + """
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* Visual-polish pass, item 6: two-tone Generator columns - white
+       workspace (left) vs light blue-grey preview (right), TOKENS' own
+       --surface and --bg, so the split reads visually even before the
+       splitter handle (render_generator_splitter(), further down) is ever
+       touched. Scoped with :has() to a zero-content marker container each
+       column's own render function places first
+       (st.container(key="gp_workspace_col") in render_generator_workspace,
+       st.container(key="gp_preview_col") in render_preview) - not to
+       [data-testid="stColumn"] position (first/last-of-type), which would
+       also repaint every *other* two-column layout in the app (the
+       Optimize/Copy Prompt button pair, the ATS metric/keyword columns, the
+       Resume/Cover Letter switch, Career Profile's own field columns, ...).
+       :has() with a descendant combinator (no `>`) tolerates whatever
+       wrapper depth Streamlit puts between stColumn and the marker; this
+       app already assumes a modern desktop browser (#small-screen-notice
+       above), and :has() has shipped in every evergreen browser since
+       2023, so no older-browser fallback is attempted. This is independent
+       of the splitter script below (plain CSS, present on first paint, not
+       waiting on any JS to run) - dragging only ever changes width, never
+       colour, so the two are safe to keep decoupled. */
+    [data-testid="stColumn"]:has(.st-key-gp_workspace_col) {
+        background: var(--surface) !important;
+    }
+
+    [data-testid="stColumn"]:has(.st-key-gp_preview_col) {
+        background: var(--bg) !important;
+    }
+
+    /* Item 1: the draggable splitter's own handle - see
+       render_generator_splitter()'s docstring, further down, for the full
+       rationale and its coupling to streamlit==1.61.1. Static appearance
+       only, defined here (the main page's own stylesheet, not the
+       components.html iframe's) because the handle element is inserted
+       into *this* document, not the iframe - var(--brand)/var(--border)
+       are already in scope via :root (css_root_block(), top of this
+       block). The live drag width is set as inline styles by that
+       function's injected script directly on the two stColumn elements,
+       not through this class. */
+    .gp-split-handle {
+        flex: 0 0 auto;
+        align-self: stretch;
+        width: 8px;
+        margin: 0 -0.25rem;
+        border-radius: 999px;
+        background: var(--border);
+        cursor: col-resize;
+        touch-action: none;
+        transition: background-color var(--ease);
+    }
+
+    .gp-split-handle:hover,
+    .gp-split-handle.gp-split-active {
+        background: var(--brand);
     }
 </style>""", unsafe_allow_html=True)
 
@@ -1800,6 +1942,14 @@ def render_quick_stats():
 def render_generator_workspace():
     """Generator 的左欄：頂部快速統計、資料來源、JD、策略、優化按鈕、可直接編輯的
     draft table，以及底部的匯出設定與 ATS 分析。"""
+    # Zero-content marker for the two-tone column background (visual-polish
+    # pass, item 6) - see the [data-testid="stColumn"]:has(.st-key-gp_workspace_col)
+    # rule in the stylesheet block above for what actually paints the
+    # colour. A bare st.container(key=...) call (no `with`, nothing put
+    # inside it) still renders its own empty div with that key's class -
+    # that div is the whole point here, not a layout container - so this is
+    # one line, not a re-indent of this function's whole body.
+    st.container(key="gp_workspace_col")
     render_quick_stats()
     with st.container(border=True):
         st.markdown("**Source of Truth**")
@@ -1827,12 +1977,23 @@ def render_generator_workspace():
         placeholder="Paste the job description here...",
     )
     with st.expander("Custom Strategy"):
+        # Visual-polish pass, item 4: labelled "Custom Strategy" (was
+        # "Strategy", collapsed) so the [data-testid="stWidgetLabel"]
+        # micro-label rule above actually renders "CUSTOM STRATEGY" above
+        # this field - the reference design's own second named example,
+        # alongside "Job description" just above. The expander's own header
+        # (same words, mixed case) is a different element - st.expander
+        # gives its header no data-testid of its own to anchor on, and this
+        # app has several other expanders whose titles are meant to stay
+        # readable as normal clickable text (see the stWidgetLabel rule's
+        # own comment) - so it is deliberately left as-is; this is the
+        # field-level label the reference actually shows the micro-label
+        # treatment on.
         strategy = st.text_area(
-            "Strategy",
+            "Custom Strategy",
             value=st.session_state.custom_prompt,
             height=200,
             key=f"cp_input_{st.session_state.base_editor_key}",
-            label_visibility="collapsed",
         )
     st.session_state.jd_text = jd
     st.session_state.custom_prompt = strategy
@@ -2273,6 +2434,13 @@ def render_preview():
     真正 Generate PDF 之前沒有對應的 base 版本可顯示——這點只有 Resume 有，
     設計文件裡也只針對 base 履歷本身要求快取。
     """
+    # Zero-content marker for the two-tone column background (visual-polish
+    # pass, item 6) - see render_generator_workspace()'s matching marker,
+    # and the [data-testid="stColumn"]:has(...) rules in the stylesheet
+    # block, for the full explanation. Re-emitted on every fragment-scoped
+    # rerun of this function same as any other element in it; harmless -
+    # it is an idempotent, contentless key marker, not state.
+    st.container(key="gp_preview_col")
     top_left, top_right = st.columns([2, 3])
     with top_left:
         # required=True: 跟舊的 st.radio 一樣永遠恰好選一個，使用者點擊目前
@@ -2340,21 +2508,27 @@ def render_preview():
     else:
         st.info("Optimize your resume and generate a PDF to preview the cover letter.")
 
-def render_floating_progress():
-    """Floating pill-shaped progress bar, fixed to the top-centre of the
-    viewport, for the Generator view only.
+def render_progress_strip():
+    """Thin full-width status strip pinned to the very top of the Generator
+    view - replaces the old floating pill (position:fixed, centred,
+    pill-radius'd, ~4.3rem tall) that the owner said took too much vertical
+    space to read as "thin".
 
-    Draws the same four (label, done) stages the old vertical checklist did -
+    Draws the same four (label, done) stages the pill did -
     workspace.application_progress() still owns that logic (unit-tested in
-    tests/test_workspace.py); this function only renders it, it does not
-    re-decide what counts as "done".
+    tests/test_workspace.py) and its labels are untouched here; this
+    function only renders it, it does not re-decide what counts as "done".
+    The fill bar's width and the highlighted stop both track the
+    *highest-index completed stage*, not a running count of how many are
+    done - the two can differ if stages ever complete out of order (see
+    tests/test_floating_progress.py's non-monotonic test) - same rule the
+    pill used.
 
-    The walker's horizontal position is state-driven, not looping: it rests
-    at the stop for the last-completed stage (the highest index with
-    done=True, or the first stop if nothing is done yet) and CSS transitions
-    `left` so advancing a stage glides it there rather than jumping. Only the
-    legs/bob keep animating in place - see .gp-bob/.gp-legs/.gp-legs2 in the
-    stylesheet.
+    No walking figure here: see the #gp-status-strip comment in the
+    stylesheet block (further up) for why it was dropped rather than
+    shrunk into this much thinner container. theme.walker_svg() itself is
+    unchanged and still used by ui_feedback.run_ai_call()'s compact status
+    panel - this function no longer calls it.
     """
     stages = workspace.application_progress(
         jd_text=st.session_state.jd_text,
@@ -2365,19 +2539,17 @@ def render_floating_progress():
     total = len(stages)
     done_indices = [i for i, (_, done) in enumerate(stages) if done]
     completed = len(done_indices)
-    # Highest-index completed stage, not a running count: the two can differ
-    # if stages ever complete out of order, and "last completed stage" means
-    # the rightmost done stop, not how many are done.
-    walker_index = max(done_indices) if done_indices else 0
+    # Highest-index completed stage, not a running count: see the docstring.
+    current_index = max(done_indices) if done_indices else 0
 
     def stop_pct(index):
         # Evenly spaced stops across whatever the track's actual width ends
         # up being - a percentage needs no pixel constant shared with the
-        # stylesheet's .gp-track width.
+        # stylesheet's .gp-strip-track width.
         return round(index * 100 / (total - 1), 3) if total > 1 else 0.0
 
     stops_html = "".join(
-        f'<span class="gp-stop{" gp-stop-done" if done else ""}" '
+        f'<span class="gp-strip-stop{" gp-strip-stop-done" if done else ""}" '
         f'style="left:{stop_pct(i)}%" title="{label}"></span>'
         for i, (label, done) in enumerate(stages)
     )
@@ -2387,66 +2559,320 @@ def render_floating_progress():
     elif completed == total:
         status_text = f"All steps complete · {completed}/{total}"
     else:
-        status_text = f"{stages[walker_index][0]} · {completed}/{total}"
+        status_text = f"{stages[current_index][0]} · {completed}/{total}"
 
-    walker_left = stop_pct(walker_index)
-    # theme.walker_svg() is the one place this markup is defined - see its
-    # own docstring for why (shared with ui_feedback.run_ai_call()'s compact
-    # status panel, Task 4).
-    walker_markup = walker_svg()
+    fill_pct = stop_pct(current_index)
 
     st.markdown(
-        f"""<div id="gp-floating-progress" role="group" aria-label="Application progress: {status_text}">
-  <div class="gp-track">
-    <div class="gp-track-fill" style="width:{walker_left}%"></div>
+        f"""<div id="gp-status-strip" role="group" aria-label="Application progress: {status_text}">
+  <div class="gp-strip-track">
+    <div class="gp-strip-fill" style="width:{fill_pct}%"></div>
     {stops_html}
-    <div class="gp-walker-wrap" style="left:{walker_left}%">
-      {walker_markup}
-    </div>
   </div>
-  <span class="gp-label">{status_text}</span>
+  <span class="gp-strip-label">{status_text}</span>
 </div>""",
         unsafe_allow_html=True,
     )
 
-def render_panel_ratio_control():
-    """Top-right three-preset switch for the Generator view's two-column
-    split - see PANEL_RATIOS's own comment for why this exists instead of a
-    real drag handle.
+def render_generator_splitter():
+    """Draggable resize handle between the Generator's two columns.
 
-    Persists into st.session_state.panel_ratio (a plain key, not the
-    widget's own `panel_ratio_control`) so the choice survives a rerun where
-    this control is not drawn at all - e.g. a trip to Career Profile and
-    back - the same durable-mirror pattern render_generator_workspace()
-    already uses for the JD text area and Custom Strategy box.
+    RATIONALE - why this exists and why it is built this way: the owner
+    explicitly rejected the `Panel width` segmented_control (three fixed
+    presets - PANEL_RATIOS, removed along with this) that used to stand in
+    for this, twice, and asked for a real drag handle. Streamlit's Python
+    API has no drag primitive, and st.columns()'s ratios are fixed at the
+    moment st.columns(...) runs on the server - there is no server-side way
+    to make that interactive. A real bidirectional custom component
+    (streamlit-component-lib, a full separate React build with its own
+    postMessage bridge) is the "correct" way to build a resizable layout in
+    Streamlit, but is out of proportion for a single-file app.
 
-    required=True for the same reason the Resume/Cover Letter switch in
-    render_preview() uses it: exactly one preset must always be selected, so
-    clicking the already-selected option cannot blank the choice (segmented_
-    control allows deselecting by default).
+    The technique used instead: st.components.v1.html() renders into a real
+    <iframe>. Streamlit's own IFrameUtil gives that iframe a `sandbox`
+    attribute that includes BOTH `allow-scripts` and `allow-same-origin`
+    together (confirmed by reading the shipped streamlit==1.61.1 frontend
+    bundle, IFrameUtil.*.js) - that specific combination is the one
+    documented to re-grant a sandboxed frame its embedder's origin, so a
+    script running inside it can reach `window.parent.document` and mutate
+    the real app DOM directly, same-origin, no message-passing bridge
+    needed. That is the "same-origin iframe" this task's brief describes -
+    confirmed against the actual shipped bundle here, not assumed.
+
+    COUPLING TO streamlit==1.61.1 - a second, independent reason (beyond
+    requirements.txt's own Python-3.14-wheel reasoning) the version pin has
+    to stay exact:
+      - `allow-same-origin` in the iframe sandbox is Streamlit's own
+        implementation choice, not a guarantee. A future release tightening
+        that sandbox (a real possibility - loosening cross-frame access is
+        a genuine security trade-off) would make every DOM lookup below
+        throw, caught by this script's own guards, so the handle would just
+        silently stop appearing rather than break the page - but it would
+        be gone.
+      - Every lookup is anchored on data-testid attributes
+        (stMainBlockContainer, stHorizontalBlock, stColumn) that Streamlit
+        does not treat as public API and has renamed across versions before.
+      - findSplit() (below) identifies the two Generator columns via the
+        `st-key-gp_workspace_col` / `st-key-gp_preview_col` marker classes
+        the two zero-content st.container(key=...) calls in
+        render_generator_workspace()/render_preview() produce - documented,
+        stable Streamlit behaviour ("key ... will be used as a CSS class
+        name prefixed with st-key-", elements/layouts.py), not a private
+        heuristic, but it still assumes each marker's nearest
+        [data-testid="stColumn"] ancestor is that column and that both
+        columns share one immediate-parent stHorizontalBlock. A future
+        release changing how a keyed container's class is attached, or
+        restructuring how nested st.columns() calls appear in the tree,
+        could defeat it.
+      - The width-forcing technique (setting flex/maxWidth inline styles
+        directly on the two stColumn elements) assumes columns are laid out
+        with CSS flexbox today, as they are in streamlit==1.61.1.
+    Any of these silently disables the handle (the guards mean it fails
+    closed, never with an exception the user sees) rather than restoring
+    the old fixed-ratio behaviour - which is exactly why upgrading this
+    dependency is not just a version bump; this script needs re-verifying
+    against whatever DOM the new version actually ships.
+
+    SURVIVING RERUNS: every Streamlit rerun re-executes app.py top to
+    bottom, which re-renders (and, per React's own reconciliation, can
+    replace) the Generator's column DOM nodes - including any node this
+    script inserted into them that Streamlit's own virtual DOM does not
+    know about. The injected script handles this by being idempotent and
+    self-healing rather than run-once: ensure() (below) (a) re-finds the
+    row and its two columns from scratch every time it runs, (b)
+    re-applies the persisted ratio to them unconditionally (cheap - setting
+    a style property to its current value is a no-op paint), and (c) only
+    creates a new handle element if one is not already present as a direct
+    child of the row. A MutationObserver on window.parent.document.body
+    calls ensure() again on every subsequent childList mutation anywhere in
+    the app - including the mutation ensure() itself just caused by
+    inserting the handle, which is safe: the very next check on that same
+    call already finds the handle in place and stops. So if a later
+    rerun's reconciliation ever removes the handle or resets a column's
+    inline width, the next mutation batch re-attaches/re-applies it without
+    needing a fresh page load. This iframe/script instance (and its
+    MutationObserver) dies the moment the user navigates off Generator,
+    since render_generator_splitter() is only ever called from the
+    Generator branch below - Profile's and Tracker's element trees never
+    contain this <iframe> at all, so nothing has to detect the view change
+    and tear itself down explicitly.
+
+    UNVERIFIED - be precise about this: this repo's test harness (AppTest)
+    sees the emitted HTML string, never a rendered DOM or a real pointer
+    event, so nothing here can be proven to actually drag from this
+    codebase. What tests/test_generator_splitter.py does verify is that the
+    script is emitted only on the Generator view (never Profile/Tracker)
+    and that its JS parses. That the handle finds the right columns, drags
+    smoothly, clamps to [25, 75], persists across a real reload, and
+    survives a real rerun in a real browser needs a human with a browser -
+    that has not been done here.
     """
-    _, control_col = st.columns([3, 2])
-    with control_col:
-        choice = st.segmented_control(
-            "Panel width",
-            list(PANEL_RATIOS.keys()),
-            default=st.session_state.panel_ratio,
-            required=True,
-            key="panel_ratio_control",
-        )
-    st.session_state.panel_ratio = choice
+    components.html(
+        """
+<script>
+(function () {
+  "use strict";
+
+  var MIN_PCT = 25;
+  var MAX_PCT = 75;
+  var STORAGE_KEY = "gp-splitter-left-pct";
+
+  function clamp(n, lo, hi) {
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  function loadRatio() {
+    try {
+      var raw = window.parent.localStorage.getItem(STORAGE_KEY);
+      var n = parseFloat(raw);
+      return isNaN(n) ? 50 : clamp(n, MIN_PCT, MAX_PCT);
+    } catch (e) {
+      return 50;
+    }
+  }
+
+  function saveRatio(pct) {
+    try {
+      window.parent.localStorage.setItem(STORAGE_KEY, String(pct));
+    } catch (e) {
+      /* localStorage unavailable (private mode, quota, ...) - the drag
+         still worked for this session, only persistence is lost. */
+    }
+  }
+
+  function findSplit(doc) {
+    // Anchored on the two zero-content marker containers app.py itself
+    // renders as the first element inside each Generator column
+    // (st.container(key="gp_workspace_col") / st.container(key="gp_preview_col"),
+    // in render_generator_workspace()/render_preview()) rather than on "the
+    // first stHorizontalBlock with exactly two stColumn children, in
+    // document order, that is not itself nested inside a column" - an
+    // earlier version of this function used exactly that heuristic, and it
+    // has a real collision: render_result_banner() (app.py, called
+    // unconditionally, above the per-view dispatch) renders its own
+    // st.columns([20, 1]) text/dismiss-button row whenever a banner is set -
+    // an ordinary state, e.g. immediately after every successful Optimize
+    // Resume - and that row is ALSO a top-level two-column stHorizontalBlock
+    // with no stColumn ancestor, appearing earlier in the DOM than the real
+    // Generator split. A document-order scan would silently grab that row
+    // instead and hang the handle off the banner, not the workspace/preview
+    // split. Locating by marker sidesteps the ambiguity entirely, present or
+    // future: `key=` on any Streamlit element is documented to add a
+    // `st-key-<key>` CSS class (streamlit==1.61.1 elements/layouts.py,
+    // LayoutsMixin.container()'s own docstring: "it will be used as a CSS
+    // class name prefixed with st-key-") - a public, stable mechanism, not a
+    // st-emotion-cache-* build hash - and the same one the stylesheet block
+    // above already relies on for item 6's two-tone column backgrounds
+    // ([data-testid="stColumn"]:has(.st-key-gp_workspace_col), just above
+    // this handle's own .gp-split-handle rules), so both features share one
+    // definition of "which column is which" instead of two that could
+    // silently disagree.
+    var main = doc.querySelector('[data-testid="stMainBlockContainer"]');
+    if (!main) return null;
+    var leftMark = main.querySelector(".st-key-gp_workspace_col");
+    var rightMark = main.querySelector(".st-key-gp_preview_col");
+    if (!leftMark || !rightMark) return null; // Not on Generator, or not rendered yet.
+    var left = leftMark.closest('[data-testid="stColumn"]');
+    var right = rightMark.closest('[data-testid="stColumn"]');
+    if (!left || !right || left === right) return null;
+    var row = left.parentElement;
+    if (!row || !row.getAttribute || row.getAttribute("data-testid") !== "stHorizontalBlock") return null;
+    if (right.parentElement !== row) return null;
+    return { row: row, left: left, right: right };
+  }
+
+  function applyRatio(left, right, pct) {
+    var rightPct = 100 - pct;
+    left.style.flex = "0 0 " + pct + "%";
+    left.style.maxWidth = pct + "%";
+    right.style.flex = "0 0 " + rightPct + "%";
+    right.style.maxWidth = rightPct + "%";
+  }
+
+  function findHandle(row) {
+    for (var i = 0; i < row.children.length; i++) {
+      var child = row.children[i];
+      if (child.classList && child.classList.contains("gp-split-handle")) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  function makeHandle(doc, row, left, right) {
+    var handle = doc.createElement("div");
+    handle.className = "gp-split-handle";
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-orientation", "vertical");
+    handle.setAttribute("aria-label", "Resize workspace and preview panels");
+
+    var dragging = false;
+    var startX = 0;
+    var startPct = 50;
+    var rowWidth = 1;
+
+    function pctFromEvent(e) {
+      var dx = e.clientX - startX;
+      return clamp(startPct + (dx / rowWidth) * 100, MIN_PCT, MAX_PCT);
+    }
+
+    function onMove(e) {
+      if (!dragging) return;
+      applyRatio(left, right, pctFromEvent(e));
+    }
+
+    function onUp(e) {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove("gp-split-active");
+      saveRatio(pctFromEvent(e));
+      try {
+        handle.releasePointerCapture(e.pointerId);
+      } catch (err) {
+        /* capture already released/lost - nothing to clean up */
+      }
+    }
+
+    // pointerdown/pointermove/pointercapture, not mousedown/mousemove: with
+    // the pointer captured to the handle, events keep firing even once the
+    // cursor leaves its (deliberately slim) hit area mid-drag.
+    handle.addEventListener("pointerdown", function (e) {
+      dragging = true;
+      startX = e.clientX;
+      rowWidth = row.getBoundingClientRect().width || 1;
+      startPct = clamp(parseFloat(left.style.maxWidth) || 50, MIN_PCT, MAX_PCT);
+      handle.classList.add("gp-split-active");
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch (err) {
+        /* pointer capture unavailable - drag still works as long as the
+           cursor stays over the handle, it just will not survive leaving
+           it. Better than throwing. */
+      }
+      e.preventDefault();
+    });
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+
+    return handle;
+  }
+
+  function ensure() {
+    try {
+      var doc = window.parent.document;
+      var found = findSplit(doc);
+      if (!found) return; // Not on Generator, or the DOM is not ready yet.
+      applyRatio(found.left, found.right, loadRatio());
+      if (findHandle(found.row)) return; // Already attached - idempotent no-op.
+      var handle = makeHandle(doc, found.row, found.left, found.right);
+      found.row.insertBefore(handle, found.right);
+    } catch (e) {
+      /* A DOM shape this script did not anticipate, or same-origin access
+         unexpectedly denied - never let that break the host page. */
+    }
+  }
+
+  try {
+    ensure();
+    var target = window.parent.document.body;
+    if (target) {
+      // Re-runs ensure() on every subsequent DOM mutation anywhere in the
+      // app, so a later Streamlit rerun that tears down and rebuilds the
+      // Generator's columns (removing this script's own handle along with
+      // them, and resetting whatever inline width it had set) gets
+      // self-healed on the very next mutation batch - see this function's
+      // own "SURVIVING RERUNS" docstring section for the full reasoning.
+      new MutationObserver(function () {
+        ensure();
+      }).observe(target, { childList: true, subtree: true });
+    }
+  } catch (e) {
+    /* window.parent inaccessible for some reason - fail silent, no handle. */
+  }
+})();
+</script>
+""",
+        height=0,
+    )
 
 if active_view == workspace.GENERATOR:
-    render_floating_progress()
-    render_panel_ratio_control()
-    ratio = PANEL_RATIOS.get(st.session_state.panel_ratio, PANEL_RATIOS["Even"])
-    left, right = st.columns(ratio)
+    render_progress_strip()
+    left, right = st.columns(2)
     with left:
         render_generator_workspace()
     with right:
         # 右欄現在只有 render_preview() 自己：切換、下載、PDF 本身，沒有分頁。
-        # 進度已移至頂端懸浮 bar；輸出設定與 ATS 已移進左欄底部。
+        # 進度已移至頂端狀態條；輸出設定與 ATS 已移進左欄底部。
         render_preview()
+    # Draggable resize handle between the two columns above - see its own
+    # docstring for the full rationale, its coupling to streamlit==1.61.1,
+    # and exactly what is/is not verified about it. Called after both
+    # columns have rendered: purely for readability (render the split, then
+    # wire up how to resize it) - the injected script itself runs
+    # client-side, after the whole page has painted, so it would work
+    # regardless of where in this Python script it was called from.
+    render_generator_splitter()
 
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:

@@ -92,3 +92,22 @@ def test_generate_pdf_disabled_with_no_optimized_result():
     generate_buttons = [b for b in at.button if b.label == "Generate PDF"]
     assert len(generate_buttons) == 1
     assert generate_buttons[0].disabled is True
+
+
+def test_custom_strategy_field_has_a_visible_micro_label():
+    """Visual-polish pass, item 4: the reference design's own second named
+    example ("CUSTOM STRATEGY", alongside "Job description") is a label
+    rendered above the Custom Strategy field, not just the expander's own
+    clickable header - so the field's label must actually be visible (it
+    used to be label_visibility="collapsed" under the plainer text
+    "Strategy", which the [data-testid="stWidgetLabel"] uppercase CSS rule
+    would have had nothing to render). label_visibility.value == 0 is
+    LabelVisibilityMessage's default ("visible") - the same value the JD
+    field (never collapsed) also carries, checked here as a known-good
+    reference point rather than a bare magic number."""
+    at = run_app(active_view="Generator")
+    cp_key = f"cp_input_{at.session_state['base_editor_key']}"
+    jd_key = f"jd_input_{at.session_state['base_editor_key']}"
+    strategy_field = at.text_area(key=cp_key)
+    assert strategy_field.label == "Custom Strategy"
+    assert strategy_field.proto.label_visibility.value == at.text_area(key=jd_key).proto.label_visibility.value

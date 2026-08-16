@@ -155,9 +155,11 @@ def test_walker_svg_markup_is_well_formed():
     exposes the tree after a full script run completes, by which point
     run_ai_call()'s own freeze step (tested above) has already replaced it -
     so this only checks that theme.walker_svg() itself produces the expected
-    shape, the same function render_floating_progress() (app.py, Task 1) also
-    calls, so there is exactly one definition for both to (potentially)
-    diverge from."""
+    shape. run_ai_call() is this function's only remaining caller (app.py's
+    top status strip, render_progress_strip(), does not use it - see that
+    function's own docstring), but the shape contract is still worth pinning
+    on its own terms rather than only implicitly through the panel tests
+    above."""
     import theme
     markup = theme.walker_svg()
     assert '<svg class="gp-walker"' in markup

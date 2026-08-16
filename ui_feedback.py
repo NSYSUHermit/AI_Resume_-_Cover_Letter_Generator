@@ -15,18 +15,23 @@ def run_ai_call(label, fn, success=None):
     *content* is untouched, only the visual presentation changed (Task 4).
 
     Compact panel, not a growing log: only the most recent report() message is
-    ever on screen, with the same walking-figure SVG used by the top-centre
-    floating progress bar (render_floating_progress(), app.py) marching in
-    place beside it - design doc: "面板改為緊湊樣式，左側放與懸浮 bar 同一個小人
-    SVG，做原地踏步動畫，右側是最新的里程碑文字". theme.walker_svg() is the one
-    place that SVG is defined, so this is not a second copy of it, and the
-    walk-cycle keyframes it relies on (.gp-bob/.gp-legs/.gp-legs2) live once in
-    app.py's stylesheet, which is injected unconditionally before any
-    view-specific rendering can reach this function - true for every call site
-    of run_ai_call, in both app.py and firebase_dashboard.py. The walker only
+    ever on screen, with a walking-figure SVG marching in place beside it -
+    design doc: "面板改為緊湊樣式，左側放與懸浮 bar 同一個小人 SVG，做原地踏步動畫，
+    右側是最新的里程碑文字". theme.walker_svg() is the one place that SVG is
+    defined, so this is not a second copy of it, and the walk-cycle keyframes
+    it relies on (.gp-bob/.gp-legs/.gp-legs2) live once in app.py's
+    stylesheet, which is injected unconditionally before any view-specific
+    rendering can reach this function - true for every call site of
+    run_ai_call, in both app.py and firebase_dashboard.py. The walker only
     marches in place here (no `left` position to drive): a single blocking
-    call has no meaningful horizontal "progress" of its own the way the
-    multi-stage floating bar does.
+    call has no meaningful horizontal "progress" of its own.
+
+    This panel is theme.walker_svg()'s only remaining caller: it originally
+    shared the figure with app.py's top-centre floating progress bar
+    (render_floating_progress()), but the visual-polish pass that replaced
+    that bar with a hairline top status strip (render_progress_strip())
+    dropped the figure rather than shrinking it to fit - see that function's
+    own docstring, and theme.walker_svg()'s.
 
     Returns whatever fn() returns, unchanged. Nothing global is mutated, so an
     unsuccessful call leaves the page fully interactive rather than stranding

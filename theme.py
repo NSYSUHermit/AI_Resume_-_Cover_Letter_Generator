@@ -19,6 +19,15 @@ TOKENS = {
     "success": "#059669",
     "warning": "#d97706",
     "danger": "#dc2626",
+    # Reference-design "dark navy": the reference React app's primary button,
+    # active nav pill and headings all use a near-black desaturated blue that
+    # reads distinctly darker/cooler than --brand (#2563eb, still used
+    # everywhere else - links, focus rings, status dots, the walker figure).
+    # Added rather than repurposing --brand-dark (#1d4ed8), which is still a
+    # saturated blue, not navy. Two shades, same pattern as brand/brand-dark,
+    # so hover/active states have somewhere to go.
+    "navy": "#0f172a",
+    "navy-dark": "#020617",
 }
 
 FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
@@ -38,13 +47,21 @@ def css_root_block():
 def walker_svg():
     """The little walking-figure SVG markup, in brand colour.
 
-    Single source of truth for this asset, shared by app.py's
-    render_floating_progress() (the top-centre floating progress bar, Task 1)
-    and ui_feedback.run_ai_call() (the compact generation-status panel,
-    Task 4) - both need the exact same figure, so it lives here once instead
-    of being copy-pasted a second time. Only the markup is defined here; the
+    Single source of truth for this asset. Historically shared by two
+    callers - app.py's old top-centre floating progress *pill* (Task 1) and
+    ui_feedback.run_ai_call()'s compact generation-status panel (Task 4) -
+    but the visual-polish pass that replaced the pill with a hairline top
+    status strip (app.py's render_progress_strip()) dropped the figure
+    rather than shrinking it into that much thinner strip, per that task's
+    own instruction ("keep the walking figure only if it still fits ...
+    drop the figure rather than fattening the strip"). ui_feedback.
+    run_ai_call() is therefore this function's only remaining caller today;
+    it still lives here (rather than moving into ui_feedback.py) because it
+    is a visual asset keyed to TOKENS["brand"], the same reason every other
+    colour-bearing asset in this module is defined next to TOKENS rather
+    than next to its one caller. Only the markup is defined here; the
     walk-cycle animation itself (.gp-bob/.gp-legs/.gp-legs2 and their
-    keyframes) lives in app.py's single stylesheet block, which both callers
+    keyframes) lives in app.py's single stylesheet block, which the caller
     can rely on being present - it is injected unconditionally, before any
     view-specific rendering, on every script run.
     """
