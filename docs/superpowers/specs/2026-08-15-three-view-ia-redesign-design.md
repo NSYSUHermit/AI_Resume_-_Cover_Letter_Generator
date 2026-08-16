@@ -156,6 +156,36 @@ st.download_button(..., on_click=sync_application_to_tracker if sync and ch=="Re
 - [ ] 未登入狀態下下載不報錯，也不嘗試寫入 Firestore。
 - [ ] 登出後再登入，profile 正常載入且不被 autosave 覆寫成空值。
 
+## 實作結果
+
+已於 `refactor/three-view-ia` 完成（10 個 commit）。測試 35 項、規格驗收 23 項，皆通過。
+
+### 部署後必須人工確認的項目
+
+以下五項在開發機上無法驗證——本機沒有 `.streamlit/secrets.toml`，`init_firebase()` 因此回傳 `None`，任何 Firestore 寫入都走不到；另外兩項需要真實瀏覽器。**部署後請依序確認：**
+
+1. **下載履歷後，右欄「Saved to tracker」立刻打勾且出現 toast**，不需要點其他東西。
+   這是唯一「機制已確認、落點未確認」的項目：`st.rerun()` 在 streamlit 1.61.1 的預設
+   `scope="app"` 已由原始碼確認（fragment 內呼叫也會觸發全app rerun），但 `st.download_button`
+   是唯一同時啟動客戶端下載又要求 rerun 的元件，本專案過去從未對它呼叫 `st.rerun()`。
+   **一併確認檔案本身有正常下載完成。**
+2. **連續下載履歷與求職信各一次，Tracker 只新增一筆紀錄。**
+3. **重新 Optimize 後再下載，Tracker 新增第二筆。**
+4. **手動匯入另一間公司的 JSON 後下載，Tracker 有新增紀錄**（這是最終審查抓到的回歸，
+   修正後未能在本機實測 Firestore 寫入）。
+5. **已有履歷的使用者登入後落在 Generator**（登入路徑需要 Firestore）。
+
+另外，下載後「Render all pages」勾選會回到預設的關閉狀態——這是 `st.rerun()` 的已知副作用，
+fragment 範圍內，不影響其他狀態，屬預期行為。
+
+### 已知的後續維護事項
+
+`app.py` 與 `firebase_dashboard.py` 對 `st.dataframe` / chart 類元素使用的 `use_container_width`
+帶有 2025-12-31 的移除期限，`st.components.v1.html` 則是 2026-06-01。目前 `requirements.txt`
+精確釘住 `streamlit==1.61.1`，部署行為是凍結的，因此不阻擋合併。但該檔案自己的註解已經記錄
+平台曾強制升級過本專案的 Python 版本一次——若平台再次調動而必須提高 streamlit 釘選版本，
+這兩處要一起處理。按鈕的 `use_container_width` 無移除期限、也不發警告，不需處理。
+
 ## 後續
 
 本次重構完成後，再進行瀏覽器 extension（擷取 JD → 帶入 Generator）。三視圖架構讓 extension 的落點單一明確，因此順序上必須在後。
