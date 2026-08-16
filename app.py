@@ -262,6 +262,49 @@ def safe_filename_part(value, fallback):
     cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
     return cleaned.strip("_") or fallback
 
+JSON_ERROR_SNIPPET_WIDTH = 88
+
+def json_error_report(raw, exc):
+    """Turn a failed json.loads() into a message a user can act on.
+
+    `str(JSONDecodeError)` already ends with "line N column M (char P)", but
+    that alone means hand-counting lines in a 300-line paste to find the
+    offending one. This quotes the actual line and points a caret at the
+    column, the way a compiler does - the paste boxes are the app's only
+    surface where a user is expected to fix syntax by hand, so the error has
+    to carry enough to do it without leaving the page.
+
+    Long lines (a whole resume JSON pasted as one line is common - that is
+    what json.dumps() without indent produces) are windowed around the error
+    column instead of being dumped whole, with ellipses marking the trim, and
+    the caret is offset to stay under the right character.
+
+    Any non-JSONDecodeError exception falls back to plain str(exc): callers
+    wrap more than just the parse (see Manual Result Import), and a
+    TypeError from downstream code has no line to point at.
+    """
+    if not isinstance(exc, json.JSONDecodeError):
+        return f"Could not read that JSON: {exc}"
+
+    header = f"Invalid JSON - line {exc.lineno}, column {exc.colno}: {exc.msg}"
+    lines = (raw or "").splitlines()
+    if not 1 <= exc.lineno <= len(lines):
+        # Truncated/empty input: the reported position can sit past the last
+        # line (e.g. "Expecting value" on an empty box).
+        return header
+
+    line = lines[exc.lineno - 1]
+    col = exc.colno - 1
+    start = 0
+    if len(line) > JSON_ERROR_SNIPPET_WIDTH:
+        start = max(0, min(col - JSON_ERROR_SNIPPET_WIDTH // 2,
+                           len(line) - JSON_ERROR_SNIPPET_WIDTH))
+    snippet = line[start:start + JSON_ERROR_SNIPPET_WIDTH]
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if start + JSON_ERROR_SNIPPET_WIDTH < len(line) else ""
+    caret = " " * (len(prefix) + max(0, col - start)) + "^"
+    return f"{header}\n\n```\n{prefix}{snippet}{suffix}\n{caret}\n```"
+
 def render_json_editor(value, key, height=500):
     return st.text_area(
         "JSON Editor",
@@ -2545,7 +2588,7 @@ if active_view == workspace.PROFILE:      # 原 "Source"
                     st.toast("JSON imported.")
                     st.rerun()
                 except json.JSONDecodeError as e:
-                    st.error(f"Source JSON is invalid: {e}")
+                    st.error(json_error_report(raw_import, e))
 
 def render_quick_stats():
     """Quick-stat cards filling the whitespace above Source of Truth.
@@ -2771,36 +2814,50 @@ def render_generator_workspace():
         with dcol2:
             if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
-    # 手動匯入外部推論結果
-    if st.session_state.get("show_advanced_tools"):
-        with st.expander("Manual Result Import"):
-            st.caption("If you ran the rewrite elsewhere, paste its JSON here. Include a top-level \"keywords\" list to score coverage as well.")
-            manual_json = st.text_area("Paste the externally inferred JSON here:", height=200, key="manual_ats_json")
-            if st.button("Apply Manual Result", use_container_width=True):
-                try:
-                    res = json.loads(manual_json)
-                    if "optimized_resume" not in res:
-                        st.error("JSON structure missing 'optimized_resume'.")
-                    else:
-                        clear_pdf_outputs_and_tracking()
-                        optimized = res.get("optimized_resume")
-                        st.session_state.ats_analysis = res
-                        st.session_state.optimized_resume_data = optimized
-                        st.session_state.changelog = res.get("changelog", "")
-                        st.session_state.suggested_metrics = res.get("suggested_metrics", []) or []
-                        st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
-                        keywords = res.get("keywords") or (res.get("screening") or {}).get("keywords") or []
-                        st.session_state.ats_metrics = ai.keyword_report(
-                            keywords, st.session_state.resume_data, optimized
-                        ) if keywords else None
-                        # Wholesale replacement: the draft table's widgets are keyed
-                        # off opt_editor_key so they reseed from the freshly imported
-                        # data instead of writing back whatever they last held.
-                        st.session_state.opt_editor_key += 1
-                        st.session_state.pending_toast = "Manual result applied."
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Invalid JSON: {e}")
+    # 手動匯入外部推論結果. Deliberately NOT behind show_advanced_tools (its
+    # two siblings below still are): running the rewrite in an external model
+    # and pasting the result back is a first-class way to use this app, not an
+    # advanced escape hatch, and the owner could not find this box because the
+    # checkbox hid it. Still inside a collapsed expander, so an unused feature
+    # costs one line of vertical space in the left column.
+    with st.expander("Manual Result Import"):
+        st.caption("If you ran the rewrite elsewhere, paste its JSON here. Include a top-level \"keywords\" list to score coverage as well.")
+        manual_json = st.text_area("Paste the externally inferred JSON here:", height=200, key="manual_ats_json")
+        if st.button("Apply Manual Result", use_container_width=True):
+            try:
+                res = json.loads(manual_json)
+                if not isinstance(res, dict) or "optimized_resume" not in res:
+                    # Names what was actually found rather than only what was
+                    # missing: the usual cause is pasting the resume object
+                    # itself instead of the wrapper around it, and seeing its
+                    # own top-level keys listed back makes that obvious.
+                    found = (", ".join(list(res)[:8]) or "(none)") if isinstance(res, dict) else type(res).__name__
+                    st.error(
+                        "This JSON has no top-level \"optimized_resume\" key, so there is "
+                        f"no resume to import. Top level contains: {found}. "
+                        "If you only have the resume object itself (heading, experience, "
+                        "...), use Manual Data Import instead."
+                    )
+                else:
+                    clear_pdf_outputs_and_tracking()
+                    optimized = res.get("optimized_resume")
+                    st.session_state.ats_analysis = res
+                    st.session_state.optimized_resume_data = optimized
+                    st.session_state.changelog = res.get("changelog", "")
+                    st.session_state.suggested_metrics = res.get("suggested_metrics", []) or []
+                    st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
+                    keywords = res.get("keywords") or (res.get("screening") or {}).get("keywords") or []
+                    st.session_state.ats_metrics = ai.keyword_report(
+                        keywords, st.session_state.resume_data, optimized
+                    ) if keywords else None
+                    # Wholesale replacement: the draft table's widgets are keyed
+                    # off opt_editor_key so they reseed from the freshly imported
+                    # data instead of writing back whatever they last held.
+                    st.session_state.opt_editor_key += 1
+                    st.session_state.pending_toast = "Manual result applied."
+                    st.rerun()
+            except Exception as e:
+                st.error(json_error_report(manual_json, e))
 
     # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
     if st.session_state.get("show_advanced_tools"):
@@ -2822,7 +2879,7 @@ def render_generator_workspace():
                     st.toast("Manual data applied.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Invalid JSON: {e}")
+                    st.error(json_error_report(manual_opt_json, e))
 
     # 右欄現在只剩 PDF 本身 (render_preview)，匯出設定與 ATS 分析改放在左欄底部。
     render_export_settings()
@@ -3053,7 +3110,7 @@ def edit_opt_dialog():
                 clear_pdf_outputs_and_tracking()
                 st.rerun()
             except json.JSONDecodeError as e:
-                st.error(f"Optimized JSON is invalid: {e}")
+                st.error(json_error_report(raw_opt_import, e))
 
 def render_ats_analysis():
     """ATS 分析區塊的內容（左欄底部）；呼叫端已確認有優化結果。"""
