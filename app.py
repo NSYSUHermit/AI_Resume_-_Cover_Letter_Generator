@@ -77,6 +77,8 @@ if "suggested_metrics" not in st.session_state: st.session_state.suggested_metri
 if "jd_screening" not in st.session_state: st.session_state.jd_screening = None
 if "last_synced_snapshot" not in st.session_state: st.session_state.last_synced_snapshot = None
 if "last_synced_at" not in st.session_state: st.session_state.last_synced_at = None
+# 一次 optimize 就是一份投遞。save_application 不去重，靠這個值擋住重複寫入。
+if "tracked_application_id" not in st.session_state: st.session_state.tracked_application_id = None
 # Plain state, not a widget key: the sidebar nav is built from buttons, so
 # nothing owns this value except us.
 if "active_view" not in st.session_state:
@@ -136,6 +138,7 @@ def clear_generated_outputs():
     st.session_state.optimized_source_snapshot = None
     st.session_state.result_banner = None
     clear_pdf_outputs()
+    st.session_state.tracked_application_id = None
 
 def resume_snapshot(data):
     return json.dumps(data or {}, ensure_ascii=False, sort_keys=True)
@@ -421,17 +424,27 @@ def render_resume_form_editor(data, key_prefix):
     }
 
 def sync_application_to_tracker():
+    if not workspace.should_record_application(
+        is_tracked=st.session_state.tracked_application_id is not None,
+        logged_in=st.session_state.logged_in,
+    ):
+        return
     tracker_db = get_db()
     if tracker_db is None:
         st.error("Tracker is unavailable until Firebase secrets are configured.")
         return
-    save_application(
+    ok = save_application(
         tracker_db,
         st.session_state.user_email,
         st.session_state.optimized_resume_data.get('target_company'),
         st.session_state.optimized_resume_data,
-        st.session_state.get('jd_text', "")
+        st.session_state.get('jd_text', ""),
     )
+    if not ok:
+        # save_application 內部吞掉例外只回傳 False，不檢查回傳值就會把失敗的寫入也標成已記錄。
+        return
+    # 記下來就好，值本身只是「已記錄」的旗標。
+    st.session_state.tracked_application_id = st.session_state.optimized_resume_data.get('target_company') or "recorded"
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (prompts and scoring live in ai.py)
@@ -1354,8 +1367,15 @@ def render_preview():
         target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
         dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
         if dl:
-            sync = st.checkbox("Sync to Tracker", value=True) if st.session_state.logged_in else False
-            st.download_button(f"Download {dl['name']}", dl["bytes"], dl["name"], use_container_width=True, on_click=sync_application_to_tracker if sync and ch=="Resume" else None)
+            st.download_button(
+                f"Download {dl['name']}",
+                dl["bytes"],
+                dl["name"],
+                use_container_width=True,
+                on_click=sync_application_to_tracker,
+            )
+            if st.session_state.logged_in:
+                st.caption("Downloading records this application in the tracker.")
         # Checking the layout only needs page one; rasterising every page on
         # each rerun was pure waste.
         all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
