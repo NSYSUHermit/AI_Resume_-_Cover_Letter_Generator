@@ -179,28 +179,57 @@ def test_splitter_script_guards_every_top_level_lookup():
     assert "return null" in js  # findSplit()'s guarded-lookup exits
 
 
-def test_splitter_script_anchors_on_data_testid_and_documented_st_key_class_only():
+def test_splitter_script_anchors_on_data_testid_and_own_markers_only():
     """Constraint from the task brief: anchor on data-testid attributes
-    only, never on a st-emotion-cache-* hash. The one non-data-testid
-    selector this script uses - .st-key-gp_workspace_col /
-    .st-key-gp_preview_col - is documented Streamlit behaviour for a
-    user-supplied `key=` (streamlit==1.61.1's own
-    LayoutsMixin.container() docstring: "it will be used as a CSS class
-    name prefixed with st-key-"), not a private build hash, so this asserts
-    the hash pattern is absent as an actual selector rather than that the
-    phrase never appears at all - the function's own explanatory comment
-    legitimately names "st-emotion-cache-*" once, in prose, to say this is
-    exactly what it is *not* anchored on; only a real ".st-emotion-cache"
-    selector would mean that guarantee had quietly broken."""
+    only, never on a st-emotion-cache-* hash.
+
+    The two non-data-testid selectors are `[data-gp-col="workspace"]` and
+    `[data-gp-col="preview"]` - attributes this app emits itself, so they
+    cannot be broken by a Streamlit class rename.
+
+    These used to be `.st-key-gp_workspace_col` / `.st-key-gp_preview_col`,
+    produced by `st.container(key=...)`. That was wrong in a way no test
+    here caught: Streamlit emits no DOM node at all for a container with
+    nothing inside it, so the classes were absent from the live document and
+    findSplit() silently returned null on every render. Verified in a real
+    browser, not inferred. See test_column_markers_are_actually_emitted for
+    the assertion that now closes that gap.
+
+    The st-emotion-cache check asserts the hash is absent as a *selector*
+    rather than as a substring - the script's own comment legitimately names
+    it once, in prose, to say that is exactly what it is not anchored on."""
     at = run_app(active_view="Generator")
     js = splitter_script(at)
     assert "data-testid" in js
     assert "stMainBlockContainer" in js
     assert "stHorizontalBlock" in js
     assert "stColumn" in js
-    assert ".st-key-gp_workspace_col" in js
-    assert ".st-key-gp_preview_col" in js
+    assert '[data-gp-col="workspace"]' in js
+    assert '[data-gp-col="preview"]' in js
     assert ".st-emotion-cache" not in js
+
+
+def test_column_markers_are_actually_emitted():
+    """The markers the splitter and the two-tone background both depend on
+    must exist as real elements in the rendered output.
+
+    This is the test whose absence let an empty `st.container(key=...)` ship
+    as an anchor for two features while emitting no DOM node whatsoever.
+    Asserting the selector appears in the injected script is not enough -
+    something has to check the thing being selected actually renders."""
+    at = run_app(active_view="Generator")
+    emitted = " ".join(h.body for h in at.get("html"))
+    assert 'data-gp-col="workspace"' in emitted
+    assert 'data-gp-col="preview"' in emitted
+
+
+def test_column_markers_absent_outside_generator():
+    """No markers on the other views, so the background rule and the handle
+    cannot latch onto Profile's or Tracker's layout."""
+    for view in ("Profile", "Tracker"):
+        at = run_app(active_view=view)
+        emitted = " ".join(h.body for h in at.get("html"))
+        assert "data-gp-col" not in emitted, view
 
 
 def test_splitter_script_is_syntactically_valid_javascript():

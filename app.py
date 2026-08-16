@@ -1551,11 +1551,11 @@ st.markdown("<style>\n" + css_root_block() + """
        of the splitter script below (plain CSS, present on first paint, not
        waiting on any JS to run) - dragging only ever changes width, never
        colour, so the two are safe to keep decoupled. */
-    [data-testid="stColumn"]:has(.st-key-gp_workspace_col) {
+    [data-testid="stColumn"]:has([data-gp-col="workspace"]) {
         background: var(--surface) !important;
     }
 
-    [data-testid="stColumn"]:has(.st-key-gp_preview_col) {
+    [data-testid="stColumn"]:has([data-gp-col="preview"]) {
         background: var(--bg) !important;
     }
 
@@ -1943,13 +1943,19 @@ def render_generator_workspace():
     """Generator 的左欄：頂部快速統計、資料來源、JD、策略、優化按鈕、可直接編輯的
     draft table，以及底部的匯出設定與 ATS 分析。"""
     # Zero-content marker for the two-tone column background (visual-polish
-    # pass, item 6) - see the [data-testid="stColumn"]:has(.st-key-gp_workspace_col)
-    # rule in the stylesheet block above for what actually paints the
-    # colour. A bare st.container(key=...) call (no `with`, nothing put
-    # inside it) still renders its own empty div with that key's class -
-    # that div is the whole point here, not a layout container - so this is
-    # one line, not a re-indent of this function's whole body.
-    st.container(key="gp_workspace_col")
+    # pass, item 6) - see the [data-testid="stColumn"]:has([data-gp-col="workspace"])
+    # rule in the stylesheet block above for what actually paints the colour.
+    #
+    # This used to be a bare `st.container(key="gp_workspace_col")`, on the
+    # stated assumption that an empty keyed container still renders a div
+    # carrying `st-key-gp_workspace_col`. Checked in a real browser: it does
+    # not. Streamlit emits no DOM node for a container with nothing in it, so
+    # that class was absent from the document entirely and BOTH features that
+    # depended on it - this background rule and the drag handle's anchoring -
+    # silently did nothing. st.html() renders inline (not in an iframe) and
+    # always produces a node, so the marker is real. The attribute is ours,
+    # not Streamlit's, which also makes it immune to their class renames.
+    st.html('<span data-gp-col="workspace" style="display:none"></span>')
     render_quick_stats()
     with st.container(border=True):
         st.markdown("**Source of Truth**")
@@ -2439,8 +2445,9 @@ def render_preview():
     # and the [data-testid="stColumn"]:has(...) rules in the stylesheet
     # block, for the full explanation. Re-emitted on every fragment-scoped
     # rerun of this function same as any other element in it; harmless -
-    # it is an idempotent, contentless key marker, not state.
-    st.container(key="gp_preview_col")
+    # it is an idempotent, display:none marker, not state. See the workspace
+    # marker's comment for why this is st.html() and not an empty container.
+    st.html('<span data-gp-col="preview" style="display:none"></span>')
     top_left, top_right = st.columns([2, 3])
     with top_left:
         # required=True: 跟舊的 st.radio 一樣永遠恰好選一個，使用者點擊目前
@@ -2729,8 +2736,8 @@ def render_generator_splitter():
     // silently disagree.
     var main = doc.querySelector('[data-testid="stMainBlockContainer"]');
     if (!main) return null;
-    var leftMark = main.querySelector(".st-key-gp_workspace_col");
-    var rightMark = main.querySelector(".st-key-gp_preview_col");
+    var leftMark = main.querySelector('[data-gp-col="workspace"]');
+    var rightMark = main.querySelector('[data-gp-col="preview"]');
     if (!leftMark || !rightMark) return null; // Not on Generator, or not rendered yet.
     var left = leftMark.closest('[data-testid="stColumn"]');
     var right = rightMark.closest('[data-testid="stColumn"]');
