@@ -910,6 +910,55 @@ _SIDEBAR_WIDTH_CSS = """
        wants it to shrink to an icon rail instead, so the native control is
        removed and replaced by the one rendered inside the sidebar itself. */
     [data-testid="stSidebarCollapseButton"] { display: none !important; }
+
+    /* The toggle straddles the sidebar's right edge as a circular chip, the
+       way the owner's reference app does it
+       (Dashboard.tsx:71 - `absolute -right-3.5 top-8 rounded-full`, revealed
+       on sidebar hover). Streamlit renders the button in normal flow, so it
+       is lifted out with position:absolute; the sidebar <section> already
+       carries position:relative from Streamlit's own inline style, which is
+       what this anchors against.
+
+       overflow must stay visible on the ancestors or a chip hanging 14px past
+       the edge gets clipped. */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        overflow: visible !important;
+    }
+
+    [data-testid="stSidebar"] .st-key-sidebar_toggle {
+        position: absolute !important;
+        top: 2rem;
+        right: -14px;
+        width: auto !important;
+        z-index: 30;
+        opacity: 0;
+        transition: opacity var(--ease), transform var(--ease);
+    }
+
+    /* Revealed on hover, and always while focused so it stays keyboard
+       reachable - the reference's pure opacity-0 would strand keyboard users. */
+    [data-testid="stSidebar"]:hover .st-key-sidebar_toggle,
+    [data-testid="stSidebar"] .st-key-sidebar_toggle:focus-within {
+        opacity: 1;
+    }
+
+    [data-testid="stSidebar"] .st-key-sidebar_toggle button {
+        width: 28px !important;
+        height: 28px !important;
+        min-height: 28px !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        box-shadow: var(--shadow-sm) !important;
+        color: var(--muted) !important;
+    }
+
+    [data-testid="stSidebar"] .st-key-sidebar_toggle button:hover {
+        color: var(--brand) !important;
+        transform: scale(1.1);
+    }
 """
 
 _SIDEBAR_RAIL_CSS = """
@@ -925,26 +974,25 @@ _SIDEBAR_RAIL_CSS = """
        ([data-testid="stIconMaterial"] and [data-testid="stMarkdownContainer"],
        confirmed against the live DOM), so column-stacking their shared parent
        is all this needs - no bespoke button markup. */
-    [data-testid="stSidebar"] .stButton button > div,
-    [data-testid="stSidebar"] .stButton button > div > span {
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 0.25rem !important;
+    /* Icons only - no labels at all, matching the rail the owner sketched:
+       a stack of outline icons, the active one a filled navy square, generous
+       vertical rhythm, dividers between groups. */
+    [data-testid="stSidebar"] .stButton button [data-testid="stMarkdownContainer"] {
+        display: none !important;
     }
 
     [data-testid="stSidebar"] .stButton button {
         justify-content: center !important;
-        height: auto !important;
-        padding-top: 0.6rem !important;
-        padding-bottom: 0.6rem !important;
+        width: 52px !important;
+        height: 52px !important;
+        min-height: 52px !important;
+        padding: 0 !important;
+        margin: 0 auto 0.75rem auto !important;
+        border-radius: 14px !important;
     }
 
-    [data-testid="stSidebar"] .stButton button [data-testid="stMarkdownContainer"] p {
-        font-size: 0.65rem !important;
-        font-weight: 600 !important;
-        line-height: 1 !important;
-        letter-spacing: 0.03em;
+    [data-testid="stSidebar"] .stButton button [data-testid="stIconMaterial"] {
+        font-size: 24px !important;
     }
 
     /* Chrome that carries no meaning at rail width: the wordmark beside the
