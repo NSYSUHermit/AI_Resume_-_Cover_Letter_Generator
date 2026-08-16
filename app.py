@@ -1218,20 +1218,43 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        base styles, which load once up front, this order isn't guaranteed the
        same way for every rerun, so !important removes the "should" the same
        way the two gap rules above already do. */
-    /* Visual-polish pass, item 4 (typography): reference-design headings are
-       dark navy, medium weight, with a tighter line-height than Streamlit's
-       own default (~1.4-ish for h1-h4, per the same bundle inspection cited
-       above). font-weight/line-height get the same !important as padding
-       above and for the same reason - Streamlit's own heading rule sets
-       both explicitly on that (0,1,1)-specificity compound selector, so
-       plain cascade order is not something to rely on for them either. */
+    /* Visual-polish pass, item 4 (typography), corrected in the visual-match
+       follow-up (Item 3): every actual <hN> in the reference - not just
+       icons/buttons, which do use --color-primary - is near-black, not navy.
+       Confirmed by reading every heading tag in ResumeBuilder.tsx/Dashboard.tsx:
+       the one h2 page title ("Resume Generator", ResumeBuilder.tsx:368) is
+       `text-slate-950` (#020617, exactly TOKENS["navy-dark"]); every h3/h4
+       section heading actually used ("Target & Strategy" :395, "Generate
+       Preview" :458, "Professional Preview" :537, "Draft Table" :655,
+       "Source of Truth" h4 :378, Dashboard.tsx's pricing h2/h3 :272,:299) is
+       `text-gray-900` (#111827, exactly TOKENS["text"]) - `text-primary`
+       never appears on a heading tag itself in either file, only on icons and
+       buttons next to them. This app never calls st.title/st.header (grepped
+       app.py - zero hits), so h3 (st.subheader) and h4 (st.markdown "####")
+       are the only levels actually reachable; h1/h2 are corrected too, for
+       when/if this app ever grows one, but that half is unverified in this
+       app today. Weight follows the same source: font-bold (700) on every
+       h3/h4 above, font-extrabold (800) on the one h2. Line-height/spacing
+       unchanged - Streamlit's own heading rule sets those explicitly on a
+       same-specificity compound selector, so plain cascade order is not
+       something to rely on for them either, same as the padding rule above. */
+    [data-testid="stHeading"] h1,
+    [data-testid="stHeading"] h2 {
+        color: var(--navy-dark);
+        font-weight: 800 !important;
+    }
+
+    [data-testid="stHeading"] h3,
+    [data-testid="stHeading"] h4 {
+        color: var(--text);
+        font-weight: 700 !important;
+    }
+
     [data-testid="stHeading"] h1,
     [data-testid="stHeading"] h2,
     [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4 {
-        color: var(--navy);
         letter-spacing: -0.01em;
-        font-weight: 600 !important;
         line-height: 1.25 !important;
         padding-top: 0 !important;
         padding-bottom: 0 !important;
@@ -1410,6 +1433,40 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         line-height: 1.55 !important;
     }
 
+    /* Item 2 (typography): the JD / Custom Strategy fields specifically -
+       owner said this block's type was badly sized. Reference recipe
+       (ResumeBuilder.tsx:396-419, both fields share one className): `mt-1.5
+       w-full bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm
+       focus:outline-none focus:ring-2 focus:ring-primary/10`. rounded-lg
+       (8px) and border-gray-200 (#E5E7EB, near-identical to var(--border)
+       #e2e8f0) were already covered by the generic input/textarea rule just
+       above; what was missing is bg-gray-50 (a light fill, not the plain
+       white every other textarea gets) and p-4/text-sm (generous 1rem
+       padding and 0.875rem body text, instead of Streamlit's own tighter
+       default). var(--surface-soft) (#f1f5f9) stands in for bg-gray-50
+       (#F9FAFB) - both light neutral fills, and already an existing TOKENS
+       entry rather than a new literal.
+       Scoped to just these two fields, not every textarea in the app (the
+       Summary/About Me/Cover Letter/manual-JSON-import fields keep the
+       plain white background) via the `st-key-jd_input_<n>` /
+       `st-key-cp_input_<n>` class Streamlit's key= emits - same substring-
+       match pattern the [class*="st-key-tr"] rule below already relies on -
+       because both keys carry a `base_editor_key` suffix that increments on
+       every profile edit/import, so only the stable prefix can be matched.
+       The micro-label above these fields (JOB DESCRIPTION / CUSTOM STRATEGY)
+       is deliberately left on the shared [data-testid="stWidgetLabel"] rule
+       above rather than duplicated here: reference values there are close
+       but not identical (text-xs/font-extrabold/tracking-widest/#9CA3AF vs.
+       this rule's 0.66rem/700/0.08em/var(--muted)) - visually close, but
+       changing it would restyle every widget label in the app, not just
+       these two, so it was left alone rather than guessed at. */
+    [class*="st-key-jd_input_"] textarea,
+    [class*="st-key-cp_input_"] textarea {
+        background: var(--surface-soft) !important;
+        padding: 1rem !important;
+        font-size: 0.875rem !important;
+    }
+
     hr {
         border-color: var(--border);
         /* Task 4 density pass: 1.1rem -> 0.75rem. */
@@ -1419,9 +1476,25 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     /* st.container(border=True) - the cards that hold Source of Truth, Export
        Settings and the rest. Streamlit's own padding sits tight against the
        frame; the owner asked for the frame to stand further off its contents,
-       so this sets it explicitly rather than inheriting. */
+       so this sets it explicitly rather than inheriting.
+       Radius corrected in the visual-match follow-up (Item 3): every card
+       variant in the reference - the Draft Table wrapper (ResumeBuilder.tsx
+       :656), the Professional Preview panel (:548), the per-block skill card
+       (:797), Source of Truth (:372) - uses `rounded-lg`, Tailwind's 0.5rem
+       (8px), never a larger radius; the 12px this used to hard-code had no
+       reference number behind it. var(--radius) is already 8px
+       (theme.css_root_block()), so this now just defers to that token
+       instead of overriding it, which is also what "TOKENS for all colours"
+       (this is the one non-colour token css_root_block() also defines)
+       already intends every other radius in this stylesheet to do.
+       Padding (1.5rem 1.6rem, below) is deliberately left alone: the
+       reference has no single equivalent to copy - its cards range from
+       p-3.5 (14px) to p-12 (48px) depending on which one - and this app's
+       st.container(border=True) is reused for many sections the reference
+       renders with different, unrelated recipes, so no single number from it
+       would be "the" match either. */
     [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
-        border-radius: 12px !important;
+        border-radius: var(--radius) !important;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"] > div {
@@ -1667,6 +1740,39 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         font-size: 0.92rem;
     }
 
+    /* Item 4: Optimize Resume's in-flight state (ui_feedback.run_ai_call()'s
+       `target` path - see that function's own docstring for the full
+       rationale). Same footprint as the primary button it replaces
+       (min-height, radius, filled navy - matching the `.stButton button
+       [kind^="primary"]` rule above) so the swap reads as the same control
+       changing state, not a different element appearing - the button's own
+       row becomes the status row, nothing is added below it. */
+    .gp-btn-status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 42px;
+        width: 100%;
+        border-radius: var(--radius);
+        background: var(--navy);
+        box-sizing: border-box;
+        padding: 0 1rem;
+    }
+
+    .gp-btn-status .gp-walker {
+        flex: none;
+    }
+
+    .gp-btn-status span {
+        color: var(--surface);
+        font-weight: 650;
+        font-size: 0.92rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* Walk cycle: two leg groups alternate via steps(), plus a slight bob.
        This keeps looping regardless of the walker's (state-driven) position -
        only `left` above is ever driven from Python. */
@@ -1879,11 +1985,20 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        soon as the editing side gets long - the owner reads that as the preview
        "not moving with" the page. Sticky keeps it pinned below the status
        strip instead. align-self is required: a stretched flex item has no
-       spare room to slide within, so sticky would never engage. */
+       spare room to slide within, so sticky would never engage.
+       min-height matches the workspace column's own min-height (above) -
+       align-self: flex-start means this column would otherwise only be as
+       tall as whatever it holds, so a short empty-state message left the
+       grey fill stopping partway down the page instead of reaching the
+       bottom (Item 1: "右邊預覽就是全灰底" - the grey must be the *whole*
+       column, not just a band behind the content). Same value as max-height
+       just below, so the column is a fixed height regardless of content;
+       overflow-y: auto still lets a genuinely taller PDF scroll inside it. */
     [data-testid="stColumn"]:has([data-gp-col="preview"]) {
         position: sticky !important;
         top: 5.5rem;
         align-self: flex-start !important;
+        min-height: calc(100vh - 7rem);
         max-height: calc(100vh - 7rem);
         overflow-y: auto;
     }
@@ -1895,6 +2010,49 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         border: 1px solid var(--border);
         border-radius: 12px;
         box-shadow: var(--shadow-sm);
+    }
+
+    /* Item 1: the preview column's three empty states (render_preview_empty_
+       state(), app.py) - a white waiting-card instead of st.info()'s blue
+       alert box. Numbers from the reference's own empty-preview card
+       (ResumeBuilder.tsx:548,564-566): `bg-white rounded-lg shadow-xl border
+       border-gray-200`, empty content `flex flex-col items-center
+       justify-center p-12 text-center opacity-40`, a 64px FileText icon in
+       text-gray-300, `font-bold text-gray-400` copy. rounded-lg is 8px
+       (var(--radius), same correction as the card-radius rule above);
+       shadow-xl itself was judged too heavy for a page-level empty state -
+       "soft shadow" per the task brief - so this uses var(--shadow-md)
+       instead, the softer of this file's own two shadow tokens, rather than
+       inventing a third. p-12 is 3rem. opacity-40 is approximated as 0.45 on
+       the icon/text individually (var(--muted) already carries most of that
+       fade, so a flat opacity on the whole card would also wash out the
+       border/shadow, which the reference's own card keeps solid). */
+    .gp-preview-empty {
+        min-height: 60vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 1rem;
+        padding: 3rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+    }
+
+    .gp-preview-empty svg {
+        color: var(--muted);
+        opacity: 0.45;
+    }
+
+    .gp-preview-empty p {
+        margin: 0;
+        max-width: 26rem;
+        color: var(--muted) !important;
+        font-weight: 700;
+        font-size: 0.95rem;
     }
 
     /* Item 1: the draggable splitter's own handle - see
@@ -2390,19 +2548,56 @@ def render_generator_workspace():
         st.caption("Connect a Gemini API key above to enable optimization.")
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=not st.session_state.api_key):
+        # Item 4 (visual-polish follow-up), owner: 「optimizing resume 的動畫就
+        # 跑在同一顆按鈕上就好不要額外延展」. st.empty() gives the button its own
+        # placeholder slot so run_ai_call(..., target=optimize_slot) can
+        # overwrite that exact slot with the in-flight spinner+milestone line
+        # (ui_feedback.run_ai_call()'s own docstring has the full rationale)
+        # instead of opening a panel below it - the button's row becomes the
+        # status row, nothing new is added to the layout. Confirmed in
+        # streamlit==1.61.1 via a standalone AppTest script before writing
+        # this: a placeholder holding a clicked button can be overwritten
+        # with st.markdown() in the same run with no exception, and the
+        # button is cleanly gone from the tree afterward.
+        optimize_slot = st.empty()
+        optimize_clicked = optimize_slot.button(
+            "Optimize Resume",
+            type="primary",
+            use_container_width=True,
+            disabled=not st.session_state.api_key,
+            key="optimize_resume_btn",
+        )
+        if optimize_clicked:
             if jd:
                 clear_generated_outputs()
                 ok, rep = run_ai_call(
                     "Optimizing resume",
                     lambda report: ai_optimize_and_update(jd, strategy, report),
                     success=lambda r: r[0],
+                    target=optimize_slot,
                 )
                 if ok:
                     # The banner was filled in by ai_optimize_and_update with
                     # the real numbers; no toast needed.
                     st.rerun()
-                else: st.error(rep)
+                else:
+                    # No rerun on failure (see run_ai_call()'s docstring), so
+                    # optimize_slot is left showing the frozen failure
+                    # message - redraw the real button into it here so the
+                    # row is clickable again immediately, instead of dead
+                    # until some unrelated interaction happens to rerun the
+                    # page. A second explicit key: Streamlit raises on two
+                    # elements sharing one key in the same run, even through
+                    # the same placeholder (confirmed the same way, via
+                    # AppTest, before relying on it).
+                    optimize_slot.button(
+                        "Optimize Resume",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=not st.session_state.api_key,
+                        key="optimize_resume_btn_retry",
+                    )
+                    st.error(rep)
             else:
                 st.warning("Paste a job description before optimizing.")
     with c2:
@@ -2812,6 +3007,37 @@ def render_export_settings():
                 else:
                     st.error("No PDF was generated.")
 
+def render_preview_empty_state(message):
+    """White waiting-card for the preview column's three empty states.
+
+    Owner's spec, verbatim: 「左邊就是全白 右邊預覽就是全灰底中間留著白色預覽空間等待
+    pdf進來顯示」 (left entirely white, right entirely grey, with a white card in
+    the middle waiting for the PDF to arrive). These three call sites used to
+    be st.info(), which renders Streamlit's blue alert box - a warning, not a
+    waiting state. Matches the reference's own empty-preview card
+    (ResumeBuilder.tsx:548,564-566 - the desktop "Professional Preview" panel):
+    a tall bordered white surface holding a centred muted document glyph above
+    centred muted copy (`h-full flex flex-col items-center justify-center p-12
+    text-center opacity-40`, a 64px FileText icon in text-gray-300, `font-bold
+    text-gray-400` copy) - not an alert. Message wording is exactly whatever
+    the caller used to pass to st.info(); only the presentation changed.
+    Rendered via st.html() rather than components.html(): st.html() inserts
+    into the main document, not an iframe, so the .gp-preview-empty class
+    (app.py's stylesheet block) and its var(--...) colours are visible to it -
+    an iframe could not see those custom properties at all (see theme.py's
+    own module docstring on exactly this iframe limitation).
+    """
+    st.html(
+        '<div class="gp-preview-empty">'
+        '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+        '<path d="M14 2v6h6"/>'
+        '</svg>'
+        f'<p>{html.escape(message)}</p>'
+        '</div>'
+    )
+
 @st.fragment
 def render_preview():
     """Generator 的右欄：只剩 PDF 本身，加左上角切換與右上角下載，不再有分頁。
@@ -2878,7 +3104,7 @@ def render_preview():
         if resume_is_empty(data):
             # 未優化前的預覽必須快取，不能急切編譯 - 履歷是空的就不編譯，
             # 直接指向 Career Profile，不要拿一份空白 PDF 浪費 lualatex。
-            st.info("Your Career Profile is empty. Build it first — every rewrite starts from it.")
+            render_preview_empty_state("Your Career Profile is empty. Build it first — every rewrite starts from it.")
         else:
             # `or` here would default an intentionally-cleared multiselect
             # (export_order == []) back to the full list. render_export_settings
@@ -2897,9 +3123,9 @@ def render_preview():
             if base_bytes:
                 render_pdf_js(base_bytes)
             else:
-                st.info("Preview unavailable. Check the LaTeX log above.")
+                render_preview_empty_state("Preview unavailable. Check the LaTeX log above.")
     else:
-        st.info("Optimize your resume and generate a PDF to preview the cover letter.")
+        render_preview_empty_state("Optimize your resume and generate a PDF to preview the cover letter.")
 
 def render_progress_strip():
     """Thin full-width status strip pinned to the very top of the Generator

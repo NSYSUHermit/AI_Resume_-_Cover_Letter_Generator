@@ -111,3 +111,49 @@ def test_custom_strategy_field_has_a_visible_micro_label():
     strategy_field = at.text_area(key=cp_key)
     assert strategy_field.label == "Custom Strategy"
     assert strategy_field.proto.label_visibility.value == at.text_area(key=jd_key).proto.label_visibility.value
+
+
+def test_optimize_resume_failure_adds_no_expanding_panel_and_stays_clickable(monkeypatch):
+    """Item 4 (visual-match follow-up), owner's spec verbatim: 「optimizing
+    resume 的動畫就跑在同一顆按鈕上就好不要額外延展」(the animation should just
+    run on the same button, no extra expansion). ai.screen_job_description is
+    patched to raise so ai_optimize_and_update() (app.py) returns a failure
+    without ever calling st.rerun() - the same reason
+    tests/test_ui_feedback.py's own end-to-end test exercises the failure
+    path rather than success: a successful call reruns immediately, which
+    AppTest follows to completion.
+
+    This is the real app.py call site, not the isolated harness -
+    tests/test_ui_feedback.py's new target-mode tests pin the actual
+    on-the-button *content* (the .gp-btn-status line with the streamed
+    milestone); AppTest only ever exposes the tree after a full script run
+    completes, and this call site's own failure handling (app.py, next to
+    the retry key) immediately redraws the real button into that same
+    placeholder so the row stays clickable - so by the time this test's
+    assertions run, that content has already been overwritten by the retry
+    button, the same reason the walker itself is never directly observed in
+    test_ui_feedback.py either (see that file's own comment on it). What
+    *is* observable here, and is the actual regression this guards against:
+    no st.status element exists anywhere in the tree (the old panel that
+    used to open below the button), and the button's row is left clickable
+    again rather than dead until some unrelated interaction reruns the
+    page."""
+    def boom(jd_text, api_key):
+        raise RuntimeError("boom")
+    monkeypatch.setattr("ai.screen_job_description", boom)
+
+    at = run_app(active_view="Generator", api_key="fake-key", jd_text="A" * 60)
+    optimize_buttons = [b for b in at.button if b.label == "Optimize Resume"]
+    assert len(optimize_buttons) == 1
+    optimize_buttons[0].click().run()
+
+    assert not at.exception
+    # No expanding panel: the old st.status(...) branch never ran.
+    assert len(at.status) == 0
+    assert any("Job description screening failed" in e.value for e in at.error)
+
+    # The button's own row is clickable again, not stuck showing the frozen
+    # failure line until some unrelated interaction reruns the page.
+    retry_buttons = [b for b in at.button if b.label == "Optimize Resume"]
+    assert len(retry_buttons) == 1
+    assert retry_buttons[0].disabled is False

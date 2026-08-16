@@ -57,6 +57,103 @@ def status_markdown(at):
     return [m.value for m in at.status[0].markdown]
 
 
+# Item 4 (visual-match follow-up), owner: 「optimizing resume 的動畫就跑在同一顆
+# 按鈕上就好不要額外延展」. `target=` renders into an already-existing placeholder
+# instead of opening the st.status panel above - see run_ai_call()'s own
+# docstring for the full rationale. Same minimal-harness approach as
+# RUN_AI_CALL_HARNESS above, just handing it a plain st.empty() placeholder
+# rather than letting it build its own st.status. This intentionally does NOT
+# simulate the real call site's "redraw the button into the placeholder on
+# failure" step (app.py) - that step overwrites the very content these tests
+# check, which is exactly why tests/test_generator_workspace.py's end-to-end
+# test cannot observe it either and instead only checks that no panel was
+# ever created. This harness is what actually pins the on-the-button content.
+TARGET_HARNESS = """
+import streamlit as st
+from ui_feedback import run_ai_call
+
+def fn(report):
+    for message in MESSAGES:
+        report(message)
+    return RESULT
+
+slot = st.empty()
+result = run_ai_call(LABEL, lambda report: fn(report), success=lambda r: OK, target=slot)
+st.session_state["returned"] = result
+"""
+
+
+def run_target_harness(messages, label="Doing a thing", result="the-result", ok=True):
+    src = (
+        f"MESSAGES = {messages!r}\n"
+        f"LABEL = {label!r}\n"
+        f"RESULT = {result!r}\n"
+        f"OK = {ok!r}\n"
+    ) + TARGET_HARNESS
+    at = AppTest.from_string(src)
+    at.run()
+    return at
+
+
+def target_markdown(at):
+    """The .gp-btn-status line(s) rendered into the target placeholder - not
+    at.status[0].markdown, since target= mode never creates an st.status at
+    all (that is the entire point being tested)."""
+    return [m.value for m in at.markdown if '<div class="gp-btn-status">' in m.value]
+
+
+def test_target_mode_renders_on_the_placeholder_not_a_status_panel():
+    at = run_target_harness(["first stage", "second stage"])
+    assert not at.exception
+    assert len(at.status) == 0
+    lines = target_markdown(at)
+    assert len(lines) == 1
+    assert "second stage" in lines[0]
+    assert "first stage" not in lines[0]
+
+
+def test_target_mode_shows_the_label_immediately_before_any_report_call():
+    """Unlike the panel path (whose st.status(label, ...) header already
+    carries the label the instant it is created), a placeholder starts out
+    holding whatever the caller last drew into it - so target mode explicitly
+    draws `label` in first, before fn() runs, so the row reads as busy from
+    the first instant rather than sitting blank until the first report()."""
+    at = run_target_harness([], label="Optimizing resume", result="r", ok=True)
+    assert not at.exception
+    lines = target_markdown(at)
+    assert len(lines) == 1
+    assert "Optimizing resume" in lines[0]
+
+
+def test_target_mode_escapes_html_same_as_the_panel_path():
+    message = 'R&D Lead <script>alert(1)</script> "Special" Corp'
+    at = run_target_harness([message])
+    assert not at.exception
+    lines = target_markdown(at)
+    assert "<script>" not in lines[0]
+    assert "&amp;D Lead" in lines[0]
+    assert "&lt;script&gt;" in lines[0]
+
+
+def test_target_mode_freezes_the_last_line_without_the_walker_on_success():
+    at = run_target_harness(["in progress..."], result="ok", ok=True)
+    assert not at.exception
+    lines = target_markdown(at)
+    assert len(lines) == 1
+    assert "<svg" not in lines[0]
+    assert "in progress..." in lines[0]
+    assert at.session_state["returned"] == "ok"
+
+
+def test_target_mode_keeps_the_frozen_message_on_failure():
+    at = run_target_harness(["about to fail"], result="boom", ok=False)
+    assert not at.exception
+    lines = target_markdown(at)
+    assert len(lines) == 1
+    assert "<svg" not in lines[0]
+    assert "about to fail" in lines[0]
+
+
 def test_only_the_latest_message_is_shown_not_a_growing_log():
     """Design doc: "面板改為緊湊樣式...右側是最新的里程碑文字" (the latest
     milestone text) - singular, not a running history. Three report() calls
