@@ -52,3 +52,44 @@ def should_record_application(is_tracked, logged_in):
     row per click. One optimize run is one application.
     """
     return bool(logged_in) and not is_tracked
+
+
+# Tracker status -> which theme.TOKENS colour name the sidebar's status dot
+# should use for that row. Only the token *name* lives here, not a colour
+# value: this module may not import theme (or streamlit) - see the module
+# docstring - so app.py is the one that turns e.g. "success" into
+# var(--success) in the stylesheet.
+_STATUS_DOT_TOKENS = {
+    "Applied": "brand",
+    "Interviewing": "warning",
+    "Offered": "success",
+    "Rejected": "danger",
+}
+_DEFAULT_STATUS_DOT_TOKEN = "muted"
+
+
+def recent_applications(records, limit=3):
+    """Up to `limit` tracker rows, reshaped for the sidebar's compact list.
+
+    `records` is whatever firebase_dashboard.fetch_applications() returned -
+    already newest-first, since the Firestore query itself orders by
+    applied_date descending - so this only takes a prefix; it does no
+    sorting of its own and trusts the caller's ordering.
+
+    Company/role fall back the same way firebase_dashboard.render_dashboard()
+    already displays them (company defaults to "Unknown"; role has no
+    top-level field of its own, it lives in resume_json.target_role, and
+    defaults to "" so the caller can drop it from the row entirely) - a
+    sidebar row and the full Tracker view should never disagree about what an
+    incomplete record shows.
+    """
+    rows = []
+    for record in (records or [])[:limit]:
+        record = record or {}
+        status = record.get("status") or "Applied"
+        rows.append({
+            "company": record.get("company_name") or "Unknown",
+            "role": (record.get("resume_json") or {}).get("target_role") or "",
+            "status_dot_token": _STATUS_DOT_TOKENS.get(status, _DEFAULT_STATUS_DOT_TOKEN),
+        })
+    return rows
