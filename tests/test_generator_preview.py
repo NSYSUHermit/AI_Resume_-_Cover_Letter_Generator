@@ -249,11 +249,11 @@ def test_generator_view_has_no_tabs():
 
 def target_switch(at):
     """render_preview()'s Resume/Cover Letter switch, found by its own widget
-    key ("tr") rather than by list position - UI Task 4 added a second
-    st.segmented_control to the Generator view (the panel-ratio control,
-    rendered above the two columns and so first in render order), which
-    pushed this one from index 0 to index 1. Selecting by key is robust to
-    that ordering entirely."""
+    key ("tr") rather than by list position - selecting by key is robust
+    regardless of how many other st.segmented_control widgets the view ever
+    grows (there was briefly a second one, the now-removed panel-ratio
+    control - see tests/test_generator_splitter.py's
+    test_panel_width_control_is_gone)."""
     matches = [sc for sc in at.segmented_control if sc.key == "tr"]
     assert len(matches) == 1
     return matches[0]
@@ -265,9 +265,6 @@ def test_segmented_control_defaults_to_resume():
     default exactly."""
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Default Target Candidate"))
     assert not at.exception
-    # Two segmented controls now live on this view (the panel-ratio switch,
-    # UI Task 4, plus this one) - assert count via the panel-ratio test file
-    # instead of duplicating that coverage here.
     assert target_switch(at).value == "Resume"
 
 
