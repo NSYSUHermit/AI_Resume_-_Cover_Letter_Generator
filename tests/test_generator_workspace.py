@@ -157,3 +157,54 @@ def test_optimize_resume_failure_adds_no_expanding_panel_and_stays_clickable(mon
     retry_buttons = [b for b in at.button if b.label == "Optimize Resume"]
     assert len(retry_buttons) == 1
     assert retry_buttons[0].disabled is False
+
+
+# ---------------------------------------------------------------------------
+# "New application" resets one application, not the profile
+# ---------------------------------------------------------------------------
+
+
+def test_new_application_clears_the_jd_and_the_generated_outputs():
+    """The JD assertion is the load-bearing one.
+
+    jd_text mirrors from a widget keyed jd_input_{base_editor_key}. Clearing
+    only jd_text leaves the previous widget holding the old text and it writes
+    it back on the next rerun, so this passes only if base_editor_key was
+    bumped too.
+    """
+    at = run_app(
+        active_view="Generator",
+        jd_text="x" * 120,
+        optimized_resume_data={"target_company": "Acme"},
+        resume_preview_bytes=b"%PDF-fake",
+        tracked_application_id="Acme",
+    )
+    at.button(key="new_application").click().run()
+
+    assert at.session_state.jd_text == ""
+    assert at.session_state.optimized_resume_data is None
+    assert at.session_state.resume_preview_bytes is None
+    assert at.session_state.tracked_application_id is None
+    assert not at.exception
+
+
+def test_new_application_keeps_the_profile_and_the_saved_strategy():
+    """Settings, not per-application state - these must survive."""
+    profile = {
+        "heading": {"name": "Henry", "email": "", "phone": "", "website": "", "linkedin": ""},
+        "summary": "", "education": [], "projects": [], "patents": [],
+        "experience": [{"title": "Engineer", "company": "Acme", "time_period": "2020", "bullets": []}],
+        "skills": {"set1": {"title": "Skills", "items": []}},
+        "cover_letter": "", "target_company": "", "target_role": "", "about me more": "",
+    }
+    at = run_app(
+        active_view="Generator",
+        resume_data=profile,
+        custom_prompt="MY-SAVED-STRATEGY",
+        jd_text="y" * 120,
+    )
+    at.button(key="new_application").click().run()
+
+    assert at.session_state.resume_data == profile
+    assert at.session_state.custom_prompt == "MY-SAVED-STRATEGY"
+    assert at.session_state.jd_text == ""

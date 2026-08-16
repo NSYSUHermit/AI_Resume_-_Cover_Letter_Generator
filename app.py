@@ -142,6 +142,29 @@ def clear_generated_outputs():
     clear_pdf_outputs()
     st.session_state.tracked_application_id = None
 
+def start_new_application():
+    """Reset everything that belongs to one job application.
+
+    Cleared: the JD, the optimized result, ATS, the PDFs, and
+    tracked_application_id - so the next download opens a fresh tracker row
+    instead of being suppressed by the dedupe guard.
+
+    Kept: the Career Profile itself, the saved Custom Strategy, the login, the
+    API key. Those are settings, not per-application state.
+
+    The base_editor_key bump is load-bearing, not cosmetic. The JD mirrors from
+    a widget keyed jd_input_{base_editor_key} into st.session_state.jd_text;
+    clearing only jd_text leaves the old widget holding the previous text, and
+    it writes it straight back on the next rerun. A new key forces a fresh
+    widget that initialises from the cleared value. (Custom Strategy rides the
+    same key but re-initialises from custom_prompt, so it survives - which is
+    what we want.)
+    """
+    clear_generated_outputs()
+    st.session_state.jd_text = ""
+    st.session_state.base_editor_key += 1
+
+
 def clear_pdf_outputs_and_tracking():
     """clear_pdf_outputs() plus resetting the tracker dedupe flag.
 
@@ -2711,8 +2734,6 @@ def render_generator_workspace():
     # 右欄現在只剩 PDF 本身 (render_preview)，匯出設定與 ATS 分析改放在左欄底部。
     render_export_settings()
 
-    st.markdown("**ATS Analysis**")
-    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
     if st.session_state.optimized_resume_data:
         render_ats_analysis()
     else:
@@ -3532,6 +3553,16 @@ def render_generator_splitter():
 
 if active_view == workspace.GENERATOR:
     render_progress_strip()
+    # Sits with the progress strip: once it reads 4/4 there has to be a way to
+    # start the next application without hunting for Reset All Data, which
+    # wipes the Career Profile too.
+    _new_app_col, _ = st.columns([1, 4])
+    with _new_app_col:
+        if st.button("New application", use_container_width=True,
+                     icon=":material/add:", key="new_application"):
+            start_new_application()
+            st.session_state.pending_toast = "Started a new application."
+            st.rerun()
     left, right = st.columns(2)
     with left:
         render_generator_workspace()
