@@ -140,6 +140,24 @@ def clear_generated_outputs():
     clear_pdf_outputs()
     st.session_state.tracked_application_id = None
 
+def clear_pdf_outputs_and_tracking():
+    """clear_pdf_outputs() plus resetting the tracker dedupe flag.
+
+    For the manual-import paths that replace optimized_resume_data wholesale
+    (Manual Result Import, Manual Data Import, Advanced Optimized JSON
+    Import): they cannot call clear_generated_outputs() because that would
+    also wipe the ats_analysis/changelog/etc they are about to set from the
+    freshly imported JSON. But tracked_application_id still has to reset —
+    otherwise it survives from whatever application was recorded before the
+    import, and should_record_application() silently blocks the write for
+    the new (possibly different) result. edit_opt_dialog()'s "Save Changes"
+    handler deliberately does NOT call this: editing fields of the current
+    result is the same application, not a new one, and writing a second row
+    there is exactly what the guard exists to prevent.
+    """
+    clear_pdf_outputs()
+    st.session_state.tracked_application_id = None
+
 def resume_snapshot(data):
     return json.dumps(data or {}, ensure_ascii=False, sort_keys=True)
 
@@ -197,6 +215,15 @@ def clear_user_session():
     st.session_state.user_email = ""
     st.session_state.api_key = ""
     st.session_state.resume_data = default_resume_data()
+    # Recompute now that resume_data is empty again — otherwise a logout (or
+    # a Reset All Data, which also routes through this function via the
+    # pending_reset flag below) from Generator left active_view on Generator,
+    # showing "Your Career Profile is empty" instead of landing back on
+    # Profile. Same call as session init (near the top of this file) and
+    # post-login, just recomputed for the opposite direction.
+    st.session_state.active_view = workspace.initial_view(
+        resume_is_empty(st.session_state.resume_data)
+    )
     st.session_state.base_editor_key += 1
     st.session_state.jd_text = ""
     st.session_state.app_records = []
@@ -1218,7 +1245,7 @@ def render_generator_workspace():
                     if "optimized_resume" not in res:
                         st.error("JSON structure missing 'optimized_resume'.")
                     else:
-                        clear_pdf_outputs()
+                        clear_pdf_outputs_and_tracking()
                         optimized = res.get("optimized_resume")
                         st.session_state.ats_analysis = res
                         st.session_state.optimized_resume_data = optimized
@@ -1247,7 +1274,7 @@ def render_generator_workspace():
                     st.session_state.ats_metrics = None
                     st.session_state.changelog = ""
                     st.session_state.optimized_source_snapshot = None
-                    clear_pdf_outputs()
+                    clear_pdf_outputs_and_tracking()
                     st.toast("Manual data applied.")
                     st.rerun()
                 except Exception as e:
@@ -1275,7 +1302,7 @@ def edit_opt_dialog():
             try:
                 st.session_state.optimized_resume_data = json.loads(raw_opt_import)
                 st.session_state.opt_editor_key += 1
-                clear_pdf_outputs()
+                clear_pdf_outputs_and_tracking()
                 st.rerun()
             except json.JSONDecodeError as e:
                 st.error(f"Optimized JSON is invalid: {e}")
@@ -1380,7 +1407,10 @@ def render_preview():
                 use_container_width=True,
             )
             if st.session_state.logged_in:
-                st.caption("Downloading records this application in the tracker.")
+                if st.session_state.get("tracked_application_id") is not None:
+                    st.caption("Already recorded in the tracker. Downloading again will not add another row.")
+                else:
+                    st.caption("Downloading records this application in the tracker.")
             # Checked inline rather than via on_click: this fragment's callback
             # phase is a different execution context than its normal body, and
             # sync_application_to_tracker() needs to force an app-scope rerun

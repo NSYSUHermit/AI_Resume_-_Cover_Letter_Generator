@@ -24,7 +24,19 @@ exactly what is and isn't being claimed); the two Firestore-dependent
 checklist items (consecutive resume+cover-letter downloads producing exactly
 one row, and a second Optimize run producing a second row) remain deferred to
 deployment, as recorded in task-6-report.md.
+
+The final whole-branch review (Finding 1) found a related hole: three sites
+replace optimized_resume_data wholesale — Manual Result Import, Manual Data
+Import, and the Advanced Optimized JSON Import inside edit_opt_dialog — but
+only cleared the PDF outputs, not tracked_application_id. A stale flag from
+the *previous* application silently blocked should_record_application() from
+recording the new one on the next download, with no way to recover the
+missing row (firebase_dashboard.py has no manual add-application UI). The
+three test_*_import_resets_tracked_application_id tests below cover all
+three sites and were each confirmed to fail (flag stays "Acme" instead of
+going back to None) against the pre-fix code before being committed.
 """
+import json
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -141,6 +153,14 @@ def test_failed_write_does_not_record(monkeypatch):
     init_firebase is also monkeypatched, to a bare non-None sentinel, purely
     so tracker_db is not None and execution reaches save_application() at
     all — only the boolean save_application() returns is under test here.
+
+    Without the "Tracker is unavailable" negative-assertion below, this test
+    would still pass even if the init_firebase monkeypatch silently failed to
+    take effect: get_db() would fall back to the real (None-returning) local
+    init_firebase, execution would stop at the earlier "Tracker is
+    unavailable" branch instead of ever reaching save_application(), and
+    tracked_application_id would still end up None — a false green that
+    proves nothing about the ok-check this test exists to cover (Finding 4).
     """
     at = run_app(
         active_view="Generator",
@@ -155,6 +175,9 @@ def test_failed_write_does_not_record(monkeypatch):
 
     at.download_button[0].click().run()
     assert not at.exception
+    # Proves execution actually reached the ok-check past get_db(), rather
+    # than short-circuiting at the earlier "tracker_db is None" branch.
+    assert not any("Tracker is unavailable" in e.value for e in at.error)
     assert at.session_state["tracked_application_id"] is None
 
 
@@ -211,3 +234,143 @@ def test_clear_generated_outputs_resets_tracked_application_id():
     apply_buttons[0].click().run()
     assert not at.exception
     assert at.session_state["tracked_application_id"] is None
+
+
+def test_manual_result_import_resets_tracked_application_id():
+    """Finding 1, site 1 of 3 — Manual Result Import. Pasting an externally
+    inferred result for a different company must not inherit the previous
+    application's tracked flag: clear_pdf_outputs_and_tracking() replaces
+    the bare clear_pdf_outputs() call here for exactly this reason. Confirmed
+    to fail (flag stays "Acme") against the code with a bare
+    clear_pdf_outputs() at this site, before clear_pdf_outputs_and_tracking()
+    was introduced."""
+    at = run_app(
+        active_view="Generator",
+        show_advanced_tools=True,
+        tracked_application_id="Acme",  # simulate an already-recorded application
+    )
+    manual_json_inputs = [t for t in at.text_area if t.key == "manual_ats_json"]
+    assert len(manual_json_inputs) == 1
+    manual_json_inputs[0].input(json.dumps({
+        "optimized_resume": {"target_company": "Globex", "heading": {}, "skills": {}},
+    })).run()
+    apply_buttons = [b for b in at.button if b.label == "Apply Manual Result"]
+    assert len(apply_buttons) == 1
+    apply_buttons[0].click().run()
+    assert not at.exception
+    assert at.session_state["optimized_resume_data"]["target_company"] == "Globex"
+    assert at.session_state["tracked_application_id"] is None
+
+
+def test_manual_data_import_resets_tracked_application_id():
+    """Finding 1, site 2 of 3 — Manual Data Import. Same invariant as
+    test_manual_result_import_resets_tracked_application_id, the other
+    manual-import expander. Confirmed to fail the same way against the
+    pre-fix bare clear_pdf_outputs() at this site."""
+    at = run_app(
+        active_view="Generator",
+        show_advanced_tools=True,
+        tracked_application_id="Acme",
+    )
+    manual_data_inputs = [t for t in at.text_area if t.key == "manual_opt_input"]
+    assert len(manual_data_inputs) == 1
+    manual_data_inputs[0].input(json.dumps(
+        {"target_company": "Globex", "heading": {}, "skills": {}}
+    )).run()
+    apply_buttons = [b for b in at.button if b.label == "Apply Manual Data"]
+    assert len(apply_buttons) == 1
+    apply_buttons[0].click().run()
+    assert not at.exception
+    assert at.session_state["optimized_resume_data"]["target_company"] == "Globex"
+    assert at.session_state["tracked_application_id"] is None
+
+
+def test_advanced_optimized_json_import_resets_tracked_application_id():
+    """Finding 1, site 3 of 3 — Advanced Optimized JSON Import, inside
+    edit_opt_dialog (this one is NOT behind show_advanced_tools; it lives in
+    the "Edit Optimized JSON" dialog instead). Same invariant, reached
+    through a dialog, which needs one extra step to drive with AppTest:
+
+    st.dialog wraps its body as a fragment (streamlit/elements/
+    dialog_decorator.py). AppTest has no partial-rerun concept — every
+    at.run() re-executes the whole script from the top (as
+    test_successful_write_sets_flag_and_survives_the_rerun's docstring notes
+    above). A naive "open the dialog, then .run() again to interact with a
+    widget inside it" sequence therefore closes the dialog on that second
+    run: `if st.button("Edit Optimized JSON"): edit_opt_dialog()` is
+    re-evaluated fresh, that button's one-shot click was already consumed by
+    the first .run(), so edit_opt_dialog() is not called again and its
+    widgets vanish from the tree. Confirmed empirically (dialog buttons and
+    the JSON editor text_area disappear from at.button / at.text_area after
+    such a second .run()) before writing this test differently.
+
+    The workaround below stages all three interactions — re-click "Edit
+    Optimized JSON", set the JSON editor's new value, click "Apply Optimized
+    JSON Import" — against the one already-rendered tree from opening the
+    dialog, then calls .run() exactly once. AppTest folds every staged
+    widget change into that single script run, which re-enters
+    edit_opt_dialog() and reaches the real Apply handler with the real data.
+    This does not reproduce the exact two-interaction sequence a browser
+    user would perform (each of which would be its own fragment-scoped
+    rerun in the real app), but it does exercise the exact production code
+    path under test with AppTest's only available mechanism for it.
+    Confirmed to fail (flag stays "Acme") against the pre-fix bare
+    clear_pdf_outputs() at this site."""
+    at = run_app(
+        active_view="Generator",
+        tracked_application_id="Acme",
+        optimized_resume_data={"target_company": "Acme", "heading": {}, "skills": {}},
+    )
+    edit_buttons = [b for b in at.button if b.label == "Edit Optimized JSON"]
+    assert len(edit_buttons) == 1
+    edit_buttons[0].click().run()
+    assert not at.exception
+
+    edit_buttons_again = [b for b in at.button if b.label == "Edit Optimized JSON"]
+    json_inputs = [t for t in at.text_area if t.key and t.key.startswith("opt_json_import_")]
+    apply_buttons = [b for b in at.button if b.label == "Apply Optimized JSON Import"]
+    assert len(edit_buttons_again) == 1
+    assert len(json_inputs) == 1
+    assert len(apply_buttons) == 1
+
+    edit_buttons_again[0].click()
+    json_inputs[0].input(json.dumps({"target_company": "Globex", "heading": {}, "skills": {}}))
+    apply_buttons[0].click()
+    at.run()
+
+    assert not at.exception
+    assert at.session_state["optimized_resume_data"]["target_company"] == "Globex"
+    assert at.session_state["tracked_application_id"] is None
+
+
+def test_download_caption_reflects_not_yet_recorded():
+    """Finding 5: before the first download, the caption under the Download
+    button must say what the upcoming click will actually do."""
+    at = run_app(
+        active_view="Generator",
+        logged_in=True,
+        optimized_resume_data={"target_company": "Acme"},
+        resume_preview_bytes=b"%PDF-fake",
+        resume_dl_data={"bytes": b"%PDF-fake", "name": "Acme_Role_Resume.pdf"},
+    )
+    captions = [c.value for c in at.caption]
+    assert "Downloading records this application in the tracker." in captions
+    assert not any("Already recorded" in c for c in captions)
+
+
+def test_download_caption_reflects_already_recorded():
+    """Finding 5: once tracked_application_id is set, the caption must stop
+    claiming the next click will record it — should_record_application()
+    guarantees it deliberately won't (that guard is the whole point of this
+    branch's dedupe mechanism), and the pre-fix copy claimed otherwise."""
+    at = run_app(
+        active_view="Generator",
+        logged_in=True,
+        tracked_application_id="Acme",
+        optimized_resume_data={"target_company": "Acme"},
+        resume_preview_bytes=b"%PDF-fake",
+        resume_dl_data={"bytes": b"%PDF-fake", "name": "Acme_Role_Resume.pdf"},
+    )
+    captions = [c.value for c in at.caption]
+    assert "Already recorded in the tracker. Downloading again will not add another row." in captions
+    assert not any(c == "Downloading records this application in the tracker." for c in captions)
