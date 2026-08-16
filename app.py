@@ -887,14 +887,25 @@ main_container_padding_top = (
 # to target the handle's volatile emotion-hash class at all. The owner asked
 # for exactly one control - a collapse button - and no width dragging.
 SIDEBAR_EXPANDED_PX = 300
-# 200, not the ~72 the owner's reference design uses. Probed in a live browser:
-# Streamlit clamps the sidebar section to a 200px floor from JS, not CSS - a
-# stylesheet `!important`, a higher-specificity selector, and even an inline
-# `style.setProperty(..., "important")` all left getComputedStyle reporting
-# min-width: 200px, because React owns that style attribute and rewrites it.
-# 200 is therefore the narrowest icon rail achievable without abandoning
-# st.sidebar altogether and hand-rolling a fixed-position nav column.
-SIDEBAR_RAIL_PX = 200
+
+# The collapsed rail is 96px of *visible* sidebar - the same w-24 the owner's
+# reference app uses (Dashboard.tsx:67).
+#
+# Getting there needs a trick, because Streamlit clamps the sidebar section to
+# a 200px floor from JS rather than CSS: probed in a live browser, a stylesheet
+# !important, a higher-specificity selector, and even an inline
+# style.setProperty(..., "important") all left getComputedStyle reporting
+# min-width: 200px, because React owns that attribute and rewrites it.
+#
+# So the section stays at its 200px floor and is slid left by the difference,
+# hanging the surplus off the left edge of the viewport; the content is padded
+# by the same amount so the icons land inside the strip that is still visible.
+# Flex layout accounts for the negative margin, so the main content column
+# follows to ~108px instead of staying at 200. Verified in the browser:
+# section 200px wide, left -104, right 96, main content left 108.
+SIDEBAR_RAIL_PX = 96
+SIDEBAR_RAIL_FLOOR_PX = 200
+SIDEBAR_RAIL_OFFSET_PX = SIDEBAR_RAIL_FLOOR_PX - SIDEBAR_RAIL_PX
 
 _SIDEBAR_WIDTH_CSS = """
     /* Both the <section> and its inner content div carry the width; pinning
@@ -995,12 +1006,18 @@ _SIDEBAR_RAIL_CSS = """
         font-size: 24px !important;
     }
 
+    /* Monogram stays, centred on the rail - the reference keeps its "G" tile
+       at the top of the collapsed sidebar. */
+    [data-testid="stSidebar"] .sb-brand {
+        justify-content: center !important;
+    }
+
     /* Chrome that carries no meaning at rail width: the wordmark beside the
        monogram, the group labels, and the whole signed-out auth block. The
        nav itself and the account avatar stay - the owner asked for the rail
        to keep showing things, not to empty out. */
     [data-testid="stSidebar"] .sb-micro-label,
-    [data-testid="stSidebar"] .sb-brand-text,
+    [data-testid="stSidebar"] .sb-wordmark,
     [data-testid="stSidebar"] .sb-account-text,
     [data-testid="stSidebar"] [data-testid="stForm"],
     [data-testid="stSidebar"] [data-testid="stRadio"],
@@ -1011,14 +1028,31 @@ _SIDEBAR_RAIL_CSS = """
 """
 
 
+_SIDEBAR_RAIL_SLIDE_CSS = """
+    /* Slide the surplus off-screen so only SIDEBAR_RAIL_PX stays visible. See
+       the constants' comment for why the section itself cannot simply be made
+       narrower. */
+    [data-testid="stSidebar"] {
+        margin-left: -%(off)dpx !important;
+    }
+
+    [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
+        padding-left: %(off)dpx !important;
+    }
+"""
+
+
 def _sidebar_css():
     collapsed = st.session_state.get("sidebar_collapsed", False)
-    width = SIDEBAR_RAIL_PX if collapsed else SIDEBAR_EXPANDED_PX
+    width = SIDEBAR_RAIL_FLOOR_PX if collapsed else SIDEBAR_EXPANDED_PX
     css = _SIDEBAR_WIDTH_CSS % {"w": width}
-    return css + (_SIDEBAR_RAIL_CSS if collapsed else "")
+    if collapsed:
+        css += _SIDEBAR_RAIL_SLIDE_CSS % {"off": SIDEBAR_RAIL_OFFSET_PX}
+        css += _SIDEBAR_RAIL_CSS
+    return css
 
 
-st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
+st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     html, body, [data-testid="stAppViewContainer"] {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -1212,8 +1246,14 @@ st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
         border-radius: var(--radius) !important;
         min-height: 42px !important;
         font-weight: 650 !important;
-        border: 1px solid transparent !important;
-        background: var(--surface-soft) !important;
+        /* A visible edge, not a transparent one. Measured in the browser: the
+           label was already 16.19:1 against the old fill, so "看不到字" was
+           never a text-contrast problem - it was that a borderless #f1f5f9
+           fill on an #f8fafc page has no edge at all, so the control does not
+           read as a button. The reference app's secondary is
+           `bg-white border border-gray-200` (ResumeBuilder.tsx:424). */
+        border: 1px solid var(--border) !important;
+        background: var(--surface) !important;
         color: var(--text) !important;
         box-shadow: var(--shadow-sm);
     }
@@ -1231,7 +1271,9 @@ st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
     .stButton button:hover,
     .stDownloadButton button:hover,
     .stFormSubmitButton button:hover {
-        border-color: var(--border-strong) !important;
+        /* Reference: `hover:border-primary hover:text-primary`. */
+        border-color: var(--navy) !important;
+        color: var(--navy) !important;
         box-shadow: var(--shadow-md);
         transform: translateY(-1px);
     }
@@ -1243,9 +1285,9 @@ st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
        type="primary" for whichever view is current (`with st.sidebar:`,
        further down), so it inherits this same rule rather than needing a
        separate one. */
-    .stButton button[kind="primary"],
-    .stDownloadButton button[kind="primary"],
-    .stFormSubmitButton button[kind="primary"] {
+    .stButton button[kind^="primary"],
+    .stDownloadButton button[kind^="primary"],
+    .stFormSubmitButton button[kind^="primary"] {
         background: var(--navy) !important;
         border-color: var(--navy) !important;
         /* TOKENS has no dedicated "on-dark text" token, but --surface is
@@ -1256,9 +1298,9 @@ st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
         color: var(--surface) !important;
     }
 
-    .stButton button[kind="primary"]:hover,
-    .stDownloadButton button[kind="primary"]:hover,
-    .stFormSubmitButton button[kind="primary"]:hover {
+    .stButton button[kind^="primary"]:hover,
+    .stDownloadButton button[kind^="primary"]:hover,
+    .stFormSubmitButton button[kind^="primary"]:hover {
         background: var(--navy-dark) !important;
         border-color: var(--navy-dark) !important;
     }
@@ -1411,7 +1453,15 @@ st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
            left no room for one the way the old pill's own +0.75rem gap
            had. */
         top: 3.75rem;
-        left: 0;
+        /* Starts at the sidebar's right edge, not at 0. Measured in the
+           browser: with left:0 the strip ran 0→1440 at z-index 999 while the
+           sidebar occupies 0→300 at z-index 999991, so the sidebar painted
+           over the strip's leftmost 300px - the owner's "被 side bar 擋住".
+           Raising the strip's z-index instead would put it *over* the
+           sidebar, which is worse. The offset is interpolated from the same
+           Python constant that sets the sidebar width, so it tracks the
+           collapse state automatically instead of hard-coding 300. */
+        left: __SIDEBAR_W__px;
         right: 0;
         z-index: 999;
         display: flex;
@@ -1746,7 +1796,14 @@ st.markdown("<style>\n" + css_root_block() + _sidebar_css() + """
     .gp-split-handle.gp-split-active {
         background: var(--brand);
     }
-</style>""", unsafe_allow_html=True)
+</style>""").replace(
+    # Plain string replace, not %-formatting: the stylesheet is full of literal
+    # percentages (100%, 50%) that %-formatting would choke on.
+    "__SIDEBAR_W__",
+    # The *visible* rail width, not the section's clamped 200 - the strip has
+    # to start where the sidebar visually ends.
+    str(SIDEBAR_RAIL_PX if st.session_state.get("sidebar_collapsed") else SIDEBAR_EXPANDED_PX),
+), unsafe_allow_html=True)
 
 st.markdown(
     "<div id='small-screen-notice'>This app is built for a desktop browser. "
@@ -1868,8 +1925,10 @@ with st.sidebar:
         # the script - so the new state only takes effect on a fresh run.
         st.rerun()
 
-    if not st.session_state.sidebar_collapsed:
-        render_sidebar_brand()
+    # Always rendered - the owner wants the monogram to survive the collapse,
+    # the way their reference rail keeps its "G" tile at the top. Only the
+    # wordmark beside it is hidden, by the .sb-brand-text rule in the rail CSS.
+    render_sidebar_brand()
 
     render_sidebar_group_label("WORKSPACE")
     for view, label, icon in workspace.VIEWS:
