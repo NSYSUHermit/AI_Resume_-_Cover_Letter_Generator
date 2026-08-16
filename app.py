@@ -12,6 +12,7 @@ from firebase_dashboard import init_firebase, authenticate_user, register_user, 
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block
 import ai
+import workspace
 
 st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
@@ -76,9 +77,14 @@ if "suggested_metrics" not in st.session_state: st.session_state.suggested_metri
 if "jd_screening" not in st.session_state: st.session_state.jd_screening = None
 if "last_synced_snapshot" not in st.session_state: st.session_state.last_synced_snapshot = None
 if "last_synced_at" not in st.session_state: st.session_state.last_synced_at = None
-# Plain state, not a widget key: the workspace bar is built from buttons now, so
+# 一次 optimize 就是一份投遞。save_application 不去重，靠這個值擋住重複寫入。
+if "tracked_application_id" not in st.session_state: st.session_state.tracked_application_id = None
+# Plain state, not a widget key: the sidebar nav is built from buttons, so
 # nothing owns this value except us.
-if "active_view" not in st.session_state: st.session_state.active_view = "Source"
+if "active_view" not in st.session_state:
+    st.session_state.active_view = workspace.initial_view(
+        resume_is_empty(st.session_state.resume_data)
+    )
 
 def set_result_banner(title, details=None, actions=None):
     """Record what an AI run produced, so it can be shown after the rerun.
@@ -132,6 +138,25 @@ def clear_generated_outputs():
     st.session_state.optimized_source_snapshot = None
     st.session_state.result_banner = None
     clear_pdf_outputs()
+    st.session_state.tracked_application_id = None
+
+def clear_pdf_outputs_and_tracking():
+    """clear_pdf_outputs() plus resetting the tracker dedupe flag.
+
+    For the manual-import paths that replace optimized_resume_data wholesale
+    (Manual Result Import, Manual Data Import, Advanced Optimized JSON
+    Import): they cannot call clear_generated_outputs() because that would
+    also wipe the ats_analysis/changelog/etc they are about to set from the
+    freshly imported JSON. But tracked_application_id still has to reset —
+    otherwise it survives from whatever application was recorded before the
+    import, and should_record_application() silently blocks the write for
+    the new (possibly different) result. edit_opt_dialog()'s "Save Changes"
+    handler deliberately does NOT call this: editing fields of the current
+    result is the same application, not a new one, and writing a second row
+    there is exactly what the guard exists to prevent.
+    """
+    clear_pdf_outputs()
+    st.session_state.tracked_application_id = None
 
 def resume_snapshot(data):
     return json.dumps(data or {}, ensure_ascii=False, sort_keys=True)
@@ -190,6 +215,15 @@ def clear_user_session():
     st.session_state.user_email = ""
     st.session_state.api_key = ""
     st.session_state.resume_data = default_resume_data()
+    # Recompute now that resume_data is empty again — otherwise a logout (or
+    # a Reset All Data, which also routes through this function via the
+    # pending_reset flag below) from Generator left active_view on Generator,
+    # showing "Your Career Profile is empty" instead of landing back on
+    # Profile. Same call as session init (near the top of this file) and
+    # post-login, just recomputed for the opposite direction.
+    st.session_state.active_view = workspace.initial_view(
+        resume_is_empty(st.session_state.resume_data)
+    )
     st.session_state.base_editor_key += 1
     st.session_state.jd_text = ""
     st.session_state.app_records = []
@@ -417,17 +451,33 @@ def render_resume_form_editor(data, key_prefix):
     }
 
 def sync_application_to_tracker():
+    if not workspace.should_record_application(
+        is_tracked=st.session_state.tracked_application_id is not None,
+        logged_in=st.session_state.logged_in,
+    ):
+        return
     tracker_db = get_db()
     if tracker_db is None:
         st.error("Tracker is unavailable until Firebase secrets are configured.")
         return
-    save_application(
+    ok = save_application(
         tracker_db,
         st.session_state.user_email,
         st.session_state.optimized_resume_data.get('target_company'),
         st.session_state.optimized_resume_data,
-        st.session_state.get('jd_text', "")
+        st.session_state.get('jd_text', ""),
     )
+    if not ok:
+        # save_application 內部吞掉例外只回傳 False，不檢查回傳值就會把失敗的寫入也標成已記錄。
+        return
+    # 記下來就好，值本身只是「已記錄」的旗標。
+    st.session_state.tracked_application_id = st.session_state.optimized_resume_data.get('target_company') or "recorded"
+    st.session_state.pending_toast = "Recorded to tracker."
+    # render_preview 是 @st.fragment。"Saved to tracker" 那格進度在
+    # render_generator_panel()，在 fragment 之外，不會跟著 fragment-scoped
+    # rerun 更新——使用者得再點別的東西才看得到。跟 render_export_settings
+    # 同樣的作法：app-scope st.rerun()（預設值 scope="app"）逼出全頁重繪。
+    st.rerun()
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (prompts and scoring live in ai.py)
@@ -514,7 +564,9 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
             f"{len(metrics['newly_added'])} newly covered" if metrics["newly_added"] else None,
             f"{len(suggested)} facts to add yourself" if suggested else None,
         ],
-        actions=[("See ATS breakdown", "ATS"), ("Generate PDF", "Review")],
+        # "ATS" and "Review" are no longer separate destinations to jump to —
+        # both are already part of the Generator view the user is looking at.
+        actions=[],
     )
     return True, "Done"
 
@@ -879,6 +931,23 @@ st.markdown(
 with st.sidebar:
     st.markdown("### AI Resume Studio")
     st.caption("Resume, cover letter, and application tracking.")
+
+    st.caption("WORKSPACE")
+    for view, label, icon in workspace.VIEWS:
+        if st.button(
+            label,
+            key=f"nav_{view}",
+            use_container_width=True,
+            type="primary" if st.session_state.active_view == view else "secondary",
+            icon=icon,
+        ):
+            st.session_state.active_view = view
+            # Rerun rather than falling through: the sidebar has already drawn
+            # itself for the previous view, so without this the highlight and
+            # the content below would disagree until the next interaction.
+            st.rerun()
+    st.markdown("---")
+
     if st.session_state.logged_in:
         st.success(f"**User:** `{st.session_state.user_email}`")
         if st.session_state.get("sync_error"):
@@ -915,6 +984,12 @@ with st.sidebar:
                             if k is not None:
                                 st.session_state.api_key = k
                             st.session_state.base_editor_key += 1
+                            # Session init ran before login, when resume_data was
+                            # necessarily empty, so it always landed on Profile.
+                            # Recompute now that the real profile has loaded.
+                            st.session_state.active_view = workspace.initial_view(
+                                resume_is_empty(st.session_state.resume_data)
+                            )
                             # What we just loaded is by definition in sync, so
                             # autosave must not immediately write it back.
                             mark_profile_synced()
@@ -928,28 +1003,27 @@ with st.sidebar:
                         ok, msg = register_user(auth_db, e.strip(), p)
                         if ok: st.success(msg)
                         else: st.error(msg)
-    st.markdown("---")
-    st.markdown("**API Settings**")
-    if st.session_state.api_key:
-        st.success("Gemini key connected")
-        if st.button("Change key", use_container_width=True):
-            st.session_state.api_key = ""
+    with st.expander("Settings"):
+        st.markdown("**API Settings**")
+        if st.session_state.api_key:
+            st.success("Gemini key connected")
+            if st.button("Change key", use_container_width=True):
+                st.session_state.api_key = ""
+                st.rerun()
+        else:
+            st.caption("Add your Gemini key in the main panel to turn on the AI features.")
+
+        st.checkbox(
+            "Show advanced import tools",
+            key="show_advanced_tools",
+            help="Paste raw JSON in and out of the app. Not needed for normal use.",
+        )
+
+        # Deferred: session_state cannot be written for a key whose widget has
+        # already been instantiated this run.
+        if st.button("Reset All Data", use_container_width=True, type="secondary"):
+            st.session_state.pending_reset = True
             st.rerun()
-    else:
-        st.caption("Add your Gemini key in the main panel to turn on the AI features.")
-
-    st.markdown("---")
-    st.checkbox(
-        "Show advanced import tools",
-        key="show_advanced_tools",
-        help="Paste raw JSON in and out of the app. Not needed for normal use.",
-    )
-
-    # Deferred: session_state cannot be written for a key whose widget has
-    # already been instantiated this run.
-    if st.button("Reset All Data", use_container_width=True, type="secondary"):
-        st.session_state.pending_reset = True
-        st.rerun()
 
     st.caption("Developed by NSYSUHermit")
 
@@ -987,43 +1061,13 @@ def render_api_key_setup():
 if not st.session_state.api_key:
     render_api_key_setup()
 
-# --- Workspace navigation ---
-# One bar that is both the progress indicator and the switcher. There used to be
-# a decorative row of step pills sitting above a separate radio, so the thing
-# that looked clickable was inert and the thing that worked looked like settings.
-WORKSPACES = [
-    ("Source", "Source", len(st.session_state.resume_data.get("experience", [])) > 0),
-    ("Target", "Target", len(st.session_state.get("jd_text", "")) > 50),
-    ("ATS", "Analysis", st.session_state.optimized_resume_data is not None),
-    ("Review", "Review", st.session_state.resume_preview_bytes is not None),
-    ("Tracker", "Tracker", st.session_state.logged_in),
-]
-
-nav_cols = st.columns(len(WORKSPACES))
-for col, (view, label, done) in zip(nav_cols, WORKSPACES):
-    with col:
-        if st.button(
-            label,
-            key=f"nav_{view}",
-            use_container_width=True,
-            type="primary" if st.session_state.active_view == view else "secondary",
-            # Same slot either way, so the labels stay aligned as steps complete.
-            icon=":material/check_circle:" if done else ":material/radio_button_unchecked:",
-        ):
-            st.session_state.active_view = view
-            # Rerun rather than falling through: the bar above has already drawn
-            # itself for the previous view, so without this the highlight and the
-            # content below would disagree until the next interaction.
-            st.rerun()
-
 active_view = st.session_state.active_view
-st.markdown("---")
 
 # Rendered outside the workspaces so the outcome of a run stays visible wherever
 # the user navigates next.
 render_result_banner()
 
-if active_view == "Source":
+if active_view == workspace.PROFILE:      # 原 "Source"
     if resume_is_empty(st.session_state.resume_data):
         st.info(
             "**Start here.** Either upload an existing resume PDF below and let the AI fill "
@@ -1054,7 +1098,7 @@ if active_view == "Source":
                         f"{schools} schools" if schools else None,
                         "Check the fields below, then add a job description",
                     ],
-                    actions=[("Add a job description", "Target")],
+                    actions=[("Add a job description", workspace.GENERATOR)],
                 )
                 st.rerun()
             else: st.error(msg)
@@ -1085,50 +1129,67 @@ if active_view == "Source":
                 except json.JSONDecodeError as e:
                     st.error(f"Source JSON is invalid: {e}")
 
-if active_view == "Target":
+def render_generator_workspace():
+    """Generator 的左欄：資料來源、JD、策略、優化按鈕。"""
     with st.container(border=True):
-        st.subheader("Job Details")
-        # Both inputs mirror into durable keys. A widget key alone is dropped by
-        # Streamlit on any rerun where the widget is not rendered, which is what
-        # silently emptied the JD whenever the user switched workspace.
-        jd = st.text_area(
-            "JD Content",
-            value=st.session_state.jd_text,
-            height=300,
-            key=f"jd_input_{st.session_state.base_editor_key}",
-        )
+        st.markdown("**Source of Truth**")
+        data = st.session_state.resume_data
+        if resume_is_empty(data):
+            st.caption("Your Career Profile is empty. Build it first — every rewrite starts from it.")
+        else:
+            st.caption(
+                f"Career Profile  ·  {len(data.get('experience') or [])} roles"
+                f"  ·  {len(data.get('education') or [])} schools"
+            )
+        if st.button("Edit Career Profile", use_container_width=True, icon=":material/arrow_forward:"):
+            st.session_state.active_view = workspace.PROFILE
+            st.rerun()
+
+    st.markdown("**Target & Strategy**")
+    # Both inputs mirror into durable keys. A widget key alone is dropped by
+    # Streamlit on any rerun where the widget is not rendered, which is what
+    # silently emptied the JD whenever the user switched workspace.
+    jd = st.text_area(
+        "Job description",
+        value=st.session_state.jd_text,
+        height=260,
+        key=f"jd_input_{st.session_state.base_editor_key}",
+        placeholder="Paste the job description here...",
+    )
+    with st.expander("Custom Strategy"):
         strategy = st.text_area(
             "Strategy",
             value=st.session_state.custom_prompt,
-            height=150,
+            height=200,
             key=f"cp_input_{st.session_state.base_editor_key}",
+            label_visibility="collapsed",
         )
-        st.session_state.jd_text = jd
-        st.session_state.custom_prompt = strategy
+    st.session_state.jd_text = jd
+    st.session_state.custom_prompt = strategy
 
-        if not st.session_state.api_key:
-            st.caption("Connect a Gemini API key above to enable optimization.")
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=not st.session_state.api_key):
-                if jd:
-                    clear_generated_outputs()
-                    ok, rep = run_ai_call(
-                        "Optimizing resume",
-                        lambda report: ai_optimize_and_update(jd, strategy, report),
-                        success=lambda r: r[0],
-                    )
-                    if ok:
-                        # The banner was filled in by ai_optimize_and_update with
-                        # the real numbers; no toast needed.
-                        st.rerun()
-                    else: st.error(rep)
-                else:
-                    st.warning("Paste a job description before optimizing.")
-        with c2:
-            p_text = ai.build_rewrite_prompt(jd if jd else "JD", st.session_state.resume_data, strategy)
-            b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
-            components.html(f"""
+    if not st.session_state.api_key:
+        st.caption("Connect a Gemini API key above to enable optimization.")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Optimize Resume", type="primary", use_container_width=True, disabled=not st.session_state.api_key):
+            if jd:
+                clear_generated_outputs()
+                ok, rep = run_ai_call(
+                    "Optimizing resume",
+                    lambda report: ai_optimize_and_update(jd, strategy, report),
+                    success=lambda r: r[0],
+                )
+                if ok:
+                    # The banner was filled in by ai_optimize_and_update with
+                    # the real numbers; no toast needed.
+                    st.rerun()
+                else: st.error(rep)
+            else:
+                st.warning("Paste a job description before optimizing.")
+    with c2:
+        p_text = ai.build_rewrite_prompt(jd if jd else "JD", st.session_state.resume_data, strategy)
+        b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
+        components.html(f"""
             <body style="margin:0; padding:0;">
                 <button id="copyPromptBtn" onclick="copyPrompt()" style="
                     width:100%; height:42px; border-radius:8px;
@@ -1166,9 +1227,12 @@ if active_view == "Target":
             </script>
             """, height=44)
 
-if active_view == "ATS":
-    st.subheader("ATS Analysis")
-    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
+    if st.session_state.optimized_resume_data:
+        if optimized_result_is_stale():
+            st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
+        # The dialog stays outside the fragment: editing the resume has to
+        # propagate to the whole script, not just this box.
+        if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
     # 手動匯入外部推論結果
     if st.session_state.get("show_advanced_tools"):
@@ -1181,7 +1245,7 @@ if active_view == "ATS":
                     if "optimized_resume" not in res:
                         st.error("JSON structure missing 'optimized_resume'.")
                     else:
-                        clear_pdf_outputs()
+                        clear_pdf_outputs_and_tracking()
                         optimized = res.get("optimized_resume")
                         st.session_state.ats_analysis = res
                         st.session_state.optimized_resume_data = optimized
@@ -1197,44 +1261,24 @@ if active_view == "ATS":
                 except Exception as e:
                     st.error(f"Invalid JSON: {e}")
 
-    if st.session_state.optimized_resume_data:
-        if st.session_state.changelog:
-            st.markdown("### Optimization Changelog")
-            st.info(st.session_state.changelog)
-
-        # Requirements the rewrite deliberately did not claim. This is the
-        # counterpart to banning invented metrics: instead of a fabricated
-        # number, the user gets a list of what to supply themselves.
-        if st.session_state.suggested_metrics:
-            st.markdown("### Add These Yourself")
-            st.caption("The rewrite left these out because your resume had no evidence for them. Nothing here was invented on your behalf.")
-            for item in st.session_state.suggested_metrics:
-                st.markdown(f"- {item}")
-
-        m = st.session_state.ats_metrics
-        if m and m.get("total"):
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.metric(
-                "Match Rate",
-                f"{m['optimized_pct']}%",
-                delta=f"{m['optimized_pct'] - m['original_pct']:+d} pts vs original",
-            )
-            mc2.metric("Keywords Hit", f"{m['optimized_count']}/{m['total']}")
-            mc3.metric("Newly Covered", len(m['newly_added']))
-            st.progress(min(100, m['optimized_pct']) / 100)
-            k1, k2 = st.columns(2)
-            with k1:
-                st.success("Matched Keywords")
-                for k in m.get('optimized_hits', []):
-                    st.markdown(f"- `{k}`" + (" (new)" if k in m.get('newly_added', []) else ""))
-            with k2:
-                st.error("Missing Keywords")
-                st.caption("Still absent. Add them only where they are genuinely true of you.")
-                for k in m.get('missing_keywords', []):
-                    st.markdown(f"- `{k}`")
-        elif m is None:
-            st.info("No keyword list was available for this result, so coverage was not scored.")
-    else: st.info("Run optimization first.")
+    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
+    if st.session_state.get("show_advanced_tools"):
+        with st.expander("Manual Data Import"):
+            st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
+            manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
+            if st.button("Apply Manual Data", use_container_width=True):
+                try:
+                    manual_data = json.loads(manual_opt_json)
+                    st.session_state.optimized_resume_data = manual_data
+                    st.session_state.ats_analysis = None
+                    st.session_state.ats_metrics = None
+                    st.session_state.changelog = ""
+                    st.session_state.optimized_source_snapshot = None
+                    clear_pdf_outputs_and_tracking()
+                    st.toast("Manual data applied.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Invalid JSON: {e}")
 
 @st.dialog("Edit Optimized Data", width="large")
 def edit_opt_dialog():
@@ -1258,10 +1302,49 @@ def edit_opt_dialog():
             try:
                 st.session_state.optimized_resume_data = json.loads(raw_opt_import)
                 st.session_state.opt_editor_key += 1
-                clear_pdf_outputs()
+                clear_pdf_outputs_and_tracking()
                 st.rerun()
             except json.JSONDecodeError as e:
                 st.error(f"Optimized JSON is invalid: {e}")
+
+def render_ats_analysis():
+    """ATS 分頁的內容；呼叫端已確認有優化結果。"""
+    if st.session_state.changelog:
+        st.markdown("### Optimization Changelog")
+        st.info(st.session_state.changelog)
+
+    # Requirements the rewrite deliberately did not claim. This is the
+    # counterpart to banning invented metrics: instead of a fabricated
+    # number, the user gets a list of what to supply themselves.
+    if st.session_state.suggested_metrics:
+        st.markdown("### Add These Yourself")
+        st.caption("The rewrite left these out because your resume had no evidence for them. Nothing here was invented on your behalf.")
+        for item in st.session_state.suggested_metrics:
+            st.markdown(f"- {item}")
+
+    m = st.session_state.ats_metrics
+    if m and m.get("total"):
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric(
+            "Match Rate",
+            f"{m['optimized_pct']}%",
+            delta=f"{m['optimized_pct'] - m['original_pct']:+d} pts vs original",
+        )
+        mc2.metric("Keywords Hit", f"{m['optimized_count']}/{m['total']}")
+        mc3.metric("Newly Covered", len(m['newly_added']))
+        st.progress(min(100, m['optimized_pct']) / 100)
+        k1, k2 = st.columns(2)
+        with k1:
+            st.success("Matched Keywords")
+            for k in m.get('optimized_hits', []):
+                st.markdown(f"- `{k}`" + (" (new)" if k in m.get('newly_added', []) else ""))
+        with k2:
+            st.error("Missing Keywords")
+            st.caption("Still absent. Add them only where they are genuinely true of you.")
+            for k in m.get('missing_keywords', []):
+                st.markdown(f"- `{k}`")
+    elif m is None:
+        st.info("No keyword list was available for this result, so coverage was not scored.")
 
 @st.fragment
 def render_export_settings():
@@ -1277,7 +1360,12 @@ def render_export_settings():
         st.caption("Select your preferred template and section order, then generate the final PDFs.")
         tmpl = st.selectbox("Template", ["Tech", "Business"], key="tm")
         order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
-        if st.button("Generate PDF", type="primary", use_container_width=True):
+        if st.button(
+            "Generate PDF",
+            type="primary",
+            use_container_width=True,
+            disabled=st.session_state.optimized_resume_data is None,
+        ):
             if optimized_result_is_stale():
                 st.error("This optimized result is stale. Re-run Optimize Resume so the PDF uses the latest Source JSON.")
             else:
@@ -1312,8 +1400,24 @@ def render_preview():
         target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
         dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
         if dl:
-            sync = st.checkbox("Sync to Tracker", value=True) if st.session_state.logged_in else False
-            st.download_button(f"Download {dl['name']}", dl["bytes"], dl["name"], use_container_width=True, on_click=sync_application_to_tracker if sync and ch=="Resume" else None)
+            downloaded = st.download_button(
+                f"Download {dl['name']}",
+                dl["bytes"],
+                dl["name"],
+                use_container_width=True,
+            )
+            if st.session_state.logged_in:
+                if st.session_state.get("tracked_application_id") is not None:
+                    st.caption("Already recorded in the tracker. Downloading again will not add another row.")
+                else:
+                    st.caption("Downloading records this application in the tracker.")
+            # Checked inline rather than via on_click: this fragment's callback
+            # phase is a different execution context than its normal body, and
+            # sync_application_to_tracker() needs to force an app-scope rerun
+            # (see its own comment) the same proven way render_export_settings
+            # does — from ordinary fragment-body code, not from a callback.
+            if downloaded:
+                sync_application_to_tracker()
         # Checking the layout only needs page one; rasterising every page on
         # each rerun was pure waste.
         all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
@@ -1321,40 +1425,43 @@ def render_preview():
         else: st.info(f"The {ch} data is missing.")
     else: st.info("Click 'Generate PDF' to see preview.")
 
-if active_view == "Review":
-    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
-    if st.session_state.get("show_advanced_tools"):
-        with st.expander("Manual Data Import"):
-            st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
-            manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
-            if st.button("Apply Manual Data", use_container_width=True):
-                try:
-                    manual_data = json.loads(manual_opt_json)
-                    st.session_state.optimized_resume_data = manual_data
-                    st.session_state.ats_analysis = None
-                    st.session_state.ats_metrics = None
-                    st.session_state.changelog = ""
-                    st.session_state.optimized_source_snapshot = None
-                    clear_pdf_outputs()
-                    st.toast("Manual data applied.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Invalid JSON: {e}")
+def render_generator_panel():
+    """Generator 的右欄：進度、輸出設定、預覽與 ATS。"""
+    st.caption("THIS APPLICATION")
+    for label, done in workspace.application_progress(
+        jd_text=st.session_state.jd_text,
+        has_optimized=st.session_state.optimized_resume_data is not None,
+        has_pdf=st.session_state.resume_preview_bytes is not None,
+        is_tracked=st.session_state.get("tracked_application_id") is not None,
+    ):
+        icon = "check_circle" if done else "radio_button_unchecked"
+        colour = TOKENS["success"] if done else TOKENS["muted"]
+        st.markdown(
+            f":material/{icon}: <span style='color:{colour}'>{label}</span>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("---")
 
-    if st.session_state.optimized_resume_data:
-        if optimized_result_is_stale():
-            st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
-        # The dialog stays outside the fragment: editing the resume has to
-        # propagate to the whole script, not just this box.
-        if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
-        cl1, cl2 = st.columns([4, 6])
-        with cl1:
-            render_export_settings()
-        with cl2:
-            render_preview()
-    else: st.warning("Optimize first.")
+    render_export_settings()
 
-if active_view == "Tracker":
+    preview_tab, ats_tab = st.tabs(["Preview", "ATS"])
+    with preview_tab:
+        render_preview()
+    with ats_tab:
+        st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
+        if st.session_state.optimized_resume_data:
+            render_ats_analysis()
+        else:
+            st.caption("Optimize a resume to see how it scores against the job description.")
+
+if active_view == workspace.GENERATOR:
+    left, right = st.columns([6, 4])
+    with left:
+        render_generator_workspace()
+    with right:
+        render_generator_panel()
+
+if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
         tracker_db = get_db()
         if tracker_db is not None:
