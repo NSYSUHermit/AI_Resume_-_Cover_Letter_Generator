@@ -124,3 +124,34 @@ def base_preview_pdf(snapshot, template_name, block_order):
 - Draft table 編輯後寫回 `optimized_resume_data`。
 
 無法本機驗證（需真實瀏覽器）：懸浮 bar 的實際定位與小人動畫的視覺表現、`position: fixed` 是否與 Streamlit 工具列衝突。列為部署後確認項。
+
+## 實作結果
+
+已於 `feat/generator-ui-polish` 完成。測試自 35 增至 88 項，全數通過；前一輪三視圖重構的 23 項規格驗收亦全部維持通過。
+
+最終審查（在真實瀏覽器中渲染本分支的樣式表量測）判定 Fix before merge，五個 Important 已全部修正並經範圍限定的 re-review 確認：
+
+1. 懸浮 bar 覆蓋內容頂端約 40px——註解自己算出 9.55rem，程式碼卻寫了 6.5rem。已改為 9.5rem 並改成只在 Generator 加高。
+2. 一個測試把錯誤的 padding 值鎖住，且宣稱自己在保護「覆蓋不發生」——實際上偵測不到。已更名並在 docstring 承認覆蓋只能在瀏覽器驗證。
+3. 密度調整中「標題間距」那條規則完全無效：裸選擇器輸給 Streamlit 的 emotion class，而且 Streamlit 用 padding 不是 margin。已改為對 `[data-testid="stHeading"]` 調 padding。
+4. **Draft table 會讓整個 Generator 崩潰**，於合併基準可正常渲染的 JSON 形狀（`{"education": ["MIT BS"]}`、頂層陣列等）。崩潰會連帶讓手動匯入與 Edit Optimized JSON 兩個唯一的補救介面不渲染，形成軟鎖死，唯一出路是會清空履歷的 Reset All Data。已讓渲染器改為容錯降級。
+5. `details` 為字串時逐字元迭代，任何一次表格編輯都會把一句話炸成 30 個單字元條目並餵進下一次 PDF。已加 `isinstance(str)` 分支。
+
+### 部署後必須人工確認的視覺項目
+
+本分支完全無法在開發環境做視覺驗證（無瀏覽器）。依風險排序：
+
+1. **Optimize 後立刻看 Generator**——確認結果橫幅的標題與 ✕ 關閉鈕沒有被懸浮 bar 蓋住。這是量測到的 40px 覆蓋，要確認修好，不是掃一眼。
+2. **展開 sidebar 時 bar 的水平位置**——它是 `left: 50%` 對齊視窗而非內容欄，21rem 的 sidebar 會讓它偏左約 150–170px。判斷這讀起來是「置中」還是沒對齊。
+3. **視窗縮到約 1000px 再看前兩項**——`max-width: 1320px` 不再生效，bar 的固定 240px 軌道不會縮放。
+4. 確認 bar 在 Streamlit 工具列**之下**而非其後。
+5. 開啟 Edit Optimized JSON 對話框與 draft table 的欄位選單，確認都正確蓋過 bar 而非被裁切。
+6. 完整看一次 Optimize 過程——小人要在緊湊面板裡踏步，失敗時要停住而不是繼續走。
+7. 觸發一次真正的 base 預覽快取未命中（全新 session、履歷非空、首次進 Generator），確認出現 spinner；再重整確認命中時完全靜默。
+8. **Career Profile 與 Tracker 在密度調整後的樣子**——表單卡片與儀表板不應擠在一起。
+9. 循環三種比例預設，確認 PDF iframe 會重排而非被裁切或溢出。
+
+### 已知未處理項目
+
+- `render_export_settings()` 的 Generate PDF 按鈕在 `optimized_resume_data` 形狀異常時仍會崩潰。經 re-review 確認**不會**重現第 4 項的軟鎖死（兩個補救介面在同一次 script 執行中都已先渲染，且崩潰需要明確點擊才會觸發），屬防禦深度議題，下次一併處理。
+- 密度調整的標題規則只涵蓋 `st.header/subheader/title`，四處直接寫在 `st.markdown()` 裡的 markdown 標題（`app.py` 的 395、1409、1923、1930 行）不在其範圍內，維持 Streamlit 的寬鬆預設。
