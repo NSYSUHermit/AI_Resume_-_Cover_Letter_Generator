@@ -33,3 +33,33 @@ def css_root_block():
         --radius: 8px;
         --ease: 180ms ease-in-out;
     }"""
+
+
+def walker_svg():
+    """The little walking-figure SVG markup, in brand colour.
+
+    Single source of truth for this asset, shared by app.py's
+    render_floating_progress() (the top-centre floating progress bar, Task 1)
+    and ui_feedback.run_ai_call() (the compact generation-status panel,
+    Task 4) - both need the exact same figure, so it lives here once instead
+    of being copy-pasted a second time. Only the markup is defined here; the
+    walk-cycle animation itself (.gp-bob/.gp-legs/.gp-legs2 and their
+    keyframes) lives in app.py's single stylesheet block, which both callers
+    can rely on being present - it is injected unconditionally, before any
+    view-specific rendering, on every script run.
+    """
+    brand = TOKENS["brand"]
+    return f"""<svg class="gp-walker" viewBox="0 0 20 24" fill="none">
+  <g class="gp-bob">
+    <circle cx="10" cy="4.5" r="3.2" fill="{brand}"/>
+    <path d="M10 8v7" stroke="{brand}" stroke-width="2.4" stroke-linecap="round"/>
+    <g class="gp-legs">
+      <path d="M10 15l-3.5 5M10 15l3.5 5" stroke="{brand}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M10 10l-4 2.5M10 10l4 2" stroke="{brand}" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <g class="gp-legs2">
+      <path d="M10 15l-1.5 5.5M10 15l4.5 4" stroke="{brand}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M10 10l-4 1.5M10 10l3.5 3" stroke="{brand}" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>"""

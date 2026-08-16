@@ -66,6 +66,33 @@ def test_logout_recomputes_active_view_to_profile():
     assert at.session_state["active_view"] == "Profile"
 
 
+def test_density_pass_css_values_are_pinned():
+    """UI Task 4's global density pass (design doc "全域縮小間距與內邊距") lives
+    entirely in app.py's single stylesheet block and applies to every view,
+    not just Generator - this deliberately runs on a fresh session (no
+    active_view override) rather than duplicating a Generator-specific check.
+    Regression guard in the same spirit as
+    test_floating_progress.py's test_main_container_padding_covers_the_floating_bar:
+    if these literals drift back toward their pre-Task-4 values, the density
+    pass has silently been undone. Cannot assert anything about how this
+    actually looks - that's the visual judgement call listed as unverified in
+    this task's own report."""
+    at = run_app()
+    assert not at.exception
+    style_matches = [m for m in at.markdown if "stMainBlockContainer" in m.value]
+    assert len(style_matches) == 1
+    css = style_matches[0].value
+    # padding-top: 6.5rem is a DIFFERENT pinned value (Task 1's floating-bar
+    # headroom, already guarded in test_floating_progress.py) - deliberately
+    # not re-asserted here so this test cannot pass for the wrong reason if
+    # that one is ever legitimately revised.
+    assert "padding-bottom: 2rem;" in css
+    assert '[data-testid="stVerticalBlock"]' in css
+    assert "gap: 0.6rem !important;" in css
+    assert '[data-testid="stHorizontalBlock"]' in css
+    assert "gap: 0.75rem !important;" in css
+
+
 def test_reset_all_data_recomputes_active_view_to_profile():
     """Finding 3, same shape via the other clear_user_session() caller: the
     Reset All Data button (Settings expander) sets pending_reset and reruns;

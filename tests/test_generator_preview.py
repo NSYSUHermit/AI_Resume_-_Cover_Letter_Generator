@@ -115,6 +115,52 @@ def test_base_preview_is_cached_and_compiles_at_most_once(monkeypatch):
     assert len(calls) == 1  # unchanged resume -> second render must be a cache hit
 
 
+def test_base_preview_show_spinner_change_preserves_hit_miss_semantics(monkeypatch):
+    """UI Task 4 closed a gap this task's own design doc left: base_preview_pdf
+    used to be @st.cache_data(show_spinner=False, ...), so a genuine first-time
+    compile ran for several seconds with no visible indication anything was
+    happening at all. The fix is show_spinner="Compiling your resume
+    preview..." instead of False - st.cache_data's own show_spinner mechanism
+    is hit/miss-aware at the framework level (it wraps only the cache-miss
+    code path; a hit returns before that wrapping is even constructed - see
+    streamlit/runtime/caching/cache_utils.py's
+    CachedFunc._get_or_create_cached_value()), so this is a pure display-layer
+    change with no cache-keying effect of its own. This test cannot observe
+    the spinner itself - st.cache_data's own show_spinner UI is transient and
+    AppTest only captures the tree after a full script run completes, the
+    same reason test_base_preview_is_cached_and_compiles_at_most_once (above)
+    already could not either - but it extends that test's counter-based proof
+    with the one thing that test alone does not cover: that a genuinely
+    *different* resume still forces a real recompile (the fix did not
+    accidentally make every call look like a hit), and that switching back to
+    the first resume is still served from its own untouched cache entry (the
+    fix did not accidentally make every call look like a miss, or evict
+    unrelated entries)."""
+    calls = []
+    monkeypatch.setattr("subprocess.run", fake_lualatex(calls))
+
+    resume_a = resume_with_experience("Spinner Semantics Candidate A")
+    resume_b = resume_with_experience("Spinner Semantics Candidate B")
+
+    at = run_app(active_view="Generator", resume_data=resume_a)
+    assert not at.exception
+    assert len(calls) == 1  # A: miss
+
+    at.run()
+    assert not at.exception
+    assert len(calls) == 1  # A again, untouched: hit
+
+    at.session_state["resume_data"] = resume_b
+    at.run()
+    assert not at.exception
+    assert len(calls) == 2  # B: a genuinely different key still misses
+
+    at.session_state["resume_data"] = resume_a
+    at.run()
+    assert not at.exception
+    assert len(calls) == 2  # back to A: still served from its own cache entry
+
+
 def test_empty_base_resume_compiles_nothing(monkeypatch):
     """resume_is_empty() gates the cached base preview: a first-time user
     with nothing in their Career Profile yet must never pay the lualatex
@@ -157,14 +203,28 @@ def test_generator_view_has_no_tabs():
     assert len(at.tabs) == 0
 
 
+def target_switch(at):
+    """render_preview()'s Resume/Cover Letter switch, found by its own widget
+    key ("tr") rather than by list position - UI Task 4 added a second
+    st.segmented_control to the Generator view (the panel-ratio control,
+    rendered above the two columns and so first in render order), which
+    pushed this one from index 0 to index 1. Selecting by key is robust to
+    that ordering entirely."""
+    matches = [sc for sc in at.segmented_control if sc.key == "tr"]
+    assert len(matches) == 1
+    return matches[0]
+
+
 def test_segmented_control_defaults_to_resume():
     """st.segmented_control replaces the old st.radio("Target", ...), which
     defaulted to its first option ("Resume") on a fresh render. Preserve that
     default exactly."""
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Default Target Candidate"))
     assert not at.exception
-    assert len(at.segmented_control) == 1
-    assert at.segmented_control[0].value == "Resume"
+    # Two segmented controls now live on this view (the panel-ratio switch,
+    # UI Task 4, plus this one) - assert count via the panel-ratio test file
+    # instead of duplicating that coverage here.
+    assert target_switch(at).value == "Resume"
 
 
 def test_cover_letter_target_before_generation_shows_placeholder():
@@ -173,7 +233,7 @@ def test_cover_letter_target_before_generation_shows_placeholder():
     before Generate PDF has run must degrade to an explanatory message, not
     an exception or a blank pane."""
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Cover Letter Candidate"))
-    at.segmented_control[0].set_value("Cover Letter").run()
+    target_switch(at).set_value("Cover Letter").run()
     assert not at.exception
     assert any("preview the cover letter" in i.value for i in at.info)
 

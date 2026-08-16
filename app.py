@@ -10,7 +10,7 @@ import base64
 import streamlit.components.v1 as components
 from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile
 from ui_feedback import run_ai_call
-from theme import TOKENS, FONT_STACK, css_root_block
+from theme import TOKENS, FONT_STACK, css_root_block, walker_svg
 import ai
 import workspace
 
@@ -18,6 +18,20 @@ st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
 def get_db():
     return init_firebase()
+
+# Three preset (left, right) column ratios for the Generator view - the
+# user-approved substitute for a draggable splitter (design doc "需求 8 的
+# 裁決：分段控制取代拖曳"): st.columns' ratios are fixed at render time and
+# Streamlit has no drag API, or real one would need a bidirectional React
+# custom component or JS that rewrites Streamlit's internal DOM (the project
+# has been bitten twice by relying on that - see requirements.txt). Shared
+# between the session-state default below and render_panel_ratio_control()
+# near the bottom of this file.
+PANEL_RATIOS = {
+    "Wide preview":   (4, 6),
+    "Even":           (5, 5),
+    "Wide workspace": (7, 3),
+}
 
 # ---------------------------------------------------------
 # 初始化 Session State
@@ -64,6 +78,10 @@ if "api_key" not in st.session_state: st.session_state.api_key = ""
 # widget is not rendered, so keeping the JD only in the text area's own key lost
 # it the moment the user switched workspace.
 if "jd_text" not in st.session_state: st.session_state.jd_text = ""
+# Durable copy of the panel-ratio choice, same reason as jd_text above: the
+# segmented_control that sets this only renders on the Generator view, so its
+# own widget key would be dropped by a trip to Profile/Tracker and back.
+if "panel_ratio" not in st.session_state: st.session_state.panel_ratio = "Even"
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
@@ -697,12 +715,33 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
         st.error(f"Resume PDF generation error: {e}")
     return None
 
-@st.cache_data(show_spinner=False, max_entries=8)
+@st.cache_data(show_spinner="Compiling your resume preview...", max_entries=8)
 def base_preview_pdf(snapshot, template_name, block_order):
     """Base 履歷的預覽。
 
     以 snapshot 字串當 key，履歷沒變就不會重新編譯。lualatex 要跑好幾秒，
     每次 rerun 都編譯一次會讓整個 app 失去反應。
+
+    show_spinner carries a real message, not False: a genuine first-time
+    compile (a cache miss) used to run for several seconds with no visible
+    indication at all - a gap Task 2 flagged rather than caused (the design
+    doc's own spec asked for show_spinner=False; closing the gap it left is
+    this task's job). st.cache_data's own show_spinner mechanism is
+    hit/miss-aware at the framework level, confirmed by reading
+    streamlit/runtime/caching/cache_utils.py's
+    CachedFunc._get_or_create_cached_value(): a cache hit returns via
+    _handle_cache_hit() and never even constructs the spinner context
+    manager, which only wraps the miss path's _handle_cache_miss() call.
+    st.spinner() itself additionally debounces via a 0.5s timer
+    (elements/spinner.py's DELAY_SECS) that gets cancelled before enqueueing
+    anything if the wrapped call finishes first. Both together mean a cache
+    hit stays completely silent and instant with zero custom bookkeeping
+    here, and only a genuine multi-second compile ever shows anything -
+    exactly the contract this task asks for, without reimplementing that
+    hit/miss + debounce logic by hand. Styled via the .stCacheSpinner hook in
+    the stylesheet to carry the app's brand colour instead of Streamlit's
+    default, so it reads as part of the same visual language as the rest of
+    this redesign rather than a generic system spinner.
 
     `block_order` must be a tuple, not a list, from the caller: lists are not
     hashable, and st.cache_data hashes every argument to build the cache key.
@@ -808,8 +847,33 @@ st.markdown("<style>\n" + css_root_block() + """
            showing the bar; a bit of unused top space there is preferable to
            the alternative of a floating bar that can cover content. */
         padding-top: 6.5rem;
-        padding-bottom: 3rem;
+        /* Task 4 density pass: 3rem -> 2rem. padding-top is untouched - it is
+           pinned to the floating-bar headroom arithmetic explained above and
+           guarded by tests/test_floating_progress.py's
+           test_main_container_padding_covers_the_floating_bar. */
+        padding-bottom: 2rem;
         max-width: 1320px;
+    }
+
+    /* Task 4 density pass ("畫面太空白" / 全域縮小間距與內邊距, design doc):
+       Streamlit's default gap between stacked/side-by-side elements is 1rem
+       ("small", the gap= default streamlit.elements.layouts documents for
+       every st.container/st.columns call in this file - confirmed by
+       reading that module's docstring directly). Tightened once here rather
+       than passing gap= to every one of this file's container/columns call
+       sites individually. Applies to every view, not just Generator: this
+       selector is not scoped to any single container, so it also tightens
+       Career Profile's stacked form cards and Tracker's dashboard, matching
+       the "touches every view" scope of this pass. !important for the same
+       reason several rules below already needed it - no local way to check
+       whether Streamlit's own gap styling is inline or class-based in this
+       version, so this beats either. */
+    [data-testid="stVerticalBlock"] {
+        gap: 0.6rem !important;
+    }
+
+    [data-testid="stHorizontalBlock"] {
+        gap: 0.75rem !important;
     }
 
     [data-testid="stSidebar"] {
@@ -827,6 +891,10 @@ st.markdown("<style>\n" + css_root_block() + """
     h1, h2, h3, h4 {
         color: var(--text);
         letter-spacing: 0;
+        /* Task 4 density pass: explicit, tightened heading margins instead of
+           relying on Streamlit's own (more spacious) heading defaults. */
+        margin-top: 0.3rem;
+        margin-bottom: 0.4rem;
     }
 
     p, label, [data-testid="stCaptionContainer"] {
@@ -907,21 +975,40 @@ st.markdown("<style>\n" + css_root_block() + """
 
     hr {
         border-color: var(--border);
-        margin: 1.1rem 0;
+        /* Task 4 density pass: 1.1rem -> 0.75rem. */
+        margin: 0.75rem 0;
     }
 
     [data-testid="stAlert"] {
         border-radius: var(--radius);
         border: 1px solid var(--border);
         box-shadow: var(--shadow-sm);
+        /* Task 4 density pass: previously unset (Streamlit's own default);
+           set explicitly, matching the tightened stMetric padding below. */
+        padding: 0.75rem 1rem;
     }
 
     [data-testid="stMetric"] {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        padding: 0.85rem 1rem;
+        /* Task 4 density pass: 0.85rem 1rem -> 0.6rem 0.85rem. */
+        padding: 0.6rem 0.85rem;
         box-shadow: var(--shadow-sm);
+    }
+
+    /* base_preview_pdf's show_spinner (app.py, near generate_preview_pdf_bytes)
+       only ever fires on a genuine cache miss - see that function's own
+       docstring for why. .stCacheSpinner is the class Streamlit adds only to
+       a cache-triggered spinner (the `cache=True` prop on its Spinner proto,
+       confirmed by reading the frontend's Spinner component source), so this
+       cannot also restyle the unrelated "Generating..." spinner in
+       render_export_settings() - deliberately: that one is out of scope for
+       this task. Brand colour cascades to the icon via `color: inherit`
+       (confirmed by reading DynamicIcon's source), so one rule recolours
+       both the icon and the text. */
+    [data-testid="stSpinner"].stCacheSpinner {
+        color: var(--brand) !important;
     }
 
     /* Blue while an AI call is in flight, green once it lands (below). Both use
@@ -1075,6 +1162,27 @@ st.markdown("<style>\n" + css_root_block() + """
         font-weight: 650;
         color: var(--muted);
         white-space: nowrap;
+    }
+
+    /* Compact generation-status panel (ui_feedback.run_ai_call, Task 4): the
+       same .gp-walker figure from the floating bar above, marching in place
+       (no `left` to drive here - a single blocking call has no horizontal
+       "progress" of its own) beside the current milestone message. Reuses
+       .gp-walker/.gp-bob/.gp-legs/.gp-legs2 and their keyframes as-is; this
+       is only the row layout that did not exist yet. */
+    .gp-status-line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .gp-status-line .gp-walker {
+        flex: none;
+    }
+
+    .gp-status-line span {
+        color: var(--text);
+        font-size: 0.92rem;
     }
 
     /* Walk cycle: two leg groups alternate via steps(), plus a slight bob.
@@ -1920,22 +2028,11 @@ def render_floating_progress():
     else:
         status_text = f"{stages[walker_index][0]} · {completed}/{total}"
 
-    brand = TOKENS["brand"]
     walker_left = stop_pct(walker_index)
-    walker_svg = f"""<svg class="gp-walker" viewBox="0 0 20 24" fill="none">
-  <g class="gp-bob">
-    <circle cx="10" cy="4.5" r="3.2" fill="{brand}"/>
-    <path d="M10 8v7" stroke="{brand}" stroke-width="2.4" stroke-linecap="round"/>
-    <g class="gp-legs">
-      <path d="M10 15l-3.5 5M10 15l3.5 5" stroke="{brand}" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M10 10l-4 2.5M10 10l4 2" stroke="{brand}" stroke-width="2" stroke-linecap="round"/>
-    </g>
-    <g class="gp-legs2">
-      <path d="M10 15l-1.5 5.5M10 15l4.5 4" stroke="{brand}" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M10 10l-4 1.5M10 10l3.5 3" stroke="{brand}" stroke-width="2" stroke-linecap="round"/>
-    </g>
-  </g>
-</svg>"""
+    # theme.walker_svg() is the one place this markup is defined - see its
+    # own docstring for why (shared with ui_feedback.run_ai_call()'s compact
+    # status panel, Task 4).
+    walker_markup = walker_svg()
 
     st.markdown(
         f"""<div id="gp-floating-progress" role="group" aria-label="Application progress: {status_text}">
@@ -1943,7 +2040,7 @@ def render_floating_progress():
     <div class="gp-track-fill" style="width:{walker_left}%"></div>
     {stops_html}
     <div class="gp-walker-wrap" style="left:{walker_left}%">
-      {walker_svg}
+      {walker_markup}
     </div>
   </div>
   <span class="gp-label">{status_text}</span>
@@ -1951,9 +2048,38 @@ def render_floating_progress():
         unsafe_allow_html=True,
     )
 
+def render_panel_ratio_control():
+    """Top-right three-preset switch for the Generator view's two-column
+    split - see PANEL_RATIOS's own comment for why this exists instead of a
+    real drag handle.
+
+    Persists into st.session_state.panel_ratio (a plain key, not the
+    widget's own `panel_ratio_control`) so the choice survives a rerun where
+    this control is not drawn at all - e.g. a trip to Career Profile and
+    back - the same durable-mirror pattern render_generator_workspace()
+    already uses for the JD text area and Custom Strategy box.
+
+    required=True for the same reason the Resume/Cover Letter switch in
+    render_preview() uses it: exactly one preset must always be selected, so
+    clicking the already-selected option cannot blank the choice (segmented_
+    control allows deselecting by default).
+    """
+    _, control_col = st.columns([3, 2])
+    with control_col:
+        choice = st.segmented_control(
+            "Panel width",
+            list(PANEL_RATIOS.keys()),
+            default=st.session_state.panel_ratio,
+            required=True,
+            key="panel_ratio_control",
+        )
+    st.session_state.panel_ratio = choice
+
 if active_view == workspace.GENERATOR:
     render_floating_progress()
-    left, right = st.columns([6, 4])
+    render_panel_ratio_control()
+    ratio = PANEL_RATIOS.get(st.session_state.panel_ratio, PANEL_RATIOS["Even"])
+    left, right = st.columns(ratio)
     with left:
         render_generator_workspace()
     with right:
