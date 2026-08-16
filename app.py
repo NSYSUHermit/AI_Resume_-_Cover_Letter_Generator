@@ -142,6 +142,29 @@ def clear_generated_outputs():
     clear_pdf_outputs()
     st.session_state.tracked_application_id = None
 
+def start_new_application():
+    """Reset everything that belongs to one job application.
+
+    Cleared: the JD, the optimized result, ATS, the PDFs, and
+    tracked_application_id - so the next download opens a fresh tracker row
+    instead of being suppressed by the dedupe guard.
+
+    Kept: the Career Profile itself, the saved Custom Strategy, the login, the
+    API key. Those are settings, not per-application state.
+
+    The base_editor_key bump is load-bearing, not cosmetic. The JD mirrors from
+    a widget keyed jd_input_{base_editor_key} into st.session_state.jd_text;
+    clearing only jd_text leaves the old widget holding the previous text, and
+    it writes it straight back on the next rerun. A new key forces a fresh
+    widget that initialises from the cleared value. (Custom Strategy rides the
+    same key but re-initialises from custom_prompt, so it survives - which is
+    what we want.)
+    """
+    clear_generated_outputs()
+    st.session_state.jd_text = ""
+    st.session_state.base_editor_key += 1
+
+
 def clear_pdf_outputs_and_tracking():
     """clear_pdf_outputs() plus resetting the tracker dedupe flag.
 
@@ -1632,6 +1655,76 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        targets a Streamlit-internal class, so a platform upgrade cannot
        break it the way the old ".main .block-container" selector above
        once did. */
+    /* "New application" rides the status strip so it is reachable at any
+       moment, not just after scrolling back up. Fixed-positioned onto the
+       strip's right end (strip is z-index 999, this sits just above it) and
+       its now-empty flow container is collapsed so it leaves no gap.
+
+       It is *inset* into the strip rather than filling it: at the default
+       button height it was exactly as tall as the 30px strip, so its pill
+       outline landed on the strip's own top/bottom edges and read as a
+       control hovering in front of the bar instead of living in it. 22px
+       tall, centred in the 30px row, leaves 4px of strip visible above and
+       below - and `right` matches the strip's own 1.25rem padding so it
+       lines up with the strip's content, not with the window. */
+    [class*="st-key-new_application"] {
+        position: fixed !important;
+        /* Strip top + half of the 30px-vs-22px height difference. */
+        top: calc(3.75rem + 4px);
+        right: 1.25rem;
+        width: auto !important;
+        z-index: 1000;
+        margin: 0 !important;
+    }
+
+    /* Quiet ghost pill: the strip is a hairline status bar, so a filled or
+       heavily outlined button shouts over the progress track it sits next
+       to. Transparent until hovered, hairline border, label weight matched
+       to .gp-strip-label's 650. */
+    [class*="st-key-new_application"] button {
+        min-height: 22px !important;
+        height: 22px !important;
+        padding: 0 0.65rem !important;
+        gap: 0.25rem !important;
+        font-size: 0.72rem !important;
+        font-weight: 650 !important;
+        line-height: 1 !important;
+        white-space: nowrap;
+        border-radius: 999px !important;
+        color: var(--muted) !important;
+        background: transparent !important;
+        border: 1px solid var(--border) !important;
+        box-shadow: none !important;
+        transition: background var(--ease), border-color var(--ease),
+                    color var(--ease);
+    }
+
+    [class*="st-key-new_application"] button:hover,
+    [class*="st-key-new_application"] button:focus-visible {
+        color: var(--brand) !important;
+        background: var(--surface-soft) !important;
+        border-color: var(--border-strong) !important;
+    }
+
+    /* The label lives in a nested stMarkdownContainer > p that carries its
+       own 14px font-size, so the font-size on the button element alone does
+       not reach it - it has to be set here too or the pill stays as wide as
+       a full-size button with small padding. */
+    [class*="st-key-new_application"] button [data-testid="stMarkdownContainer"],
+    [class*="st-key-new_application"] button p {
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+    }
+
+    /* Streamlit renders `icon=":material/add:"` as a ligature span sized for
+       a full-height button; left alone it is taller than this pill. */
+    [class*="st-key-new_application"] button span[data-testid="stIconMaterial"] {
+        font-size: 14px !important;
+        width: 14px !important;
+        height: 14px !important;
+        line-height: 14px !important;
+    }
+
     #gp-status-strip {
         position: fixed;
         /* Streamlit's real toolbar height is 3.75rem (theme.sizes.headerHeight
@@ -1662,6 +1755,13 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         align-items: center;
         gap: 0.75rem;
         padding: 0.35rem 1.25rem;
+        /* Right gutter reserved for the fixed "New application" button, which
+           rides this same row at z-index 1000 and would otherwise paint over
+           the .gp-strip-label at the strip's right end. Measured in the
+           browser: the pill is 125px wide plus its own right:1.25rem offset,
+           i.e. ~9rem of occupied space - 10rem leaves a visible gap between
+           label and button instead of butting them together. */
+        padding-right: 10rem;
         background: var(--surface);
         border-bottom: 1px solid var(--border);
     }
@@ -2650,10 +2750,20 @@ def render_generator_workspace():
     if st.session_state.optimized_resume_data:
         if optimized_result_is_stale():
             st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
-        render_optimized_draft_table()
-        # The dialog stays outside the fragment: editing the resume has to
-        # propagate to the whole script, not just this box.
-        if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
+        # Item 2: the draft table used to render inline here, which made the
+        # left column enormous (every experience/education/projects/skills
+        # grid stacked at once, above Edit Optimized JSON, above Export
+        # Settings, above ATS analysis). It now lives behind a dialog, opened
+        # by this button, beside the existing Edit Optimized JSON button that
+        # opens the other dialog. Both dialogs stay outside the fragment:
+        # editing the resume has to propagate to the whole script, not just
+        # this box.
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            if st.button("Draft Table", use_container_width=True, key="open_draft_table_dialog"):
+                render_optimized_draft_table()
+        with dcol2:
+            if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
     # 手動匯入外部推論結果
     if st.session_state.get("show_advanced_tools"):
@@ -2711,13 +2821,12 @@ def render_generator_workspace():
     # 右欄現在只剩 PDF 本身 (render_preview)，匯出設定與 ATS 分析改放在左欄底部。
     render_export_settings()
 
-    st.markdown("**ATS Analysis**")
-    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
     if st.session_state.optimized_resume_data:
         render_ats_analysis()
     else:
         st.caption("Optimize a resume to see how it scores against the job description.")
 
+@st.dialog("Draft table", width="large")
 def render_optimized_draft_table():
     """The optimized result as a directly-editable table. Called only once
     st.session_state.optimized_resume_data exists (guarded by the caller,
@@ -3085,10 +3194,8 @@ def render_preview():
     with top_right:
         if dl:
             downloaded = st.download_button(
-                f"Download {dl['name']}",
-                dl["bytes"],
-                dl["name"],
-                use_container_width=True,
+                "", dl["bytes"], dl["name"],
+                icon=":material/download:", help=f"Download {dl['name']}",
             )
             if st.session_state.logged_in:
                 if st.session_state.get("tracked_application_id") is not None:
@@ -3532,6 +3639,16 @@ def render_generator_splitter():
 
 if active_view == workspace.GENERATOR:
     render_progress_strip()
+    # Sits with the progress strip: once it reads 4/4 there has to be a way to
+    # start the next application without hunting for Reset All Data, which
+    # wipes the Career Profile too.
+    _new_app_col, _ = st.columns([1, 4])
+    with _new_app_col:
+        if st.button("New application", use_container_width=True,
+                     icon=":material/add:", key="new_application"):
+            start_new_application()
+            st.session_state.pending_toast = "Started a new application."
+            st.rerun()
     left, right = st.columns(2)
     with left:
         render_generator_workspace()
