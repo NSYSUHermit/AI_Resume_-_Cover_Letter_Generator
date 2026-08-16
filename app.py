@@ -913,31 +913,52 @@ _SIDEBAR_WIDTH_CSS = """
 """
 
 _SIDEBAR_RAIL_CSS = """
-    /* Collapsed: an icon rail, never a disappearing sidebar. The label and the
-       icon are separate elements in Streamlit's button markup
-       ([data-testid="stMarkdownContainer"] vs [data-testid="stIconMaterial"],
-       confirmed against the rendered DOM), so hiding the former leaves a
-       centred icon behind with no bespoke button markup needed. */
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
-    [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
-    [data-testid="stSidebar"] .sb-micro-label,
-    [data-testid="stSidebar"] .sb-brand-text,
-    [data-testid="stSidebar"] [data-testid="stForm"],
-    [data-testid="stSidebar"] [data-testid="stRadio"],
-    [data-testid="stSidebar"] [data-testid="stExpander"],
-    [data-testid="stSidebar"] .sb-account-text {
-        display: none !important;
+    /* Collapsed rail. Modelled on the owner's own reference app, whose
+       MobileNavItem stacks the icon above a 10px label and centres both
+       (frontend/src/components/Dashboard.tsx) - rather than hiding the label
+       outright. That matters here because Streamlit will not let the sidebar
+       go below 200px: an icon-only column inside a 200px shell leaves a wide
+       dead margin and reads as broken, which is exactly the "太扁" the owner
+       reported. Keeping a small centred label makes 200px look deliberate.
+
+       Streamlit renders the icon and the label as siblings inside the button
+       ([data-testid="stIconMaterial"] and [data-testid="stMarkdownContainer"],
+       confirmed against the live DOM), so column-stacking their shared parent
+       is all this needs - no bespoke button markup. */
+    [data-testid="stSidebar"] .stButton button > div,
+    [data-testid="stSidebar"] .stButton button > div > span {
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.25rem !important;
     }
 
     [data-testid="stSidebar"] .stButton button {
         justify-content: center !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
+        height: auto !important;
+        padding-top: 0.6rem !important;
+        padding-bottom: 0.6rem !important;
     }
 
-    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
+    [data-testid="stSidebar"] .stButton button [data-testid="stMarkdownContainer"] p {
+        font-size: 0.65rem !important;
+        font-weight: 600 !important;
+        line-height: 1 !important;
+        letter-spacing: 0.03em;
+    }
+
+    /* Chrome that carries no meaning at rail width: the wordmark beside the
+       monogram, the group labels, and the whole signed-out auth block. The
+       nav itself and the account avatar stay - the owner asked for the rail
+       to keep showing things, not to empty out. */
+    [data-testid="stSidebar"] .sb-micro-label,
+    [data-testid="stSidebar"] .sb-brand-text,
+    [data-testid="stSidebar"] .sb-account-text,
+    [data-testid="stSidebar"] [data-testid="stForm"],
+    [data-testid="stSidebar"] [data-testid="stRadio"],
+    [data-testid="stSidebar"] [data-testid="stExpander"],
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        display: none !important;
     }
 """
 
