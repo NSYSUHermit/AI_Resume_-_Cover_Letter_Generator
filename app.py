@@ -309,6 +309,43 @@ def rows_to_skills(rows):
             skills[key] = {"title": title or "Skills", "items": items}
     return skills or {"set1": {"title": "Skills", "items": []}}
 
+# Shared field lists for the two grids ("experience" needs its own seed/rows
+# helpers below because "details" round-trips through a joined-text column;
+# education and projects are plain enough that editable_seed()/compact_rows()
+# need only the field list). Shared between render_resume_form_editor() (Profile
+# view and edit_opt_dialog()) and render_optimized_draft_table() (the draft
+# table) so the two editable-grid surfaces cannot silently drift on field names.
+EXPERIENCE_ROW_FIELDS = ["company", "role", "time_duration", "company_location", "details"]
+EDUCATION_ROW_FIELDS = ["school", "time_period", "degree", "school_location"]
+PROJECT_ROW_FIELDS = ["name", "time", "description"]
+
+def experience_seed_rows(experience_list):
+    """experience list (schema shape) -> st.data_editor row dicts."""
+    rows = []
+    for exp in experience_list or []:
+        if isinstance(exp, dict):
+            rows.append({
+                "company": exp.get("company", ""),
+                "role": exp.get("role", ""),
+                "time_duration": exp.get("time_duration", ""),
+                "company_location": exp.get("company_location", ""),
+                "details": details_to_text(exp.get("details", [])),
+            })
+    return editable_seed(rows, EXPERIENCE_ROW_FIELDS)
+
+def rows_to_experience(rows):
+    """Inverse of experience_seed_rows(): st.data_editor rows -> experience list."""
+    experience = []
+    for row in compact_rows(rows, EXPERIENCE_ROW_FIELDS):
+        experience.append({
+            "company": row["company"],
+            "role": row["role"],
+            "time_duration": row["time_duration"],
+            "company_location": row["company_location"],
+            "details": text_to_details(row["details"]),
+        })
+    return experience
+
 def render_resume_form_editor(data, key_prefix):
     data = json.loads(json.dumps(data or {}, ensure_ascii=False))
     heading = data.get("heading") if isinstance(data.get("heading"), dict) else {}
@@ -333,7 +370,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Education")
         education_rows = st.data_editor(
-            editable_seed(data.get("education", []), ["school", "time_period", "degree", "school_location"]),
+            editable_seed(data.get("education", []), EDUCATION_ROW_FIELDS),
             key=f"{key_prefix}_education",
             num_rows="dynamic",
             hide_index=True,
@@ -346,17 +383,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    exp_seed = []
-    for exp in data.get("experience", []) or []:
-        if isinstance(exp, dict):
-            exp_seed.append({
-                "company": exp.get("company", ""),
-                "role": exp.get("role", ""),
-                "time_duration": exp.get("time_duration", ""),
-                "company_location": exp.get("company_location", ""),
-                "details": details_to_text(exp.get("details", [])),
-            })
-    exp_seed = editable_seed(exp_seed, ["company", "role", "time_duration", "company_location", "details"])
+    exp_seed = experience_seed_rows(data.get("experience", []))
     with st.container(border=True):
         st.subheader("Experience")
         experience_rows = st.data_editor(
@@ -377,7 +404,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Projects")
         project_rows = st.data_editor(
-            editable_seed(data.get("projects", []), ["name", "time", "description"]),
+            editable_seed(data.get("projects", []), PROJECT_ROW_FIELDS),
             key=f"{key_prefix}_projects",
             num_rows="dynamic",
             hide_index=True,
@@ -419,15 +446,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    experience = []
-    for row in compact_rows(experience_rows, ["company", "role", "time_duration", "company_location", "details"]):
-        experience.append({
-            "company": row["company"],
-            "role": row["role"],
-            "time_duration": row["time_duration"],
-            "company_location": row["company_location"],
-            "details": text_to_details(row["details"]),
-        })
+    experience = rows_to_experience(experience_rows)
 
     return {
         **data,
@@ -443,9 +462,9 @@ def render_resume_form_editor(data, key_prefix):
         "cover_letter": cover_letter,
         "about me more": about_more,
         "summary": summary,
-        "education": compact_rows(education_rows, ["school", "time_period", "degree", "school_location"]),
+        "education": compact_rows(education_rows, EDUCATION_ROW_FIELDS),
         "experience": experience,
-        "projects": compact_rows(project_rows, ["name", "time", "description"]),
+        "projects": compact_rows(project_rows, PROJECT_ROW_FIELDS),
         "patents": compact_rows(patent_rows, ["name", "time", "description"]),
         "skills": rows_to_skills(skill_rows),
     }
@@ -1276,8 +1295,54 @@ if active_view == workspace.PROFILE:      # 原 "Source"
                 except json.JSONDecodeError as e:
                     st.error(f"Source JSON is invalid: {e}")
 
+def render_quick_stats():
+    """Quick-stat cards filling the whitespace above Source of Truth.
+
+    Each card is only shown when a real number backs it - nothing here is a
+    fabricated placeholder:
+    - Experience Entries reads st.session_state.resume_data, which always
+      exists (session init at the top of this file), so it is always shown -
+      including a genuine 0 for an empty profile, which is an accurate count,
+      not an invented one.
+    - Latest ATS Score needs an actual scored optimize run
+      (st.session_state.ats_metrics); omitted entirely when that is None
+      rather than shown as a fake 0%.
+    - Applications Recorded reads st.session_state.app_records, which
+      firebase_dashboard.fetch_applications() populates only after a Tracker
+      visit has already fetched it this session. Deliberately NOT fetched
+      from here (no get_db()/fetch_applications() call in this function): a
+      "quick" stats row at the top of Generator is not the place to trigger a
+      new Firestore round-trip on every render, so this card simply reflects
+      whatever is already in session_state, per the task's own framing
+      ("numbers already available in session state"). Logged-out sessions
+      never populate app_records, so the card is naturally absent, not a
+      misleading 0 - satisfying the same rule without a special-cased check.
+    """
+    experience_count = len((st.session_state.resume_data or {}).get("experience") or [])
+    cards = [("Experience Entries", str(experience_count), "Roles in your base Career Profile")]
+
+    metrics = st.session_state.get("ats_metrics")
+    if metrics and metrics.get("total"):
+        cards.append((
+            "Latest ATS Score",
+            f"{metrics['optimized_pct']}%",
+            "Keyword match rate from the most recent Optimize run",
+        ))
+
+    if st.session_state.get("logged_in") and "app_records" in st.session_state:
+        cards.append((
+            "Applications Recorded",
+            str(len(st.session_state.app_records or [])),
+            "Tracked in your application pipeline",
+        ))
+
+    for col, (label, value, help_text) in zip(st.columns(len(cards)), cards):
+        col.metric(label, value, help=help_text)
+
 def render_generator_workspace():
-    """Generator 的左欄：資料來源、JD、策略、優化按鈕，以及底部的匯出設定與 ATS 分析。"""
+    """Generator 的左欄：頂部快速統計、資料來源、JD、策略、優化按鈕、可直接編輯的
+    draft table，以及底部的匯出設定與 ATS 分析。"""
+    render_quick_stats()
     with st.container(border=True):
         st.markdown("**Source of Truth**")
         data = st.session_state.resume_data
@@ -1299,7 +1364,7 @@ def render_generator_workspace():
     jd = st.text_area(
         "Job description",
         value=st.session_state.jd_text,
-        height=260,
+        height=140,
         key=f"jd_input_{st.session_state.base_editor_key}",
         placeholder="Paste the job description here...",
     )
@@ -1377,6 +1442,7 @@ def render_generator_workspace():
     if st.session_state.optimized_resume_data:
         if optimized_result_is_stale():
             st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
+        render_optimized_draft_table()
         # The dialog stays outside the fragment: editing the resume has to
         # propagate to the whole script, not just this box.
         if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
@@ -1403,6 +1469,10 @@ def render_generator_workspace():
                         st.session_state.ats_metrics = ai.keyword_report(
                             keywords, st.session_state.resume_data, optimized
                         ) if keywords else None
+                        # Wholesale replacement: the draft table's widgets are keyed
+                        # off opt_editor_key so they reseed from the freshly imported
+                        # data instead of writing back whatever they last held.
+                        st.session_state.opt_editor_key += 1
                         st.session_state.pending_toast = "Manual result applied."
                         st.rerun()
                 except Exception as e:
@@ -1422,6 +1492,9 @@ def render_generator_workspace():
                     st.session_state.changelog = ""
                     st.session_state.optimized_source_snapshot = None
                     clear_pdf_outputs_and_tracking()
+                    # Same reason as Manual Result Import above: force the draft
+                    # table to reseed from this import instead of the previous data.
+                    st.session_state.opt_editor_key += 1
                     st.toast("Manual data applied.")
                     st.rerun()
                 except Exception as e:
@@ -1436,6 +1509,169 @@ def render_generator_workspace():
         render_ats_analysis()
     else:
         st.caption("Optimize a resume to see how it scores against the job description.")
+
+def render_optimized_draft_table():
+    """The optimized result as a directly-editable table. Called only once
+    st.session_state.optimized_resume_data exists (guarded by the caller,
+    render_generator_workspace()).
+
+    Auto-saves into st.session_state.optimized_resume_data on every rerun -
+    st.data_editor's return value already reflects the latest edit on the
+    very rerun it happens, so there is no separate Save button, the same
+    pattern render_resume_form_editor() already uses for the base profile in
+    Profile view.
+
+    Field scope follows the task literally: target company/role/summary as
+    labelled inputs above the table (three unrelated scalars read worse as a
+    one-row grid than as normal fields), and experience/education/projects/
+    skills as st.data_editor grids - the resume's genuinely tabular parts.
+    Heading, cover letter, the "about me" notes and patents are NOT part of
+    this table; they stay reachable only through Edit Optimized JSON below
+    (edit_opt_dialog(), unchanged, still not gated behind
+    show_advanced_tools - see tests/test_tracker_guard.py's
+    test_advanced_optimized_json_import_resets_tracked_application_id, which
+    depends on that button always being visible). This table is an
+    additional, friendlier surface, not a replacement for the dialog. Any key
+    this table does not manage (patents, heading, ...) passes through
+    unchanged via **current below, so a manually-imported JSON's fields are
+    never silently dropped just because this table has no column for them.
+
+    Change detection compares the widgets' output (`updated`) against a
+    `baseline` built by running the *unedited* seed data through the exact
+    same seed -> data_editor -> compact-rows pipeline, rather than against
+    `current` (the raw pre-conversion dict) directly. The pipeline is not a
+    lossless round trip on its own - skills_to_rows()/rows_to_skills() in
+    particular normalises a missing or empty "skills" dict into a non-empty
+    default ({"set1": {"title": "Skills", "items": []}}) even with zero user
+    edits. Comparing against raw `current` would treat that normalisation
+    alone as an "edit" on the very first render after every optimize/import,
+    wiping resume_preview_bytes/resume_dl_data (clear_pdf_outputs() below)
+    before the user ever downloaded anything from the new result - confirmed
+    against tests/test_tracker_guard.py's download-button tests, several of
+    which set a sparse optimized_resume_data (e.g. only "target_company")
+    alongside pre-set resume_dl_data and assert the download button is still
+    there. Comparing two values produced by the *same* pipeline cancels that
+    normalisation noise out and leaves only genuine widget-level edits.
+    """
+    current = st.session_state.optimized_resume_data or {}
+    ekey = st.session_state.opt_editor_key
+
+    with st.container(border=True):
+        st.markdown("**Optimized Draft**")
+        st.caption(
+            "Edit any cell in place - changes save automatically and feed the next "
+            "Generate PDF. For every other field (heading, cover letter, patents, "
+            "...), use Edit Optimized JSON below."
+        )
+
+        c1, c2 = st.columns(2)
+        with c1:
+            target_company = st.text_input(
+                "Target Company", value=current.get("target_company", ""), key=f"draft_company_{ekey}"
+            )
+        with c2:
+            target_role = st.text_input(
+                "Target Role", value=current.get("target_role", ""), key=f"draft_role_{ekey}"
+            )
+        summary = st.text_area(
+            "Summary", value=current.get("summary", ""), height=100, key=f"draft_summary_{ekey}"
+        )
+
+        st.caption("Experience")
+        exp_seed = experience_seed_rows(current.get("experience"))
+        experience_rows = st.data_editor(
+            exp_seed,
+            key=f"draft_experience_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "company": st.column_config.TextColumn("Company"),
+                "role": st.column_config.TextColumn("Role"),
+                "time_duration": st.column_config.TextColumn("Duration"),
+                "company_location": st.column_config.TextColumn("Location"),
+                "details": st.column_config.TextColumn("Bullets (one per line)", width="large"),
+            },
+        )
+
+        st.caption("Education")
+        education_seed = editable_seed(current.get("education", []), EDUCATION_ROW_FIELDS)
+        education_rows = st.data_editor(
+            education_seed,
+            key=f"draft_education_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "school": st.column_config.TextColumn("School"),
+                "time_period": st.column_config.TextColumn("Time Period"),
+                "degree": st.column_config.TextColumn("Degree"),
+                "school_location": st.column_config.TextColumn("Location"),
+            },
+        )
+
+        st.caption("Projects")
+        projects_seed = editable_seed(current.get("projects", []), PROJECT_ROW_FIELDS)
+        project_rows = st.data_editor(
+            projects_seed,
+            key=f"draft_projects_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "name": st.column_config.TextColumn("Name"),
+                "time": st.column_config.TextColumn("Time"),
+                "description": st.column_config.TextColumn("Description", width="large"),
+            },
+        )
+
+        st.caption("Skills")
+        skills_seed = skills_to_rows(current.get("skills", {}))
+        skill_rows = st.data_editor(
+            skills_seed,
+            key=f"draft_skills_{ekey}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "key": st.column_config.TextColumn("Set Key"),
+                "title": st.column_config.TextColumn("Category"),
+                "items": st.column_config.TextColumn("Items (comma separated)", width="large"),
+            },
+        )
+
+    updated = {
+        **current,
+        "target_company": target_company,
+        "target_role": target_role,
+        "summary": summary,
+        "experience": rows_to_experience(experience_rows),
+        "education": compact_rows(education_rows, EDUCATION_ROW_FIELDS),
+        "projects": compact_rows(project_rows, PROJECT_ROW_FIELDS),
+        "skills": rows_to_skills(skill_rows),
+    }
+    baseline = {
+        **current,
+        "target_company": current.get("target_company", ""),
+        "target_role": current.get("target_role", ""),
+        "summary": current.get("summary", ""),
+        "experience": rows_to_experience(exp_seed),
+        "education": compact_rows(education_seed, EDUCATION_ROW_FIELDS),
+        "projects": compact_rows(projects_seed, PROJECT_ROW_FIELDS),
+        "skills": rows_to_skills(skills_seed),
+    }
+    if resume_snapshot(updated) != resume_snapshot(baseline):
+        st.session_state.optimized_resume_data = updated
+        # Same call as edit_opt_dialog()'s Save Changes handler -
+        # clear_pdf_outputs(), NOT clear_pdf_outputs_and_tracking(): editing
+        # the current result in place is still the same application, not a
+        # new one, so tracked_application_id must not reset here (see
+        # clear_pdf_outputs_and_tracking()'s own docstring for the dedupe
+        # guard this protects). optimized_source_snapshot is also untouched -
+        # it snapshots resume_data (the base profile) at optimize time, not
+        # optimized_resume_data, so optimized_result_is_stale() (which only
+        # compares those two) is unaffected by draft-table edits either way.
+        clear_pdf_outputs()
 
 @st.dialog("Edit Optimized Data", width="large")
 def edit_opt_dialog():
