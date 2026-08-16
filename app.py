@@ -1655,6 +1655,27 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        targets a Streamlit-internal class, so a platform upgrade cannot
        break it the way the old ".main .block-container" selector above
        once did. */
+    /* "New application" rides the status strip so it is reachable at any
+       moment, not just after scrolling back up. Fixed-positioned onto the
+       strip's right end (strip is z-index 999, this sits just above it) and
+       its now-empty flow container is collapsed so it leaves no gap.
+       Same `top` as the strip, so the two share a row. */
+    [class*="st-key-new_application"] {
+        position: fixed !important;
+        top: 3.75rem;
+        right: 1rem;
+        width: auto !important;
+        z-index: 1000;
+        margin: 0 !important;
+    }
+
+    [class*="st-key-new_application"] button {
+        min-height: 30px !important;
+        padding: 0.1rem 0.7rem !important;
+        font-size: 0.78rem !important;
+        border-radius: 999px !important;
+    }
+
     #gp-status-strip {
         position: fixed;
         /* Streamlit's real toolbar height is 3.75rem (theme.sizes.headerHeight
