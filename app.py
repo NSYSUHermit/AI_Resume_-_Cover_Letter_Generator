@@ -445,6 +445,12 @@ def sync_application_to_tracker():
         return
     # 記下來就好，值本身只是「已記錄」的旗標。
     st.session_state.tracked_application_id = st.session_state.optimized_resume_data.get('target_company') or "recorded"
+    st.session_state.pending_toast = "Recorded to tracker."
+    # render_preview 是 @st.fragment。"Saved to tracker" 那格進度在
+    # render_generator_panel()，在 fragment 之外，不會跟著 fragment-scoped
+    # rerun 更新——使用者得再點別的東西才看得到。跟 render_export_settings
+    # 同樣的作法：app-scope st.rerun()（預設值 scope="app"）逼出全頁重繪。
+    st.rerun()
 
 # ---------------------------------------------------------
 # AI 核心邏輯 (prompts and scoring live in ai.py)
@@ -1367,15 +1373,21 @@ def render_preview():
         target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
         dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
         if dl:
-            st.download_button(
+            downloaded = st.download_button(
                 f"Download {dl['name']}",
                 dl["bytes"],
                 dl["name"],
                 use_container_width=True,
-                on_click=sync_application_to_tracker,
             )
             if st.session_state.logged_in:
                 st.caption("Downloading records this application in the tracker.")
+            # Checked inline rather than via on_click: this fragment's callback
+            # phase is a different execution context than its normal body, and
+            # sync_application_to_tracker() needs to force an app-scope rerun
+            # (see its own comment) the same proven way render_export_settings
+            # does — from ordinary fragment-body code, not from a callback.
+            if downloaded:
+                sync_application_to_tracker()
         # Checking the layout only needs page one; rasterising every page on
         # each rerun was pure waste.
         all_pages = st.checkbox("Render all pages", value=False, key="pdf_all_pages")
