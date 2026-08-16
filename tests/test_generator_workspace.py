@@ -11,13 +11,19 @@ Two invariants live here that nothing else in the suite touches:
    all — which is what silently emptied the JD before this mirror existed.
    This branch physically moved that code into render_generator_workspace()
    and changed the label, height and placeholder around it; nothing else in
-   the 25 pre-existing tests exercises it, so deleting the
-   `st.session_state.jd_text = jd` line, or hard-coding the widget key
-   instead of keying it off base_editor_key, would ship with every other
-   test green. The two tests below reproduce the original bug's exact
-   trigger (a Generator -> Profile -> Generator round trip) and were each
-   confirmed, before being committed, to fail against a temporarily
-   reintroduced copy of both regressions.
+   the 25 pre-existing tests exercises it. The two tests below reproduce the
+   original bug's exact trigger (a Generator -> Profile -> Generator round
+   trip) and were confirmed, before being committed, to fail if the
+   `st.session_state.jd_text = jd` mirror-back line is deleted.
+
+   They do NOT independently cover hard-coding the widget key (dropping the
+   base_editor_key suffix) — confirmed by testing that mutation directly:
+   the round trip still passes, because every event that changes
+   base_editor_key already fires an st.rerun() from outside
+   render_generator_workspace() first, so the widget's cached value is
+   cleared regardless of how the key is spelled. Full investigation in
+   final-fix-report.md.
+
 2. Generate PDF (render_export_settings, app.py) stays disabled until there
    is an optimized result to render — a smaller, previously-unchecked
    invariant folded in here per the same review finding.
