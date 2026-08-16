@@ -1261,51 +1261,44 @@ def edit_opt_dialog():
             except json.JSONDecodeError as e:
                 st.error(f"Optimized JSON is invalid: {e}")
 
-if active_view == workspace.GENERATOR:    # 左欄；右欄留給 Task 5 併入
-    render_generator_workspace()
+def render_ats_analysis():
+    """ATS 分頁的內容；呼叫端已確認有優化結果。"""
+    if st.session_state.changelog:
+        st.markdown("### Optimization Changelog")
+        st.info(st.session_state.changelog)
 
-if active_view == workspace.GENERATOR:    # 原 "ATS"；右欄內容，留給 Task 5 併入版面
-    st.subheader("ATS Analysis")
-    st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
+    # Requirements the rewrite deliberately did not claim. This is the
+    # counterpart to banning invented metrics: instead of a fabricated
+    # number, the user gets a list of what to supply themselves.
+    if st.session_state.suggested_metrics:
+        st.markdown("### Add These Yourself")
+        st.caption("The rewrite left these out because your resume had no evidence for them. Nothing here was invented on your behalf.")
+        for item in st.session_state.suggested_metrics:
+            st.markdown(f"- {item}")
 
-    if st.session_state.optimized_resume_data:
-        if st.session_state.changelog:
-            st.markdown("### Optimization Changelog")
-            st.info(st.session_state.changelog)
-
-        # Requirements the rewrite deliberately did not claim. This is the
-        # counterpart to banning invented metrics: instead of a fabricated
-        # number, the user gets a list of what to supply themselves.
-        if st.session_state.suggested_metrics:
-            st.markdown("### Add These Yourself")
-            st.caption("The rewrite left these out because your resume had no evidence for them. Nothing here was invented on your behalf.")
-            for item in st.session_state.suggested_metrics:
-                st.markdown(f"- {item}")
-
-        m = st.session_state.ats_metrics
-        if m and m.get("total"):
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.metric(
-                "Match Rate",
-                f"{m['optimized_pct']}%",
-                delta=f"{m['optimized_pct'] - m['original_pct']:+d} pts vs original",
-            )
-            mc2.metric("Keywords Hit", f"{m['optimized_count']}/{m['total']}")
-            mc3.metric("Newly Covered", len(m['newly_added']))
-            st.progress(min(100, m['optimized_pct']) / 100)
-            k1, k2 = st.columns(2)
-            with k1:
-                st.success("Matched Keywords")
-                for k in m.get('optimized_hits', []):
-                    st.markdown(f"- `{k}`" + (" (new)" if k in m.get('newly_added', []) else ""))
-            with k2:
-                st.error("Missing Keywords")
-                st.caption("Still absent. Add them only where they are genuinely true of you.")
-                for k in m.get('missing_keywords', []):
-                    st.markdown(f"- `{k}`")
-        elif m is None:
-            st.info("No keyword list was available for this result, so coverage was not scored.")
-    else: st.info("Run optimization first.")
+    m = st.session_state.ats_metrics
+    if m and m.get("total"):
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric(
+            "Match Rate",
+            f"{m['optimized_pct']}%",
+            delta=f"{m['optimized_pct'] - m['original_pct']:+d} pts vs original",
+        )
+        mc2.metric("Keywords Hit", f"{m['optimized_count']}/{m['total']}")
+        mc3.metric("Newly Covered", len(m['newly_added']))
+        st.progress(min(100, m['optimized_pct']) / 100)
+        k1, k2 = st.columns(2)
+        with k1:
+            st.success("Matched Keywords")
+            for k in m.get('optimized_hits', []):
+                st.markdown(f"- `{k}`" + (" (new)" if k in m.get('newly_added', []) else ""))
+        with k2:
+            st.error("Missing Keywords")
+            st.caption("Still absent. Add them only where they are genuinely true of you.")
+            for k in m.get('missing_keywords', []):
+                st.markdown(f"- `{k}`")
+    elif m is None:
+        st.info("No keyword list was available for this result, so coverage was not scored.")
 
 @st.fragment
 def render_export_settings():
@@ -1321,7 +1314,12 @@ def render_export_settings():
         st.caption("Select your preferred template and section order, then generate the final PDFs.")
         tmpl = st.selectbox("Template", ["Tech", "Business"], key="tm")
         order = st.multiselect("Order", ["Summary", "Experience", "Education", "Projects & Patents", "Skills"], default=["Summary", "Experience", "Education", "Projects & Patents", "Skills"])
-        if st.button("Generate PDF", type="primary", use_container_width=True):
+        if st.button(
+            "Generate PDF",
+            type="primary",
+            use_container_width=True,
+            disabled=st.session_state.optimized_resume_data is None,
+        ):
             if optimized_result_is_stale():
                 st.error("This optimized result is stale. Re-run Optimize Resume so the PDF uses the latest Source JSON.")
             else:
@@ -1365,14 +1363,40 @@ def render_preview():
         else: st.info(f"The {ch} data is missing.")
     else: st.info("Click 'Generate PDF' to see preview.")
 
-if active_view == workspace.GENERATOR:    # 原 "Review"；右欄內容，留給 Task 5 併入版面
-    if st.session_state.optimized_resume_data:
-        cl1, cl2 = st.columns([4, 6])
-        with cl1:
-            render_export_settings()
-        with cl2:
-            render_preview()
-    else: st.warning("Optimize first.")
+def render_generator_panel():
+    """Generator 的右欄：進度、輸出設定、預覽與 ATS。"""
+    st.caption("THIS APPLICATION")
+    for label, done in workspace.application_progress(
+        jd_text=st.session_state.jd_text,
+        has_optimized=st.session_state.optimized_resume_data is not None,
+        has_pdf=st.session_state.resume_preview_bytes is not None,
+        is_tracked=st.session_state.get("tracked_application_id") is not None,
+    ):
+        icon = "check_circle" if done else "radio_button_unchecked"
+        colour = TOKENS["success"] if done else TOKENS["muted"]
+        st.markdown(
+            f":material/{icon}: <span style='color:{colour}'>{label}</span>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("---")
+
+    render_export_settings()
+
+    preview_tab, ats_tab = st.tabs(["Preview", "ATS"])
+    with preview_tab:
+        render_preview()
+    with ats_tab:
+        if st.session_state.optimized_resume_data:
+            render_ats_analysis()
+        else:
+            st.caption("Optimize a resume to see how it scores against the job description.")
+
+if active_view == workspace.GENERATOR:
+    left, right = st.columns([6, 4])
+    with left:
+        render_generator_workspace()
+    with right:
+        render_generator_panel()
 
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
