@@ -1386,6 +1386,7 @@ def render_generator_panel():
     with preview_tab:
         render_preview()
     with ats_tab:
+        st.caption("Keyword coverage is counted here in Python by matching the JD's keyword list against your resume text, so every number below can be checked by hand.")
         if st.session_state.optimized_resume_data:
             render_ats_analysis()
         else:
