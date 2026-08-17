@@ -190,6 +190,51 @@ def optimized_result_is_stale():
     snapshot = st.session_state.get("optimized_source_snapshot")
     return snapshot is not None and resume_snapshot(st.session_state.resume_data) != snapshot
 
+def using_optimized_result():
+    """True when Generate PDF has an AI/imported result to render.
+
+    A non-dict optimized_resume_data counts as "no result": the three manual
+    import paths accept arbitrary pasted JSON with no shape validation, so it
+    can be a list or a string, and every consumer below calls .get() on it.
+    Same coercion render_optimized_draft_table() already does for its own
+    widgets, applied here so the export path falls back to the profile
+    instead of raising AttributeError.
+    """
+    optimized = st.session_state.optimized_resume_data
+    return isinstance(optimized, dict) and bool(optimized)
+
+def export_source_data():
+    """The resume dict Generate PDF (and the tracker) should work from.
+
+    The optimized result when there is one, otherwise the Career Profile
+    itself. Optimizing is no longer a precondition for exporting: the profile
+    JSON is already a complete resume in the schema main.tex renders, so
+    "just give me a PDF of what I have" needs no AI call, no API key, and no
+    JD - the owner's own request after hitting the disabled Generate PDF
+    button with nothing but a profile filled in.
+    """
+    if using_optimized_result():
+        return st.session_state.optimized_resume_data
+    return st.session_state.resume_data or {}
+
+def export_file_name(data, suffix):
+    """"Acme_Engineer_Resume.pdf" / "Jane_Doe_CL.pdf" / "Resume.pdf".
+
+    Target company/role stay the primary name, unchanged for the optimized
+    path. They are both routinely empty for a profile-only export though, and
+    the bare safe_filename_part() fallbacks would name that file
+    "Company_Role_Resume.pdf", which tells its owner nothing once it is
+    sitting in ~/Downloads - so fall back to the candidate's own name, then
+    to the bare suffix.
+    """
+    company = (data.get("target_company") or "").strip()
+    role = (data.get("target_role") or "").strip()
+    if company or role:
+        stem = f"{safe_filename_part(company, 'Company')}_{safe_filename_part(role, 'Role')}"
+    else:
+        stem = safe_filename_part((data.get("heading") or {}).get("name"), "")
+    return f"{stem}_{suffix}.pdf" if stem else f"{suffix}.pdf"
+
 def profile_snapshot():
     return json.dumps(
         {"resume": st.session_state.resume_data, "prompt": st.session_state.custom_prompt},
@@ -568,6 +613,13 @@ def render_resume_form_editor(data, key_prefix):
     }
 
 def sync_application_to_tracker():
+    # A profile-only export (no optimized result - see export_source_data())
+    # is not an application: there is no JD and no target company behind it,
+    # so recording one would put a blank row in the tracker. It would also
+    # crash here, since every line below calls .get() on optimized_resume_data,
+    # which is None on that path.
+    if not using_optimized_result():
+        return
     if not workspace.should_record_application(
         is_tracked=st.session_state.tracked_application_id is not None,
         logged_in=st.session_state.logged_in,
@@ -3176,30 +3228,43 @@ def render_export_settings():
         # in the right column - can read the current order to build the cache
         # key for the base-resume preview.
         order = st.multiselect("Order", BLOCK_ORDER_OPTIONS, default=BLOCK_ORDER_OPTIONS, key="export_order")
+        # Optimizing is not a precondition for exporting (see
+        # export_source_data()): with no optimized result the button renders
+        # the Career Profile as-is, and is only disabled when there is
+        # nothing at all to render. resume_is_empty() is deliberately checked
+        # against the *profile* rather than export_source_data(): a sparse
+        # optimized result (e.g. only target_company, which the manual-import
+        # paths readily produce) must stay exportable exactly as before.
+        d = export_source_data()
+        from_optimized = using_optimized_result()
+        if not from_optimized:
+            st.caption("No optimized result yet - this will export your Career Profile as-is.")
         if st.button(
             "Generate PDF",
             type="primary",
             use_container_width=True,
-            disabled=st.session_state.optimized_resume_data is None,
+            disabled=not from_optimized and resume_is_empty(d),
         ):
-            if optimized_result_is_stale():
+            # Staleness is a property of the optimized result only; a profile
+            # export is by definition current with the profile.
+            if from_optimized and optimized_result_is_stale():
                 st.error("This optimized result is stale. Re-run Optimize Resume so the PDF uses the latest Source JSON.")
             else:
                 with st.spinner("Generating..."):
-                    d = st.session_state.optimized_resume_data
-                    co = safe_filename_part(d.get('target_company'), 'Company')
-                    ro = safe_filename_part(d.get('target_role'), 'Role')
                     clear_pdf_outputs()
                     rb = generate_preview_pdf_bytes(d, template_file_for(tmpl), order)
                     if rb:
                         st.session_state.resume_preview_bytes = rb
                         # 統一檔名格式 (由使用者要求)
-                        st.session_state.resume_dl_data = {"bytes": rb, "name": f"{co}_{ro}_Resume.pdf"}
+                        st.session_state.resume_dl_data = {"bytes": rb, "name": export_file_name(d, "Resume")}
+                    # A profile with no cover_letter text simply produces no
+                    # cover-letter PDF - generate_cover_letter_pdf_bytes()
+                    # already returns None for that, no new branch needed.
                     cb = generate_cover_letter_pdf_bytes(d)
                     if cb:
                         st.session_state.cover_letter_preview_bytes = cb
                         # 確保與履歷檔名格式一致
-                        st.session_state.cl_dl_data = {"bytes": cb, "name": f"{co}_{ro}_CL.pdf"}
+                        st.session_state.cl_dl_data = {"bytes": cb, "name": export_file_name(d, "CL")}
                 if rb or cb:
                     st.session_state.pending_toast = "PDF generated."
                     # App-scope rerun so the sibling preview fragment picks up
@@ -3284,7 +3349,12 @@ def render_preview():
                 icon=":material/download:", help=f"Download {dl['name']}",
             )
             if st.session_state.logged_in:
-                if st.session_state.get("tracked_application_id") is not None:
+                if not using_optimized_result():
+                    # Matches sync_application_to_tracker()'s own guard: a
+                    # profile-only export is not an application, so promising
+                    # a tracker row here would be a lie.
+                    st.caption("Profile export - not recorded in the tracker.")
+                elif st.session_state.get("tracked_application_id") is not None:
                     st.caption("Already recorded in the tracker. Downloading again will not add another row.")
                 else:
                     st.caption("Downloading records this application in the tracker.")
