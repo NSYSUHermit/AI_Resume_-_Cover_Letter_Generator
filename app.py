@@ -2526,11 +2526,14 @@ with st.sidebar:
         else:
             st.caption("Add your Gemini key in the main panel to turn on the AI features.")
 
-        st.checkbox(
-            "Show advanced import tools",
-            key="show_advanced_tools",
-            help="Paste raw JSON in and out of the app. Not needed for normal use.",
-        )
+        # The "Show advanced import tools" checkbox that used to sit here is
+        # gone. It gated two JSON paste boxes (the profile's own JSON editor
+        # and Manual Data Import), both of which now render unconditionally
+        # in their own collapsed expanders - the same treatment Manual Result
+        # Import already got. A collapsed expander costs one line and says
+        # what it is; a checkbox three panels away that hides three different
+        # boxes only made them unfindable (the owner could not locate Manual
+        # Result Import at all while it was behind this).
 
         # Deferred: session_state cannot be written for a key whose widget has
         # already been instantiated this run.
@@ -2625,22 +2628,26 @@ if active_view == workspace.PROFILE:      # 原 "Source"
     )
     st.caption("Changes are saved automatically as you type.")
 
-    if st.session_state.get("show_advanced_tools"):
-        with st.expander("Advanced JSON Import"):
-            raw_import = render_json_editor(
-                json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False),
-                key=f"base_json_import_{st.session_state.base_editor_key}",
-                height=320,
-            )
-            if st.button("Apply JSON Import", use_container_width=True):
-                try:
-                    st.session_state.resume_data = json.loads(raw_import)
-                    st.session_state.base_editor_key += 1
-                    clear_generated_outputs()
-                    st.toast("JSON imported.")
-                    st.rerun()
-                except json.JSONDecodeError as e:
-                    st.error(json_error_report(raw_import, e))
+    # Formerly behind the sidebar's "Show advanced import tools" checkbox (see
+    # the comment where that checkbox used to be). Editing the profile as raw
+    # JSON is the fastest way to paste a whole resume in or fix several
+    # fields at once - it belongs at the bottom of the form it mirrors, not
+    # behind a setting in another panel.
+    with st.expander("Edit as JSON"):
+        raw_import = render_json_editor(
+            json.dumps(st.session_state.resume_data, indent=4, ensure_ascii=False),
+            key=f"base_json_import_{st.session_state.base_editor_key}",
+            height=320,
+        )
+        if st.button("Apply JSON Import", use_container_width=True):
+            try:
+                st.session_state.resume_data = json.loads(raw_import)
+                st.session_state.base_editor_key += 1
+                clear_generated_outputs()
+                st.toast("JSON imported.")
+                st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(json_error_report(raw_import, e))
 
 def render_quick_stats():
     """Quick-stat cards filling the whitespace above Source of Truth.
@@ -2866,12 +2873,13 @@ def render_generator_workspace():
         with dcol2:
             if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
-    # 手動匯入外部推論結果. Deliberately NOT behind show_advanced_tools (its
-    # two siblings below still are): running the rewrite in an external model
-    # and pasting the result back is a first-class way to use this app, not an
-    # advanced escape hatch, and the owner could not find this box because the
-    # checkbox hid it. Still inside a collapsed expander, so an unused feature
-    # costs one line of vertical space in the left column.
+    # 手動匯入外部推論結果. The first of the three paste boxes taken out from
+    # behind the sidebar's old "Show advanced import tools" checkbox (now
+    # deleted - see the sidebar comment): running the rewrite in an external
+    # model and pasting the result back is a first-class way to use this app,
+    # not an advanced escape hatch, and the owner could not find this box at
+    # all while the checkbox hid it. Still inside a collapsed expander, so an
+    # unused feature costs one line of vertical space in the left column.
     with st.expander("Manual Result Import"):
         st.caption("If you ran the rewrite elsewhere, paste its JSON here. Include a top-level \"keywords\" list to score coverage as well.")
         manual_json = st.text_area("Paste the externally inferred JSON here:", height=200, key="manual_ats_json")
@@ -2911,27 +2919,27 @@ def render_generator_workspace():
             except Exception as e:
                 st.error(json_error_report(manual_json, e))
 
-    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式)
-    if st.session_state.get("show_advanced_tools"):
-        with st.expander("Manual Data Import"):
-            st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
-            manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
-            if st.button("Apply Manual Data", use_container_width=True):
-                try:
-                    manual_data = json.loads(manual_opt_json)
-                    st.session_state.optimized_resume_data = manual_data
-                    st.session_state.ats_analysis = None
-                    st.session_state.ats_metrics = None
-                    st.session_state.changelog = ""
-                    st.session_state.optimized_source_snapshot = None
-                    clear_pdf_outputs_and_tracking()
-                    # Same reason as Manual Result Import above: force the draft
-                    # table to reseed from this import instead of the previous data.
-                    st.session_state.opt_editor_key += 1
-                    st.toast("Manual data applied.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(json_error_report(manual_opt_json, e))
+    # 允許手動匯入已優化的 JSON (方便使用者直接複製格式). Also formerly behind
+    # the sidebar checkbox; same reasoning as its two siblings.
+    with st.expander("Manual Data Import"):
+        st.caption("If you already have a structured resume JSON, paste it here to skip AI optimization.")
+        manual_opt_json = st.text_area("Paste Optimized JSON here:", height=200, key="manual_opt_input")
+        if st.button("Apply Manual Data", use_container_width=True):
+            try:
+                manual_data = json.loads(manual_opt_json)
+                st.session_state.optimized_resume_data = manual_data
+                st.session_state.ats_analysis = None
+                st.session_state.ats_metrics = None
+                st.session_state.changelog = ""
+                st.session_state.optimized_source_snapshot = None
+                clear_pdf_outputs_and_tracking()
+                # Same reason as Manual Result Import above: force the draft
+                # table to reseed from this import instead of the previous data.
+                st.session_state.opt_editor_key += 1
+                st.toast("Manual data applied.")
+                st.rerun()
+            except Exception as e:
+                st.error(json_error_report(manual_opt_json, e))
 
     # 右欄現在只剩 PDF 本身 (render_preview)，匯出設定與 ATS 分析改放在左欄底部。
     render_export_settings()
@@ -2965,8 +2973,8 @@ def render_optimized_draft_table():
 
     Heading, cover letter and the "about me" notes are still NOT part of
     this table; they stay reachable only through Edit Optimized JSON below
-    (edit_opt_dialog(), unchanged, still not gated behind
-    show_advanced_tools - see tests/test_tracker_guard.py's
+    (edit_opt_dialog(), unchanged, always visible - see
+    tests/test_tracker_guard.py's
     test_advanced_optimized_json_import_resets_tracked_application_id, which
     depends on that button always being visible). This table is an
     additional, friendlier surface, not a replacement for the dialog. Any key

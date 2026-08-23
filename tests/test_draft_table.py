@@ -444,7 +444,7 @@ def test_manual_result_import_reseeds_draft_table_instead_of_clobbering_it():
     (experience company stays "StaleEdit" instead of becoming "GlobexCo")
     before writing this test."""
     first = optimized_with_one_role(target_company="FirstCo")
-    at = run_app(active_view="Generator", optimized_resume_data=first, show_advanced_tools=True)
+    at = run_app(active_view="Generator", optimized_resume_data=first)
     ekey0 = at.session_state["opt_editor_key"]
     exp_key0 = f"draft_experience_{ekey0}"
     # A stale edit sitting in the OLD widget's state - as if the table had
@@ -482,7 +482,7 @@ def test_manual_data_import_reseeds_draft_table_instead_of_clobbering_it():
     Import, which replaces optimized_resume_data with the pasted JSON
     directly rather than unwrapping an "optimized_resume" key)."""
     first = optimized_with_one_role(target_company="FirstCo")
-    at = run_app(active_view="Generator", optimized_resume_data=first, show_advanced_tools=True)
+    at = run_app(active_view="Generator", optimized_resume_data=first)
     ekey0 = at.session_state["opt_editor_key"]
     exp_key0 = f"draft_experience_{ekey0}"
     at.session_state[exp_key0] = {

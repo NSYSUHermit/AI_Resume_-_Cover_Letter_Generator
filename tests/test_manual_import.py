@@ -5,9 +5,10 @@ external model and came back to paste the result:
 
 1. Manual Result Import - the box built for exactly that - sat behind the
    sidebar's "Show advanced import tools" checkbox, so it was invisible
-   unless you already knew to go looking for it. It now renders
-   unconditionally in Generator (its two siblings, Manual Data Import and the
-   base-profile Advanced JSON Import, stay behind the checkbox).
+   unless you already knew to go looking for it. That checkbox is now gone
+   entirely: all three boxes it gated (Manual Result Import, Manual Data
+   Import, and the profile's own "Edit as JSON") render unconditionally,
+   each in its own collapsed expander on the view it belongs to.
 
 2. A syntax error in a pasted blob reported only Python's own
    "Invalid JSON: Expecting ',' delimiter: line 4 column 3 (char 88)",
@@ -50,23 +51,29 @@ def paste_manual_result(at, raw):
 # Discoverability
 # ---------------------------------------------------------------------------
 
-def test_manual_result_import_is_visible_without_advanced_tools():
-    """The whole point of the change: no checkbox required."""
+def test_every_json_paste_box_is_visible_without_a_setting():
+    """The whole point of the change: no checkbox required, anywhere. The
+    sidebar's "Show advanced import tools" is gone, so all three boxes it
+    used to gate render on their own view."""
     at = run_app(active_view="Generator")
     assert not at.exception
-    assert at.session_state["show_advanced_tools"] is not True
-    assert [t for t in at.text_area if t.key == "manual_ats_json"], \
-        "Manual Result Import should render without Show advanced import tools"
+    assert [t for t in at.text_area if t.key == "manual_ats_json"], "Manual Result Import missing"
+    assert [t for t in at.text_area if t.key == "manual_opt_input"], "Manual Data Import missing"
+
+    # workspace.PROFILE - the sidebar labels it "Career Profile", the state
+    # value is "Profile".
+    at = run_app(active_view="Profile")
+    assert not at.exception
+    assert [t for t in at.text_area if t.key.startswith("base_json_import_")], \
+        "the profile's Edit as JSON box should render without a setting"
 
 
-def test_manual_data_import_stays_behind_advanced_tools():
-    """Only Manual Result Import was pulled out - the sibling that skips AI
-    optimization entirely is still an advanced escape hatch."""
-    at = run_app(active_view="Generator")
-    assert not [t for t in at.text_area if t.key == "manual_opt_input"]
-
-    at = run_app(active_view="Generator", show_advanced_tools=True)
-    assert [t for t in at.text_area if t.key == "manual_opt_input"]
+def test_the_advanced_tools_checkbox_is_gone():
+    """Nothing in the sidebar toggles those boxes any more - the checkbox was
+    deleted, not just ignored."""
+    at = run_app()
+    assert not at.exception
+    assert not [c for c in at.checkbox if c.label == "Show advanced import tools"]
 
 
 def test_manual_result_import_still_applies_without_advanced_tools():

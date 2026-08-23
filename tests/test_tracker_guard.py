@@ -221,11 +221,10 @@ def test_successful_write_sets_flag_and_survives_the_rerun(monkeypatch):
 def test_clear_generated_outputs_resets_tracked_application_id():
     """A fresh Optimize run must start a fresh application: clear_generated_outputs()
     is the shared reset point on both the PDF-import and Optimize paths. This drives
-    it through the Advanced JSON Import button — the one caller that needs neither a
+    it through the profile's Edit as JSON box — the one caller that needs neither a
     live Gemini API key nor network access, so it stays hermetic."""
     at = run_app(
         active_view="Profile",
-        show_advanced_tools=True,
         tracked_application_id="Acme",  # simulate an already-recorded application
     )
     assert at.session_state["tracked_application_id"] == "Acme"
@@ -246,7 +245,6 @@ def test_manual_result_import_resets_tracked_application_id():
     was introduced."""
     at = run_app(
         active_view="Generator",
-        show_advanced_tools=True,
         tracked_application_id="Acme",  # simulate an already-recorded application
     )
     manual_json_inputs = [t for t in at.text_area if t.key == "manual_ats_json"]
@@ -269,7 +267,6 @@ def test_manual_data_import_resets_tracked_application_id():
     pre-fix bare clear_pdf_outputs() at this site."""
     at = run_app(
         active_view="Generator",
-        show_advanced_tools=True,
         tracked_application_id="Acme",
     )
     manual_data_inputs = [t for t in at.text_area if t.key == "manual_opt_input"]
@@ -287,8 +284,8 @@ def test_manual_data_import_resets_tracked_application_id():
 
 def test_advanced_optimized_json_import_resets_tracked_application_id():
     """Finding 1, site 3 of 3 — Advanced Optimized JSON Import, inside
-    edit_opt_dialog (this one is NOT behind show_advanced_tools; it lives in
-    the "Edit Optimized JSON" dialog instead). Same invariant, reached
+    edit_opt_dialog (this one lives in the "Edit Optimized JSON" dialog
+    rather than in an expander of its own). Same invariant, reached
     through a dialog, which needs one extra step to drive with AppTest:
 
     st.dialog wraps its body as a fragment (streamlit/elements/
