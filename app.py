@@ -65,6 +65,10 @@ if "api_key" not in st.session_state: st.session_state.api_key = ""
 # widget is not rendered, so keeping the JD only in the text area's own key lost
 # it the moment the user switched workspace.
 if "jd_text" not in st.session_state: st.session_state.jd_text = ""
+# Application Q&A transcript: [{"role": "user"|"assistant", "content": str}].
+# Session-scoped on purpose (owner's call) - it dies with the browser tab, the
+# same way logged_in and the optimized result already do.
+if "application_chat" not in st.session_state: st.session_state.application_chat = []
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
@@ -141,6 +145,11 @@ def clear_generated_outputs():
     st.session_state.result_banner = None
     clear_pdf_outputs()
     st.session_state.tracked_application_id = None
+    # One optimize run is one application - the same rule
+    # tracked_application_id above follows. A transcript about the Acme role
+    # must not follow the user into the Globex one, where every answer it
+    # already gave is now subtly wrong while still looking authoritative.
+    st.session_state.application_chat = []
 
 def start_new_application():
     """Reset everything that belongs to one job application.
@@ -1721,16 +1730,20 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     /* Editing a LaTeX resume is a desktop task, and the multi-column layouts
        plus fixed-height iframes below do not survive a phone. Say so instead of
        letting the user discover it. */
+    /* Downgraded from a full-width orange alarm (1px solid var(--warning),
+       0.75rem padding, weight 650) to one quiet line. The alarm was sized for
+       a warning that the layout was about to break; now that the split row
+       wraps at this same breakpoint, all it reports is "you are in a narrow
+       window", which the user can already see. In a 400px Chrome side panel -
+       the width the extension/ folder puts this app at - the loud version was
+       the single largest thing on screen, above the actual work. */
     #small-screen-notice {
         display: none;
-        margin: 0 0 1rem 0;
-        padding: 0.75rem 1rem;
-        border: 1px solid var(--warning);
-        border-radius: var(--radius);
-        background: rgba(217, 119, 6, 0.08);
-        color: var(--warning);
-        font-size: 0.9rem;
-        font-weight: 650;
+        margin: 0 0 0.6rem 0;
+        padding: 0;
+        color: var(--muted);
+        font-size: 0.78rem;
+        line-height: 1.45;
     }
 
     @media (max-width: 900px) {
@@ -1824,6 +1837,33 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         width: 14px !important;
         height: 14px !important;
         line-height: 14px !important;
+    }
+
+    /* Close the window above the strip.
+
+       #gp-status-strip is pinned at top:3.75rem to clear Streamlit's own
+       toolbar band (see its comment below for where that constant comes
+       from), which leaves 60px of Streamlit-owned space above it. On the
+       normal URL Streamlit fills that band itself - measured:
+       [data-testid="stHeader"] has backgroundColor rgb(248,250,252) and an
+       stToolbar child - so scrolled content passes behind it, unseen.
+
+       Under ?embed=true - the URL extension/sidepanel.js loads the app with -
+       Streamlit ships that same header EMPTY and TRANSPARENT (measured on the
+       live app: backgroundColor rgba(0,0,0,0), zero children). The 60px band
+       becomes a see-through window, and everything scrolling up slides
+       through it above the strip: card borders, metric labels, headings.
+       That is the "橫桿會破版 ... 被穿越" the owner reported, and it only
+       reproduces in the extension because it only reproduces under embed.
+
+       Painting the band ourselves is a no-op on the normal URL - var(--bg) is
+       #f8fafc, the exact colour Streamlit already uses there - and closes the
+       window in the embedded one. !important because Streamlit sets its own
+       background inline via emotion. Note this cannot be verified with
+       elementsFromPoint: the embedded header also carries pointer-events:none,
+       so hit-testing walks straight past it whether it is painted or not. */
+    [data-testid="stHeader"] {
+        background: var(--bg) !important;
     }
 
     #gp-status-strip {
@@ -2290,6 +2330,38 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         flex-wrap: nowrap !important;
     }
 
+    /* ...except below the #small-screen-notice breakpoint, where that
+       nowrap does not merely look cramped - it deletes the preview.
+
+       Measured in a 400px-wide viewport (a Chrome side panel, which the
+       extension/ folder puts this app inside): the splitter script writes
+       `flex: 0 0 calc(50% - 6px); max-width: calc(50% - 6px)` inline on both
+       columns, but Streamlit's own min-width on stColumn wins over that
+       max-width, so each column stays 344px in a 368px row. With wrap that
+       is fine - they stack. With nowrap the preview column lands at
+       left:372 in a 400px viewport and is clipped, and because the document
+       never grows a horizontal scrollbar (scrollWidth stays 400) there is
+       no way to scroll to it. The content is simply gone.
+
+       min-width:0 is the load-bearing declaration here, not padding: without
+       it Streamlit's min-width keeps overriding max-width and the columns
+       still refuse to share a line. !important on all four is required to
+       beat the script's inline styles. */
+    @media (max-width: 900px) {
+        [data-testid="stHorizontalBlock"]:has(> .gp-split-handle) {
+            flex-wrap: wrap !important;
+        }
+        [data-testid="stHorizontalBlock"]:has(> .gp-split-handle) > [data-testid="stColumn"] {
+            flex: 1 1 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+        }
+        /* Stacked columns have no boundary left to drag. */
+        .gp-split-handle {
+            display: none !important;
+        }
+    }
+
     .gp-split-handle {
         position: absolute;
         top: 0;
@@ -2317,9 +2389,16 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     str(SIDEBAR_RAIL_PX if st.session_state.get("sidebar_collapsed") else SIDEBAR_EXPANDED_PX),
 ), unsafe_allow_html=True)
 
+# Reworded once the split row learned to wrap below this same breakpoint (see
+# the @media block on the .gp-split-handle row): the old copy - "the editor and
+# PDF preview will not lay out correctly" - described a layout that genuinely
+# broke, with the preview column landing off-screen and unreachable. That is
+# fixed, so repeating it would be false, and a full-width orange alarm is a
+# lot of furniture to spend on a false statement in a 400px Chrome side panel.
+# What is still true at that width is only that things are stacked and small.
 st.markdown(
-    "<div id='small-screen-notice'>This app is built for a desktop browser. "
-    "On a narrow screen the editor and PDF preview will not lay out correctly.</div>",
+    "<div id='small-screen-notice'>Narrow window &mdash; panels are stacked "
+    "and the PDF preview is small. Widen for the full side-by-side layout.</div>",
     unsafe_allow_html=True,
 )
 
@@ -2866,6 +2945,8 @@ def render_generator_workspace():
         with dcol2:
             if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
+    render_application_chat()
+
     # 手動匯入外部推論結果. Deliberately NOT behind show_advanced_tools (its
     # two siblings below still are): running the rewrite in an external model
     # and pasting the result back is a first-class way to use this app, not an
@@ -2940,6 +3021,82 @@ def render_generator_workspace():
         render_ats_analysis()
     else:
         st.caption("Optimize a resume to see how it scores against the job description.")
+
+def render_application_chat():
+    """"Ask about this application" - the Q&A box in the Generator's left column.
+
+    Sits immediately after the Draft Table / Edit Optimized JSON buttons and
+    before the manual-import escape hatches: it is about the result those
+    buttons open, and the owner asked for it on the workspace side rather than
+    the preview side.
+
+    Rendered unconditionally rather than behind `if optimized_resume_data`. The
+    profile and the JD alone already answer plenty of what an application form
+    asks ("why this company", "notice period", "describe a project"), and
+    ai.build_application_chat_prompt() spells the missing optimized result out
+    to the model in words instead of leaving a blank hole where it should be.
+
+    Grounding lives entirely in ai.APPLICATION_CHAT_RULES; nothing here shapes
+    the answer. This function only moves text between session_state and the
+    bubbles.
+    """
+    # expanded=True, unlike the two import expanders directly below it. Those
+    # are escape hatches that cost one line of vertical space when unused; this
+    # is a feature the owner asked for by name. Collapsed, it was a third
+    # identical grey row in a stack of them, and the owner could not find it -
+    # the exact failure already recorded on Manual Result Import above, which
+    # spent its own stretch invisible behind the advanced-tools checkbox.
+    with st.expander("Ask about this application", expanded=True):
+        st.caption(
+            "Drafts answers using only your Career Profile, the optimized result "
+            "and the JD above. If a fact is missing it asks you for it rather "
+            "than inventing one."
+        )
+
+        for message in st.session_state.application_chat:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        has_key = bool(st.session_state.api_key)
+        if not has_key:
+            st.caption("Connect a Gemini API key above to enable the assistant.")
+
+        question = st.chat_input(
+            "e.g. Why do you want to work here?",
+            key="application_chat_input",
+            disabled=not has_key,
+        )
+        if not question:
+            return
+
+        st.session_state.application_chat.append({"role": "user", "content": question})
+        with st.chat_message("user"):
+            st.markdown(question)
+
+        with st.chat_message("assistant"):
+            # Deliberately not ui_feedback.run_ai_call(): that draws an
+            # st.status panel, or takes over a caller's button placeholder, and
+            # neither shape belongs inside a chat bubble. It also exists to
+            # stream real milestones, and there are none here - this is one
+            # round trip, so a plain spinner tells the whole truth.
+            with st.spinner("Thinking..."):
+                ok, reply = ai.answer_application_question(
+                    # Already includes the question just appended above, which
+                    # is what build_application_chat_prompt() expects.
+                    st.session_state.application_chat,
+                    st.session_state.jd_text,
+                    st.session_state.resume_data,
+                    st.session_state.optimized_resume_data,
+                    st.session_state.api_key,
+                )
+            answer = reply if ok else f"Could not answer: {reply}"
+            st.markdown(answer)
+
+        # Failures are appended to the transcript too, not just shown once. A
+        # bubble that evaporates on the next rerun leaves the user looking at
+        # their own unanswered question with no record of what went wrong.
+        st.session_state.application_chat.append({"role": "assistant", "content": answer})
+
 
 @st.dialog("Draft table", width="large")
 def render_optimized_draft_table():

@@ -192,3 +192,43 @@ def test_main_container_padding_is_smaller_outside_generator():
         assert len(style_matches) == 1
         assert "padding-top: 3.25rem;" in style_matches[0].value
         assert "padding-top: 5.75rem;" not in style_matches[0].value
+
+
+def test_streamlit_header_band_is_painted_so_content_cannot_scroll_through_it():
+    """The 60px band above #gp-status-strip must be opaque.
+
+    The strip is pinned at top:3.75rem to clear Streamlit's toolbar, which
+    leaves 60px of Streamlit-owned space above it. On the normal URL Streamlit
+    fills that band itself (measured on the live app: [data-testid="stHeader"]
+    has backgroundColor rgb(248,250,252) and an stToolbar child), so scrolled
+    content passes behind it unseen. Under ?embed=true - the URL
+    extension/sidepanel.js loads - the same header ships EMPTY and TRANSPARENT
+    (measured: rgba(0,0,0,0), zero children), turning the band into a window
+    that card borders and metric labels scroll up through, above the strip.
+
+    So this rule is not decoration; without it the Chrome side panel shows
+    content overlapping the status strip. Verified by screenshotting the live
+    app under ?embed=true scrolled 600px, with and without this declaration
+    injected: "Experience Entries" and a card border sit above the strip
+    before, and the band is clean after.
+
+    Pinned here rather than asserted at runtime for the same reason as every
+    other CSS guard in this repo - AppTest never renders CSS. Also note the
+    effect cannot be checked with elementsFromPoint even in a real browser:
+    the embedded header carries pointer-events:none, so hit-testing walks past
+    it whether it is painted or not.
+    """
+    at = run_app(active_view="Generator")
+    assert not at.exception
+    # "gp-status-strip" alone matches two markdown elements on Generator - the
+    # stylesheet AND render_progress_strip()'s own <div id="gp-status-strip">.
+    # Anchor on stMainBlockContainer, which only the stylesheet contains, the
+    # same way test_app_smoke.py's CSS guards do.
+    style_matches = [m for m in at.markdown if "stMainBlockContainer" in m.value]
+    assert len(style_matches) == 1
+    css = style_matches[0].value
+    assert '[data-testid="stHeader"]' in css
+    assert "background: var(--bg) !important;" in css
+    # The strip's own offset is what creates the band this rule closes, so if
+    # that constant is ever revised the pairing needs revisiting together.
+    assert "top: 3.75rem;" in css

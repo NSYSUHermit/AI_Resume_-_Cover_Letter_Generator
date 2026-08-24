@@ -27,6 +27,25 @@ def _generate_json(api_key, parts, temperature=0.1):
     return json.loads(response.text)
 
 
+def _generate_text(api_key, parts, temperature=0.3):
+    """Call Gemini for prose and return the raw text.
+
+    A separate function rather than a flag on _generate_json: that one pins
+    response_mime_type to application/json, which is exactly wrong for an
+    answer a human is about to paste into an application form. The default
+    temperature differs for the same reason - 0.1 is right for extracting
+    structure out of a document, and wooden for writing a paragraph about
+    yourself.
+    """
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    response = model.generate_content(
+        parts,
+        generation_config={"temperature": temperature},
+    )
+    return response.text
+
+
 def test_api_key(api_key):
     """One cheap round trip to confirm a key works.
 
@@ -324,3 +343,104 @@ present in the resume. Return ONLY valid JSON.
 [Resume]: {json.dumps(resume_data, ensure_ascii=False)}""")
     except Exception:
         return None
+
+
+# ---------------------------------------------------------
+# 6. Application Q&A
+# ---------------------------------------------------------
+
+# Kept as a named constant, and pinned by tests/test_application_chat.py,
+# because these rules ARE the feature. Everything around them is plumbing. A
+# chat box that invents a metric has not been slightly unhelpful - it has put a
+# lie on a job application under the candidate's own name, and the candidate
+# will not find out until an interviewer asks about the number.
+#
+# Same principle as EVIDENCE_RULES above, applied to a different surface:
+# EVIDENCE_RULES keeps the rewrite honest about the resume, this keeps the chat
+# honest about everything else the candidate sends. Deliberately not shared -
+# the rewrite's rules are written for a JSON transform ("record it in
+# suggested_metrics"), which is meaningless advice to a chat turn, and the
+# chat's rule 2 has to name a recovery the rewrite has no equivalent of (ask
+# the candidate). Merging them would blunt both.
+APPLICATION_CHAT_RULES = """You help this candidate answer questions that come up while they apply for a
+job: free-text boxes on application forms, recruiter emails, screening
+questions.
+
+RULES:
+1. Answer ONLY from the candidate data below. It is the whole truth you have
+   about this person.
+2. If answering would need a fact the data does not contain, DO NOT invent it.
+   Say which specific fact is missing and ask the candidate for it. Never
+   invent an employer, job title, date, duration, metric, tool, or technology.
+3. Where the optimized resume already covers the same ground, reuse its
+   wording, so the answer matches what the recruiter is reading.
+4. Reply in the same language the question was asked in.
+5. Default to a finished draft the candidate can paste straight into the form,
+   not advice about how they should answer. Match the length the question
+   implies, and skip the preamble."""
+
+# Bounds cost and latency across a long session. The grounding blocks below are
+# resent in full every turn regardless, so dropping old chatter costs very
+# little accuracy - the resume and the JD are what the answers are built from,
+# not the earlier questions.
+MAX_CHAT_HISTORY = 20
+
+
+def build_application_chat_prompt(messages, jd_text, resume_data, optimized_resume):
+    """Assemble the whole prompt for one chat turn.
+
+    Split out from answer_application_question() for the same reason
+    build_screening_prompt() and build_rewrite_prompt() are split out from
+    their callers: the prompt is the product here, so it has to be assertable
+    without a network round trip.
+
+    `messages` is the transcript so far as [{"role": "user"|"assistant",
+    "content": str}], oldest first, INCLUDING the question being asked now.
+    """
+    transcript = "\n\n".join(
+        f"{'CANDIDATE' if m.get('role') == 'user' else 'YOU'}: {m.get('content', '')}"
+        for m in (messages or [])[-MAX_CHAT_HISTORY:]
+    )
+    # Spelled out rather than left empty: "(none yet)" tells the model the
+    # absence is a normal state it should work around, where a blank block
+    # invites it to assume the resume just failed to load.
+    optimized_block = (
+        json.dumps(optimized_resume, ensure_ascii=False)
+        if optimized_resume
+        else "(none yet - the candidate has not run an optimization for this job)"
+    )
+    return f"""{APPLICATION_CHAT_RULES}
+
+[JOB DESCRIPTION]
+{(jd_text or '').strip() or '(none provided)'}
+
+[CANDIDATE PROFILE - their own source of truth]
+{json.dumps(resume_data, ensure_ascii=False)}
+
+[OPTIMIZED RESUME FOR THIS JOB]
+{optimized_block}
+
+[CONVERSATION SO FAR]
+{transcript}
+
+YOU:"""
+
+
+def answer_application_question(messages, jd_text, resume_data, optimized_resume, api_key):
+    """One chat turn. Returns (ok, text).
+
+    Reports the failure instead of swallowing it the way
+    predict_interview_questions() does. That one degrades to hiding a panel the
+    user never asked for; a chat box that answers nothing and explains nothing
+    is just broken, and the caller needs something to put in the bubble.
+    """
+    if not api_key:
+        return False, "Connect a Gemini API key first."
+    prompt = build_application_chat_prompt(messages, jd_text, resume_data, optimized_resume)
+    try:
+        reply = (_generate_text(api_key, prompt) or "").strip()
+    except Exception as e:
+        return False, str(e)
+    if not reply:
+        return False, "Gemini returned an empty answer. Try rephrasing the question."
+    return True, reply

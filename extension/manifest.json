@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "AI Resume Builder 側邊欄",
+  "version": "0.1.0",
+  "description": "在 Chrome 側邊欄開啟 AI Resume Builder，一鍵把目前職缺頁的內容填進 Job description。",
+
+  "permissions": [
+    "sidePanel",
+    "scripting",
+    "tabs",
+    "cookies",
+    "clipboardWrite"
+  ],
+
+  "host_permissions": [
+    "https://henry-ai-resume-builder.streamlit.app/*",
+    "https://share.streamlit.io/*",
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_title": "開啟 AI Resume Builder 側邊欄"
+  },
+
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://henry-ai-resume-builder.streamlit.app/*"],
+      "js": ["filler.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -289,3 +289,48 @@ def test_splitter_cleanup_runs_off_generator():
         assert "gp-split-handle" in emitted, view          # the cleanup script
         assert "removeChild" in emitted, view
         assert "pointerdown" not in emitted, view          # but not the injector
+
+
+# ---------------------------------------------------------------------------
+# The narrow-viewport escape hatch
+# ---------------------------------------------------------------------------
+
+def test_narrow_viewport_releases_the_nowrap_that_hides_the_preview():
+    """Below the #small-screen-notice breakpoint the split row must wrap.
+
+    This is not a cosmetic guard. The row's `flex-wrap: nowrap` exists so the
+    handle can never re-trigger the "預覽全部都在左邊" wrap bug documented on
+    that rule - but at side-panel widths it does something worse than looking
+    cramped. Measured in a 400px viewport with the extension/ side panel: the
+    script writes `flex: 0 0 calc(50% - 6px); max-width: calc(50% - 6px)`
+    inline on both columns, Streamlit's own min-width on stColumn beats that
+    max-width so each column stays 344px in a 368px row, and nowrap then puts
+    the preview column at left:372 - outside the viewport, clipped, and
+    unreachable because the document's scrollWidth stays 400. The preview is
+    not ugly at that width; it is absent.
+
+    min-width:0 is the load-bearing declaration: without it Streamlit's own
+    min-width keeps winning and the columns still refuse to share a line. All
+    four need !important to beat the script's inline styles.
+
+    Same asymmetry as the rest of this file - AppTest never renders CSS, so
+    this pins the declarations' presence in the stylesheet, not their effect.
+    The effect was verified by injecting this exact block into the live app at
+    a 400px viewport and re-measuring every stColumn's bounding box: three
+    columns off-screen before, zero after.
+    """
+    at = run_app(active_view="Generator")
+    assert not at.exception
+    style_matches = [m for m in at.markdown if "stMainBlockContainer" in m.value]
+    assert len(style_matches) == 1
+    css = style_matches[0].value
+
+    # Same breakpoint as #small-screen-notice, deliberately: one definition of
+    # "too narrow for the desktop layout", not two that can drift apart.
+    assert "@media (max-width: 900px)" in css
+    assert "flex-wrap: wrap !important;" in css
+    assert "min-width: 0 !important;" in css
+    # The unconditional rule the media query overrides must still be there -
+    # if it ever goes away, the media query is pointless and this test should
+    # fail loudly rather than keep passing for the wrong reason.
+    assert "flex-wrap: nowrap !important;" in css
