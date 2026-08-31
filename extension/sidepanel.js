@@ -24,6 +24,14 @@ const grabBtn = document.getElementById('grab');
 const reloadBtn = document.getElementById('reload');
 const popoutBtn = document.getElementById('popout');
 
+// Whether the user has granted the optional <all_urls> permission that reading
+// a job page needs. Cached at boot specifically so the click handler can test
+// it WITHOUT awaiting: chrome.permissions.request() must run inside a user
+// gesture, and an await before it loses that gesture ("This function must be
+// called during a user gesture"). So the async check happens here, once, and
+// the click path stays synchronous up to the request itself.
+let canReadPages = false;
+
 function setStatus(text, tone = 'info') {
   if (!text) {
     statusEl.hidden = true;
@@ -40,6 +48,14 @@ function setStatus(text, tone = 'info') {
 
 async function boot() {
   setStatus('載入中…第一次開啟要等 app 從休眠醒來，可能數十秒。');
+
+  // Read once here so grab() can branch on it synchronously. Failure is not
+  // fatal: a false value only means the first grab asks for permission again.
+  try {
+    canReadPages = await chrome.permissions.contains({ origins: ['<all_urls>'] });
+  } catch (err) {
+    console.warn('[resume-panel] 權限狀態查詢失敗', err);
+  }
 
   // 保險，不是必要條件：跨網域 iframe 實測是可以正常渲染的，但擴充功能的頂層
   // 情境跟一般網頁不完全相同，而失敗的代價是側邊欄一片空白。所以先把
@@ -120,6 +136,22 @@ async function fallbackToClipboard(text, why) {
 }
 
 async function grab() {
+  // Before anything async - see canReadPages' declaration for why the order
+  // here is load-bearing rather than stylistic.
+  if (!canReadPages) {
+    setStatus('等待權限授權…');
+    try {
+      canReadPages = await chrome.permissions.request({ origins: ['<all_urls>'] });
+    } catch (err) {
+      setStatus(`無法要求權限：${err.message || err}`, 'error');
+      return;
+    }
+    if (!canReadPages) {
+      setStatus('沒有讀取網頁的權限就抓不到 JD。再按一次可以重新授權。', 'warn');
+      return;
+    }
+  }
+
   grabBtn.disabled = true;
   try {
     const tab = await activeJobTab();

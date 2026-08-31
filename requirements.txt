@@ -10,3 +10,13 @@ Jinja2==3.1.4
 firebase-admin==7.4.0
 Werkzeug==3.0.3
 plotly==6.6.0
+# Word export (docx_export.py). Restored: it was here once, and d7354f7 dropped
+# it in a dependency cleanup that had nothing to do with Word.
+# python-docx itself ships a py3-none-any wheel, so the interpreter version is
+# irrelevant to it - but it pulls lxml, which is a C extension and therefore
+# exactly the hazard this file's header warns about. lxml gained cp314 wheels in
+# 6.x (checked on PyPI: 6.1.2 ships 36 of them), so it is pinned explicitly
+# rather than left to the resolver, which could otherwise pick an older lxml
+# with no cp314 wheel and fall back to a source build.
+python-docx==1.2.0
+lxml==6.1.2

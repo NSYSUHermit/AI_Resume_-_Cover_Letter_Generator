@@ -13,6 +13,7 @@ from firebase_dashboard import init_firebase, authenticate_user, register_user, 
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block
 import ai
+import docx_export
 import workspace
 
 st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
@@ -226,8 +227,13 @@ def export_source_data():
         return st.session_state.optimized_resume_data
     return st.session_state.resume_data or {}
 
-def export_file_name(data, suffix):
+def export_file_name(data, suffix, ext=".pdf"):
     """"Acme_Engineer_Resume.pdf" / "Jane_Doe_CL.pdf" / "Resume.pdf".
+
+    `ext` exists so the Word export gets the same name as the PDF it sits
+    beside, differing only after the dot - two files in ~/Downloads called
+    Acme_Engineer_Resume.pdf and Acme_Engineer_Resume.docx are obviously the
+    same application; two differently-named ones are not.
 
     Target company/role stay the primary name, unchanged for the optimized
     path. They are both routinely empty for a profile-only export though, and
@@ -242,7 +248,7 @@ def export_file_name(data, suffix):
         stem = f"{safe_filename_part(company, 'Company')}_{safe_filename_part(role, 'Role')}"
     else:
         stem = safe_filename_part((data.get("heading") or {}).get("name"), "")
-    return f"{stem}_{suffix}.pdf" if stem else f"{suffix}.pdf"
+    return f"{stem}_{suffix}{ext}" if stem else f"{suffix}{ext}"
 
 def profile_snapshot():
     return json.dumps(
@@ -3365,6 +3371,35 @@ def render_ats_analysis():
 # both need the same durable list of section names.
 BLOCK_ORDER_OPTIONS = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
 
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def word_export_for(target_choice):
+    """(bytes, filename) of the .docx for the previewed target, or (None, None).
+
+    Built on every rerun rather than cached: python-docx assembles these in a
+    few milliseconds from data already in memory, and st.download_button needs
+    the bytes up front anyway, so a cache would add a staleness bug to save
+    nothing worth measuring.
+
+    Returns (None, None) rather than empty bytes when there is nothing to
+    export, so the caller can decide whether the button exists at all instead
+    of handing the user a file containing only their own name.
+    """
+    data = export_source_data()
+    if target_choice == "Resume":
+        if resume_is_empty(data):
+            return None, None
+        order = st.session_state.get("export_order") or BLOCK_ORDER_OPTIONS
+        return (
+            docx_export.build_resume_docx(data, order),
+            export_file_name(data, "Resume", ".docx"),
+        )
+    letter = docx_export.build_cover_letter_docx(data)
+    if not letter:
+        return None, None
+    return letter, export_file_name(data, "CL", ".docx")
+
 @st.fragment
 def render_export_settings():
     """Template and section order.
@@ -3499,29 +3534,51 @@ def render_preview():
     target = st.session_state.resume_preview_bytes if ch == "Resume" else st.session_state.cover_letter_preview_bytes
     dl = st.session_state.resume_dl_data if ch == "Resume" else st.session_state.cl_dl_data
 
+    word_bytes, word_name = word_export_for(ch)
+
     with top_right:
-        if dl:
-            downloaded = st.download_button(
-                "", dl["bytes"], dl["name"],
-                icon=":material/download:", help=f"Download {dl['name']}",
-            )
-            if st.session_state.logged_in:
-                if not using_optimized_result():
-                    # Matches sync_application_to_tracker()'s own guard: a
-                    # profile-only export is not an application, so promising
-                    # a tracker row here would be a lie.
-                    st.caption("Profile export - not recorded in the tracker.")
-                elif st.session_state.get("tracked_application_id") is not None:
-                    st.caption("Already recorded in the tracker. Downloading again will not add another row.")
-                else:
-                    st.caption("Downloading records this application in the tracker.")
-            # Checked inline rather than via on_click: this fragment's callback
-            # phase is a different execution context than its normal body, and
-            # sync_application_to_tracker() needs to force an app-scope rerun
-            # (see its own comment) the same proven way render_export_settings
-            # does — from ordinary fragment-body code, not from a callback.
-            if downloaded:
-                sync_application_to_tracker()
+        pdf_cell, word_cell = st.columns(2)
+        downloaded = word_downloaded = False
+        with pdf_cell:
+            if dl:
+                downloaded = st.download_button(
+                    "", dl["bytes"], dl["name"],
+                    icon=":material/download:", help=f"Download {dl['name']}",
+                    key="dl_pdf",
+                )
+        with word_cell:
+            # Deliberately NOT gated on `dl`. The .docx is built from the JSON
+            # and never touches LaTeX, so making it wait for a compile it does
+            # not need would be arbitrary - "give me an editable copy without
+            # waiting for the typesetter" is most of why this format exists.
+            if word_bytes:
+                word_downloaded = st.download_button(
+                    "", word_bytes, word_name,
+                    icon=":material/description:", help=f"Download {word_name}",
+                    mime=DOCX_MIME, key="dl_docx",
+                )
+        if (dl or word_bytes) and st.session_state.logged_in:
+            if not using_optimized_result():
+                # Matches sync_application_to_tracker()'s own guard: a
+                # profile-only export is not an application, so promising
+                # a tracker row here would be a lie.
+                st.caption("Profile export - not recorded in the tracker.")
+            elif st.session_state.get("tracked_application_id") is not None:
+                st.caption("Already recorded in the tracker. Downloading again will not add another row.")
+            else:
+                st.caption("Downloading records this application in the tracker.")
+        # Checked inline rather than via on_click: this fragment's callback
+        # phase is a different execution context than its normal body, and
+        # sync_application_to_tracker() needs to force an app-scope rerun
+        # (see its own comment) the same proven way render_export_settings
+        # does — from ordinary fragment-body code, not from a callback.
+        #
+        # Word counts the same as PDF here: one application is one application
+        # regardless of which format the user took away, and
+        # should_record_application()'s dedupe already stops a second download
+        # of either from adding a second row.
+        if downloaded or word_downloaded:
+            sync_application_to_tracker()
 
     if target:
         render_pdf_js(target)

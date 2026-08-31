@@ -21,3 +21,6 @@ ml_resume.json
 *.out
 *.toc
 *.synctex.gz
+
+# Chrome Web Store upload packages (rebuild with extension/package.py)
+extension/dist/

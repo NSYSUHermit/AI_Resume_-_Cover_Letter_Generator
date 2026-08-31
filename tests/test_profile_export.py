@@ -176,7 +176,13 @@ def test_profile_export_is_not_recorded_in_the_tracker(monkeypatch):
     """sync_application_to_tracker() reads optimized_resume_data.get(...) on
     every line; a profile-only export has no optimized result, so recording
     it would both crash and put a blank row in the tracker. The download
-    button must still work - just without a tracker write."""
+    buttons must still work - just without a tracker write.
+
+    Both formats are checked, not just the PDF: word_export_for() gave the
+    preview panel a second download button wired to the same
+    sync_application_to_tracker() call, so the guard has to hold on that path
+    too or a .docx download would write the blank row the PDF path refuses to.
+    """
     monkeypatch.setattr("subprocess.run", fake_lualatex([]))
     at = run_app(
         active_view="Generator",
@@ -187,11 +193,15 @@ def test_profile_export_is_not_recorded_in_the_tracker(monkeypatch):
     generate_button(at).click().run()
     assert not at.exception
 
-    downloads = [d for d in at.get("download_button")]
-    assert len(downloads) == 1
-    downloads[0].click().run()
+    # Selected by key rather than by position: the panel now renders a PDF and
+    # a Word button side by side, so "the only download button" is no longer a
+    # safe way to name either of them.
+    assert {d.key for d in at.get("download_button")} == {"dl_pdf", "dl_docx"}
 
-    assert not at.exception
-    assert at.session_state["tracked_application_id"] is None
-    captions = [c.value for c in at.caption]
-    assert any("not recorded in the tracker" in c for c in captions)
+    for key in ("dl_pdf", "dl_docx"):
+        button = next(d for d in at.get("download_button") if d.key == key)
+        button.click().run()
+        assert not at.exception, key
+        assert at.session_state["tracked_application_id"] is None, key
+        captions = [c.value for c in at.caption]
+        assert any("not recorded in the tracker" in c for c in captions), key
