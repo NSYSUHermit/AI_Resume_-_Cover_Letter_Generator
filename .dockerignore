@@ -1,0 +1,33 @@
+# Secrets must never be baked into an image layer - they are mounted at run
+# time instead (Cloud Run secret volume -> /app/.streamlit/secrets.toml).
+# Anyone who can pull the image can read every layer, so a secrets.toml copied
+# in during build is leaked even if a later layer deletes it.
+.streamlit/secrets.toml
+*service-account*.json
+*firebase*credential*.json
+.env
+
+.git
+.gitignore
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Developer-facing only, and the Chrome extension is not served by this app.
+tests/
+docs/
+extension/
+*.md
+Dockerfile
+.dockerignore
+
+# Local build artefacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+ats_analysis.json
+ml_resume.json
