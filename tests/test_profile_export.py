@@ -205,3 +205,30 @@ def test_profile_export_is_not_recorded_in_the_tracker(monkeypatch):
         assert at.session_state["tracked_application_id"] is None, key
         captions = [c.value for c in at.caption]
         assert any("not recorded in the tracker" in c for c in captions), key
+
+
+def test_missing_lualatex_says_so_instead_of_leaking_errno_2(monkeypatch):
+    """packages.txt is disabled (see PACKAGES_DISABLED.md), so on the deployed
+    app lualatex is not on PATH at all and subprocess.run raises
+    FileNotFoundError before any LaTeX runs.
+
+    Without a dedicated branch that lands in the generic handler as
+    "Resume PDF generation error: [Errno 2] No such file or directory:
+    'lualatex'", which tells the user nothing they can act on - the resume is
+    not the problem and editing it will not help. The dedicated message names
+    the real cause and points at the Word download, which needs no LaTeX and
+    still works.
+    """
+    def no_lualatex(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "lualatex")
+
+    monkeypatch.setattr("subprocess.run", no_lualatex)
+    at = run_app(active_view="Generator", resume_data=profile("No LaTeX Here"))
+    generate_button(at).click().run()
+    assert not at.exception
+
+    errors = [e.value for e in at.error]
+    assert any("LuaLaTeX is not installed" in e for e in errors), errors
+    assert any("Word (.docx)" in e for e in errors), errors
+    # The raw OSError text must not be what the user is left reading.
+    assert not any("Errno 2" in e for e in errors), errors

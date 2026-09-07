@@ -828,6 +828,19 @@ def escape_latex_chars(obj):
         return {k: escape_latex_chars(v) for k, v in obj.items()}
     return obj
 
+# Shown when lualatex is missing from PATH entirely. That is a different
+# failure from a LaTeX compile error and needs a different answer: no amount of
+# editing the resume will fix it, so the log excerpt the compile-error branch
+# prints would be pure noise. Reachable on Streamlit Cloud whenever
+# packages.txt is absent - see packages.txt.disabled for why it currently is.
+LATEX_MISSING_MESSAGE = (
+    "PDF generation is unavailable in this deployment: LuaLaTeX is not installed. "
+    "Use the Word (.docx) download instead — it is built from the same data and "
+    "needs no LaTeX. Everything else (AI optimization, ATS analysis, the tracker) "
+    "works normally."
+)
+
+
 def template_file_for(template_label):
     """Map the Template selectbox's label to its .tex file.
 
@@ -863,6 +876,8 @@ def generate_preview_pdf_bytes(data, template_name, block_order):
             op = tp.replace(".tex", ".pdf")
             if os.path.exists(op): return open(op, "rb").read()
             st.error("Resume PDF generation finished without producing a PDF.")
+    except FileNotFoundError:
+        st.error(LATEX_MISSING_MESSAGE)
     except Exception as e:
         st.error(f"Resume PDF generation error: {e}")
     return None
@@ -990,6 +1005,9 @@ def generate_cover_letter_pdf_bytes(data):
             pdf_path = os.path.join(td, "c.pdf")
             if os.path.exists(pdf_path):
                 return open(pdf_path, "rb").read()
+    except FileNotFoundError:
+        st.error(LATEX_MISSING_MESSAGE)
+        return None
     except Exception as e:
         st.error(f"Cover Letter generation error: {e}")
         return None
