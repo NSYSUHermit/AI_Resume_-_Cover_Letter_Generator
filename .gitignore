@@ -24,3 +24,8 @@ ml_resume.json
 
 # Chrome Web Store upload packages (rebuild with extension/package.py)
 extension/dist/
+
+# Claude Code skills are per-machine tooling, not app code (the same skills
+# ship as a global plugin); keeping them out of the repo also keeps them off
+# the Streamlit Cloud deploy.
+.claude/skills/

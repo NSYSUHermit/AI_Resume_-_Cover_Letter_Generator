@@ -7,3 +7,8 @@ primaryColor="#2563eb"
 backgroundColor="#f8fafc"
 secondaryBackgroundColor="#ffffff"
 textColor="#111827"
+# Visible edges on every input. Streamlit derives the default input border
+# from secondaryBackgroundColor, which is white here, so text inputs had a
+# white-on-white frame. Same value as TOKENS["border-input"] in theme.py.
+borderColor="#cbd5e1"
+showWidgetBorder=true

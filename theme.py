@@ -12,6 +12,11 @@ TOKENS = {
     "surface-soft": "#f1f5f9",
     "border": "#e2e8f0",
     "border-strong": "#bfdbfe",
+    # Resting edge of text inputs, the chat box and other fields. --border
+    # (#e2e8f0) is right for dividers on the off-white page, but on a white
+    # card it is nearly invisible; this is one step darker (slate-300). Also
+    # the value of theme.borderColor in .streamlit/config.toml - keep in sync.
+    "border-input": "#cbd5e1",
     "text": "#111827",
     "muted": "#64748b",
     "brand": "#2563eb",

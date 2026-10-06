@@ -93,3 +93,17 @@ def recent_applications(records, limit=3):
             "status_dot_token": _STATUS_DOT_TOKENS.get(status, _DEFAULT_STATUS_DOT_TOKEN),
         })
     return rows
+
+
+def resume_is_empty(data):
+    """True when a resume JSON has nothing worth rendering.
+
+    Shared by app.py (export gating, initial view) and the Tracker's Word
+    export - a sparse record must not produce a .docx holding only a name.
+    """
+    data = data or {}
+    if any((data.get("heading") or {}).get(field) for field in ("name", "email", "phone")):
+        return False
+    if data.get("summary"):
+        return False
+    return not any(data.get(section) for section in ("education", "experience", "projects", "patents"))

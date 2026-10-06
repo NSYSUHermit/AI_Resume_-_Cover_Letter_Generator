@@ -2,12 +2,140 @@ import streamlit as st
 import streamlit.components.v1 as components 
 import firebase_admin
 import base64
+import hashlib
 import json
+import logging
+import re
 import plotly.graph_objects as go
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from theme import TOKENS, FONT_STACK
+from workspace import resume_is_empty
+import docx_export
+import pdf_export
+
+# ==========================================
+# 0. Pure helpers (unit-tested in tests/test_tracker_analytics.py)
+# ==========================================
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
+
+# Registration is open (no email verification), so it is throttled instead:
+# a global daily cap keeps a script from filling Firestore, and a per-IP cap
+# keeps one person from doing it slowly. IPs are stored hashed.
+MAX_REGISTRATIONS_PER_DAY = 50
+MAX_REGISTRATIONS_PER_IP_PER_DAY = 3
+MIN_PASSWORD_LENGTH = 8
+REGISTRATION_LIMITS_COLLECTION = "registration_limits"
+
+# One message for "no such account" and "wrong password", so the login form
+# cannot be used to find out which emails are registered.
+LOGIN_FAILED_MESSAGE = "Email or password is incorrect."
+
+# Shown to users in place of raw exception text. Details go to the server log
+# (visible in Streamlit Cloud's "Manage app"), never to the page: Firestore
+# errors can carry the project id, collection paths and document ids.
+GENERIC_DB_ERROR = "Something went wrong talking to the database. Please try again."
+
+logger = logging.getLogger(__name__)
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def validate_credentials(email, password):
+    """Error message for a registration attempt, or None when acceptable."""
+    email = (email or "").strip()
+    if not email or not password:
+        return "Email and password are required."
+    if len(email) > 254 or not _EMAIL_RE.match(email):
+        return "Enter a valid email address."
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    return None
+
+
+def registration_allowed(total_today, ip_today):
+    """Whether one more sign-up fits under today's caps."""
+    if total_today >= MAX_REGISTRATIONS_PER_DAY:
+        return False, "Sign-ups are paused for today. Please try again tomorrow."
+    if ip_today >= MAX_REGISTRATIONS_PER_IP_PER_DAY:
+        return False, "Too many accounts created from this network today."
+    return True, None
+
+
+def ip_bucket(ip_address):
+    """Hashed, truncated key for the per-IP counter - enough to rate-limit,
+    not enough to reconstruct the address. None (no IP available, e.g. a
+    proxy that strips it) shares one bucket."""
+    return hashlib.sha256((ip_address or "unknown").encode("utf-8")).hexdigest()[:16]
+
+
+def funnel_counts(records):
+    """(applied, interviewed, offered) for the conversion funnel.
+
+    Status is single-valued, so "Interviewed" cannot be read off it: a record
+    that went Interviewing → Rejected is Rejected now but was still an
+    interview. Count a record as interviewed when it ever reached that stage
+    (interview_date set) or is at a stage that implies it (Interviewing,
+    Offered - an offer without a logged interview still took one).
+    """
+    applied = len(records)
+    interviewed = sum(
+        1 for r in records
+        if r.get("interview_date") or r.get("status") in ("Interviewing", "Offered")
+    )
+    offered = sum(1 for r in records if r.get("status") == "Offered")
+    return applied, interviewed, offered
+
+
+def browser_timezone(tz_name, tz_offset_minutes):
+    """A tzinfo for the viewer's browser, from st.context.
+
+    `tz_name` is an IANA name ("Asia/Taipei"); `tz_offset_minutes` is JS
+    getTimezoneOffset(): minutes to ADD to local time to reach UTC, so UTC+8
+    arrives as -480. Either may be None (AppTest, or a very old browser);
+    the fallback is UTC rather than a guessed region.
+    """
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            pass
+    if tz_offset_minutes is not None:
+        return timezone(-timedelta(minutes=tz_offset_minutes))
+    return timezone.utc
+
+
+def format_local_time(dt_utc, tz):
+    """"2026-10-06 15:52" in `tz`, or "N/A". Naive datetimes are taken as UTC,
+    which is what Firestore hands back after a SERVER_TIMESTAMP write."""
+    if not dt_utc:
+        return "N/A"
+    if dt_utc.tzinfo is None:
+        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+    return dt_utc.astimezone(tz).strftime("%Y-%m-%d %H:%M")
+
+
+def login_lockout_remaining(user_data, now):
+    """Minutes left on an account lockout, or 0 when it may try again."""
+    locked_until = user_data.get("locked_until")
+    if not locked_until:
+        return 0
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    remaining = (locked_until - now).total_seconds()
+    return max(0, int(remaining // 60) + (1 if remaining % 60 else 0))
+
+
+def login_failure_update(user_data, now):
+    """Firestore update after a wrong password: bump the counter, and on the
+    MAX_LOGIN_ATTEMPTS-th miss lock the account for LOCKOUT_MINUTES."""
+    attempts = int(user_data.get("failed_attempts") or 0) + 1
+    if attempts >= MAX_LOGIN_ATTEMPTS:
+        return {"failed_attempts": 0, "locked_until": now + timedelta(minutes=LOCKOUT_MINUTES)}
+    return {"failed_attempts": attempts, "locked_until": None}
 
 # ==========================================
 # 1. 初始化與連接 Firebase
@@ -22,8 +150,9 @@ def init_firebase():
             cert_dict = dict(st.secrets["firebase_service_account"])
             cred = credentials.Certificate(cert_dict)
             firebase_admin.initialize_app(cred)
-        except Exception as e:
-            st.error(f"Firebase initialization failed: {e}")
+        except Exception:
+            logger.exception("Firebase initialization failed")
+            st.error(GENERIC_DB_ERROR)
             return None
     
     return firestore.client()
@@ -31,23 +160,48 @@ def init_firebase():
 # ==========================================
 # 1.5 Authentication
 # ==========================================
-def register_user(db, email: str, password: str):
-    """Register a new user with hashed password"""
+def register_user(db, email: str, password: str, client_ip=None):
+    """Register a new user with hashed password, under the daily caps.
+
+    `client_ip` is st.context.ip_address at the call site (passed in rather
+    than read here so this stays testable without a script run context).
+    """
     try:
         if db is None:
             return False, "Firebase is not initialized."
         email = (email or "").strip()
-        if not email or not password:
-            return False, "Email and password are required."
+        problem = validate_credentials(email, password)
+        if problem:
+            return False, problem
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        bucket = ip_bucket(client_ip)
+        limits_ref = db.collection(REGISTRATION_LIMITS_COLLECTION).document(today)
+        limits_doc = limits_ref.get()
+        limits = limits_doc.to_dict() if limits_doc.exists else {}
+        ok, msg = registration_allowed(
+            int(limits.get("total") or 0),
+            int((limits.get("ips") or {}).get(bucket) or 0),
+        )
+        if not ok:
+            return False, msg
+
         doc_ref = db.collection('user_auth').document(email)
         if doc_ref.get().exists:
-            return False, "This Email is already registered!"
-        
+            # Deliberately not "already registered": without email
+            # verification that would confirm the address has an account.
+            return False, "Could not create an account with this email. If you already have one, log in instead."
+
         hashed_pwd = generate_password_hash(password)
         doc_ref.set({"password_hash": hashed_pwd, "created_at": firestore.SERVER_TIMESTAMP})
+        limits_ref.set(
+            {"total": firestore.Increment(1), "ips": {bucket: firestore.Increment(1)}},
+            merge=True,
+        )
         return True, "Registration successful, please log in!"
-    except Exception as e:
-        return False, f"Registration failed: {e}"
+    except Exception:
+        logger.exception("register_user failed")
+        return False, GENERIC_DB_ERROR
 
 def authenticate_user(db, email: str, password: str):
     """Authenticate user login"""
@@ -57,16 +211,32 @@ def authenticate_user(db, email: str, password: str):
         email = (email or "").strip()
         if not email or not password:
             return False, "Email and password are required."
-        doc = db.collection('user_auth').document(email).get()
+        doc_ref = db.collection('user_auth').document(email)
+        doc = doc_ref.get()
         if not doc.exists:
-            return False, "Account not found, please register first."
+            return False, LOGIN_FAILED_MESSAGE
         
         user_data = doc.to_dict()
+        now = datetime.now(timezone.utc)
+        # Per-account lockout after repeated wrong passwords. Checked before
+        # the hash so a locked account gives the same answer to a right and a
+        # wrong guess. Trade-off: someone who knows the email can lock its
+        # owner out for LOCKOUT_MINUTES; accepted over leaving guessing free.
+        minutes_left = login_lockout_remaining(user_data, now)
+        if minutes_left:
+            return False, f"Too many failed attempts. Try again in {minutes_left} min."
         if check_password_hash(user_data.get("password_hash", ""), password):
+            if user_data.get("failed_attempts") or user_data.get("locked_until"):
+                doc_ref.update({"failed_attempts": 0, "locked_until": None})
             return True, "Login successful!"
-        return False, "Incorrect password."
-    except Exception as e:
-        return False, f"Login verification failed: {e}"
+        update = login_failure_update(user_data, now)
+        doc_ref.update(update)
+        if update.get("locked_until"):
+            return False, f"Too many failed attempts. Try again in {LOCKOUT_MINUTES} min."
+        return False, LOGIN_FAILED_MESSAGE
+    except Exception:
+        logger.exception("authenticate_user failed")
+        return False, GENERIC_DB_ERROR
 
 def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api_key: str = ""):
     """Save base resume, custom prompt, and API key to Firestore."""
@@ -81,9 +251,9 @@ def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api
             data["api_key"] = api_key
         doc_ref.set(data, merge=True)
         return True, "Profile synced to cloud successfully."
-    except Exception as e:
-        st.error(f"Error saving profile: {e}")
-        return False, f"Error saving profile: {e}"
+    except Exception:
+        logger.exception("Error saving profile")
+        return False, GENERIC_DB_ERROR
 
 def load_user_profile(db, email: str):
     """Load base resume, custom prompt, and API key from Firestore."""
@@ -95,8 +265,9 @@ def load_user_profile(db, email: str):
             return profile_data.get("base_resume"), profile_data.get("custom_prompt"), profile_data.get("api_key")
         else:
             return None, None, None
-    except Exception as e:
-        st.error(f"Error loading profile: {e}")
+    except Exception:
+        logger.exception("Error loading profile")
+        st.error(GENERIC_DB_ERROR)
         return None, None, None
 
 # ==========================================
@@ -124,8 +295,9 @@ def save_application(db, email: str, company_name: str, resume_json: dict, jd_te
         doc_ref.set(data)
         st.session_state.force_refresh_apps = True
         return True
-    except Exception as e:
-        st.error(f"Error saving application record: {e}")
+    except Exception:
+        logger.exception("Error saving application record")
+        st.error(GENERIC_DB_ERROR)
         return False
 
 # ==========================================
@@ -137,8 +309,9 @@ def delete_application(db, email: str, doc_id: str):
         db.collection('users').document(email).collection('applications').document(doc_id).delete()
         st.session_state.force_refresh_apps = True
         return True
-    except Exception as e:
-        st.error(f"Error deleting application: {e}")
+    except Exception:
+        logger.exception("Error deleting application")
+        st.error(GENERIC_DB_ERROR)
         return False
 
 def update_application_status(db, email: str, doc_id: str, new_status: str, notes: str):
@@ -159,8 +332,9 @@ def update_application_status(db, email: str, doc_id: str, new_status: str, note
         doc_ref.update(update_data)
         st.session_state.force_refresh_apps = True
         return True
-    except Exception as e:
-        st.error(f"Error updating application: {e}")
+    except Exception:
+        logger.exception("Error updating application")
+        st.error(GENERIC_DB_ERROR)
         return False
 
 def fetch_applications(db, email):
@@ -186,8 +360,9 @@ def fetch_applications(db, email):
             st.session_state.app_records = records
             st.session_state.app_records_email = email
             st.session_state.force_refresh_apps = False
-        except Exception as e:
-            st.error(f"Error fetching applications: {e}")
+        except Exception:
+            logger.exception("Error fetching applications")
+            st.error(GENERIC_DB_ERROR)
             return []
     return st.session_state.app_records
 
@@ -206,7 +381,8 @@ def render_interview_progress(db, email: str):
                 if dt_date:
                     records.append({
                         "Company": app.get("company_name", "Unknown"),
-                        "Status": app.get("status", "Applied"),
+                        "status": app.get("status", "Applied"),
+                        "interview_date": app.get("interview_date"),
                         "Date": dt_date
                     })
         
@@ -261,13 +437,9 @@ def render_interview_progress(db, email: str):
             
             filtered_records = [r for r in records if start_date <= r["Date"] <= end_date]
             
-            total_applied = len(filtered_records)
-            interviews = sum(1 for r in filtered_records if r["Status"] == "Interviewing")
-            offers = sum(1 for r in filtered_records if r["Status"] == "Offered")
-            rejections = sum(1 for r in filtered_records if r["Status"] == "Rejected")
-            
-            # 累積計算漏斗層級，假設拿到 Offer 或正在面試都算進入了「面試階段」
-            total_interviewed = interviews + offers
+            total_applied, total_interviewed, offers = funnel_counts(filtered_records)
+            interviews = sum(1 for r in filtered_records if r["status"] == "Interviewing")
+            rejections = sum(1 for r in filtered_records if r["status"] == "Rejected")
             offer_rate = (offers / total_applied * 100) if total_applied > 0 else 0.0
             
             with col_metrics:
@@ -296,8 +468,9 @@ def render_interview_progress(db, email: str):
             )
             st.plotly_chart(fig, use_container_width=True)
         
-    except Exception as e:
-        st.error(f"Failed to load analysis data: {e}")
+    except Exception:
+        logger.exception("Failed to load analysis data")
+        st.error(GENERIC_DB_ERROR)
 
 # Per-status colour for the row's status text, via Streamlit's built-in
 # markdown colours so it tracks the theme instead of hard-coding hex here.
@@ -308,27 +481,52 @@ STATUS_COLORS = {
     "Rejected": "red",
 }
 
-# Streamlit dialogs are fragments: widgets inside rerun only the dialog and
-# keep it open, while an app-scope st.rerun() (after Update / Delete) closes
-# it. It is therefore only ever called from the Preview button's `if` branch -
-# calling it unconditionally would reopen it after every dismissal.
-@st.dialog("Application", width="large")
-def render_application_dialog(db, email, app_data, local_time, build_pdf, build_docx, render_pdf):
-    """Preview + download + edit for one saved application.
+def tracker_resume_pdf(resume_json, template_label):
+    """PDF of a saved resume: same compiler and template mapping as the
+    Generator's export, default full section order - a tracker row records
+    what was sent, it is not a place to redesign it. None on failure; the
+    compiler has already shown the error (or LATEX_MISSING_MESSAGE)."""
+    return pdf_export.generate_preview_pdf_bytes(
+        resume_json, pdf_export.template_file_for(template_label), list(pdf_export.BLOCK_ORDER_OPTIONS),
+    )
 
-    `build_pdf(resume_json, template_label)`, `build_docx(resume_json)` and
-    `render_pdf(pdf_bytes, height)` come from app.py: the LaTeX/pdf.js/docx
-    code lives there and this module must not import app.py (app.py imports
-    this one). Any of them may be None, in which case that part of the
-    dialog degrades to a message instead of raising.
+
+def tracker_resume_docx(resume_json):
+    """Word copy of a saved resume, or None if the data is too sparse."""
+    try:
+        if resume_is_empty(resume_json):
+            return None
+        return docx_export.build_resume_docx(resume_json, list(pdf_export.BLOCK_ORDER_OPTIONS))
+    except Exception:
+        return None
+
+
+def render_application_dialog(db, email, app_data, local_time):
+    """Open the preview dialog for one saved application, titled with the
+    company name.
+
+    st.dialog() fixes its title at decoration time, so the decorator is
+    applied here, per call, instead of at import. Streamlit keys the
+    underlying fragment on module + function name + element path, none of
+    which change between calls, so this is as stable as a static decorator.
+
+    Dialogs are fragments: widgets inside rerun only the dialog and keep it
+    open, while an app-scope st.rerun() (after Update / Delete) closes it.
+    It is therefore only ever called from the Preview button's `if` branch -
+    calling it unconditionally would reopen it after every dismissal.
     """
+    title = (app_data.get("company_name") or "").strip() or "Application"
+    st.dialog(title, width="large")(_application_dialog_body)(db, email, app_data, local_time)
+
+
+def _application_dialog_body(db, email, app_data, local_time):
+    """Preview + download + edit for one saved application."""
     doc_id = app_data["id"]
     company = app_data.get("company_name") or "Unknown"
     status = app_data.get("status", "Applied")
     resume_json = app_data.get("resume_json") or {}
     role = (resume_json.get("target_role") or "").strip()
 
-    st.markdown(f"### {company}")
     facts = []
     if role:
         facts.append(role)
@@ -347,26 +545,24 @@ def render_application_dialog(db, email, app_data, local_time, build_pdf, build_
             key=f"dlg_tmpl_{doc_id}", label_visibility="collapsed",
         )
 
-    pdf_bytes = None
-    if build_pdf is not None:
-        # Bounded per-session cache keyed by record + template. lualatex
-        # takes seconds; reopening the same record must be instant. A failed
-        # compile (None) is deliberately not cached, so a transient failure
-        # is retried next time instead of sticking - same reasoning as
-        # base_preview_pdf() in app.py.
-        cache = st.session_state.setdefault("tracker_pdf_cache", {})
-        cache_key = f"{doc_id}:{template_label}"
-        if cache_key in cache:
-            pdf_bytes = cache[cache_key]
-        else:
-            with st.spinner("Compiling PDF..."):
-                pdf_bytes = build_pdf(resume_json, template_label)
-            if pdf_bytes:
-                if len(cache) >= 8:
-                    del cache[next(iter(cache))]
-                cache[cache_key] = pdf_bytes
+    # Bounded per-session cache keyed by record + template. lualatex takes
+    # seconds; reopening the same record must be instant. A failed compile
+    # (None) is deliberately not cached, so a transient failure is retried
+    # next time instead of sticking - same reasoning as base_preview_pdf()
+    # in app.py.
+    cache = st.session_state.setdefault("tracker_pdf_cache", {})
+    cache_key = f"{doc_id}:{template_label}"
+    if cache_key in cache:
+        pdf_bytes = cache[cache_key]
+    else:
+        with st.spinner("Compiling PDF..."):
+            pdf_bytes = tracker_resume_pdf(resume_json, template_label)
+        if pdf_bytes:
+            if len(cache) >= 8:
+                del cache[next(iter(cache))]
+            cache[cache_key] = pdf_bytes
 
-    docx_bytes = build_docx(resume_json) if build_docx is not None else None
+    docx_bytes = tracker_resume_docx(resume_json)
     file_stem = _export_stem(resume_json)
 
     with pdf_col:
@@ -384,11 +580,9 @@ def render_application_dialog(db, email, app_data, local_time, build_pdf, build_
             )
 
     # --- preview -----------------------------------------------------------
-    if pdf_bytes and render_pdf is not None:
-        render_pdf(pdf_bytes, height=520)
-    elif build_pdf is None:
-        st.info("PDF preview is not available here.")
-    # A failed compile already reported itself via st.error inside build_pdf.
+    if pdf_bytes:
+        pdf_export.render_pdf_js(pdf_bytes, height=520)
+    # A failed compile already reported itself via st.error inside pdf_export.
 
     # --- raw data ----------------------------------------------------------
     with st.expander("Saved job description & resume JSON"):
@@ -477,23 +671,17 @@ def _render_copy_json_button(doc_id, resume_json):
     components.html(html_copy_json, height=45)
 
 
-def render_dashboard(db, email: str, build_pdf=None, build_docx=None, render_pdf=None):
+def render_dashboard(db, email: str):
     """
     Fetch and render job applications on the dashboard.
-
-    `build_pdf` / `build_docx` / `render_pdf` are forwarded to
-    render_application_dialog() - see its docstring for their contracts.
     """
-    col_title, col_tz = st.columns([3, 1])
-    with col_title:
-        st.subheader("Application Pipeline")
-    with col_tz:
-        tz_offset = st.number_input("Timezone Offset (UTC)", min_value=-12.0, max_value=14.0, value=8.0, step=0.5)
+    st.subheader("Application Pipeline")
+
+    # Times are shown in the viewer's own browser timezone; no manual offset.
+    viewer_tz = browser_timezone(st.context.timezone, st.context.timezone_offset)
 
     def get_local_time_str(dt_utc):
-        if not dt_utc: return "N/A"
-        local_dt = dt_utc + timedelta(hours=tz_offset)
-        return local_dt.strftime("%Y-%m-%d %H:%M")
+        return format_local_time(dt_utc, viewer_tz)
 
     try:
         app_records = fetch_applications(db, email)
@@ -653,10 +841,7 @@ def render_dashboard(db, email: str, build_pdf=None, build_docx=None, render_pdf
                         icon=":material/visibility:", use_container_width=True,
                         help="Preview and download the resume sent to this company",
                     ):
-                        render_application_dialog(
-                            db, email, app_data, get_local_time_str,
-                            build_pdf, build_docx, render_pdf,
-                        )
+                        render_application_dialog(db, email, app_data, get_local_time_str)
 
         def render_record_list(record_list, tab_name):
             if not record_list:
@@ -682,5 +867,6 @@ def render_dashboard(db, email: str, build_pdf=None, build_docx=None, render_pdf
         else:
             st.caption("All matching records are loaded.")
             
-    except Exception as e:
-        st.error(f"Failed to load dashboard: {e}")
+    except Exception:
+        logger.exception("Failed to load dashboard")
+        st.error(GENERIC_DB_ERROR)

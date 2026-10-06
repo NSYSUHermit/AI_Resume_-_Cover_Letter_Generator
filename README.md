@@ -46,8 +46,12 @@ This is a cloud-based resume generation tool developed using **Streamlit**. It c
 
 ```text
 .
-├── app.py                   # Main Streamlit application
+├── app.py                   # Main Streamlit application (views, Generator, export UI)
 ├── firebase_dashboard.py    # Firebase Auth & Job Tracking Dashboard logic
+├── pdf_export.py            # LaTeX → PDF compile + inline pdf.js viewer
+├── docx_export.py           # Word (.docx) export
+├── ai.py                    # Gemini prompts and scoring
+├── workspace.py             # Pure view/decision helpers (no Streamlit)
 ├── main.tex                 # Main LaTeX resume template
 ├── elsa_main.tex            # Alternative LaTeX resume template
 ├── requirements.txt         # Python dependencies

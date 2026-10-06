@@ -352,16 +352,17 @@ def test_pdf_renderer_takes_no_page_cap():
 
     Read from source rather than called: render_pdf_js() emits an iframe via
     components.html and needs real PDF bytes, neither of which this assertion
-    is about.
+    is about. It lives in pdf_export.py (moved out of app.py so the Tracker
+    can import it too).
     """
-    source = (Path(__file__).resolve().parent.parent / "app.py").read_text()
+    source = (Path(__file__).resolve().parent.parent / "pdf_export.py").read_text()
     signature = next(line for line in source.splitlines() if line.startswith("def render_pdf_js"))
     assert "max_pages" not in signature, signature
 
 
 def test_pdf_renderer_paints_every_page():
     """The emitted pdf.js loop must run to pdf.numPages with nothing clamping it."""
-    source = (Path(__file__).resolve().parent.parent / "app.py").read_text()
-    body = source[source.index("def render_pdf_js"):source.index("def escape_latex_chars")]
+    source = (Path(__file__).resolve().parent.parent / "pdf_export.py").read_text()
+    body = source[source.index("def render_pdf_js"):]
     assert "var last=pdf.numPages;" in body
     assert "Math.min(pdf.numPages" not in body

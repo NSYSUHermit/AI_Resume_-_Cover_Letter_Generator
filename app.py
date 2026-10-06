@@ -1,11 +1,7 @@
 import streamlit as st
-import jinja2
 from datetime import datetime
-import subprocess
 import os
 import json
-import tempfile
-import shutil
 import base64
 import html
 import streamlit.components.v1 as components
@@ -15,6 +11,11 @@ from theme import TOKENS, FONT_STACK, css_root_block
 import ai
 import docx_export
 import workspace
+from workspace import resume_is_empty
+from pdf_export import (
+    BLOCK_ORDER_OPTIONS, LATEX_MISSING_MESSAGE, escape_latex_chars, template_file_for,
+    generate_preview_pdf_bytes, generate_cover_letter_pdf_bytes, render_pdf_js,
+)
 
 st.set_page_config(page_title="AI Resume", page_icon="AI", layout="wide")
 
@@ -34,14 +35,6 @@ def default_resume_data():
         "heading": { "name": "", "email": "", "phone": "", "website": "", "linkedin": "" },
         "cover_letter": "", "target_company": "", "target_role": "", "about me more": "", "summary": "", "education": [], "experience": [], "projects": [], "patents": [], "skills": { "set1": { "title": "Skills", "items": [] } }
     }
-
-def resume_is_empty(data):
-    data = data or {}
-    if any((data.get("heading") or {}).get(field) for field in ("name", "email", "phone")):
-        return False
-    if data.get("summary"):
-        return False
-    return not any(data.get(section) for section in ("education", "experience", "projects", "patents"))
 
 if "resume_data" not in st.session_state:
     st.session_state.resume_data = default_resume_data()
@@ -407,6 +400,29 @@ def editable_seed(rows, fields):
         return rows
     return [{field: "" for field in fields}]
 
+def stable_seed(key, build):
+    """The data a keyed st.data_editor is fed, frozen for the life of `key`.
+
+    Why this exists (tests/test_profile_editor_edits.py): streamlit 1.61.1
+    folds the full data into a num_rows="dynamic" editor's element id. The
+    editors here write their edits straight back into resume_data /
+    optimized_resume_data, so rebuilding the seed from that data on the next
+    rerun changed the id, Streamlit treated the table as a brand-new widget,
+    and the user's NEXT edit - sent by the browser under the old id - was
+    dropped. Users saw it as "the first thing I type disappears, the second
+    time it sticks". Freezing the seed keeps the id stable; the editor's own
+    edit log then accumulates on top of it exactly as Streamlit intends.
+
+    Every caller's `key` carries base_editor_key / opt_editor_key, which are
+    bumped wherever the underlying data is replaced wholesale (login, PDF
+    import, JSON import, a new optimize run), so a new key - and a fresh seed
+    built by `build()` - appears exactly when the table must reseed.
+    """
+    seed_key = f"{key}__seed"
+    if seed_key not in st.session_state:
+        st.session_state[seed_key] = build()
+    return st.session_state[seed_key]
+
 def details_to_text(details):
     if isinstance(details, str):
         # A malformed optimized_resume_data can carry "details" as an
@@ -528,7 +544,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Education")
         education_rows = st.data_editor(
-            editable_seed(data.get("education", []), EDUCATION_ROW_FIELDS),
+            stable_seed(f"{key_prefix}_education", lambda: editable_seed(data.get("education", []), EDUCATION_ROW_FIELDS)),
             key=f"{key_prefix}_education",
             num_rows="dynamic",
             hide_index=True,
@@ -541,7 +557,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    exp_seed = experience_seed_rows(data.get("experience", []))
+    exp_seed = stable_seed(f"{key_prefix}_experience", lambda: experience_seed_rows(data.get("experience", [])))
     with st.container(border=True):
         st.subheader("Experience")
         experience_rows = st.data_editor(
@@ -562,7 +578,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Projects")
         project_rows = st.data_editor(
-            editable_seed(data.get("projects", []), PROJECT_ROW_FIELDS),
+            stable_seed(f"{key_prefix}_projects", lambda: editable_seed(data.get("projects", []), PROJECT_ROW_FIELDS)),
             key=f"{key_prefix}_projects",
             num_rows="dynamic",
             hide_index=True,
@@ -577,7 +593,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Patents")
         patent_rows = st.data_editor(
-            editable_seed(data.get("patents", []), PATENT_ROW_FIELDS),
+            stable_seed(f"{key_prefix}_patents", lambda: editable_seed(data.get("patents", []), PATENT_ROW_FIELDS)),
             key=f"{key_prefix}_patents",
             num_rows="dynamic",
             hide_index=True,
@@ -592,7 +608,7 @@ def render_resume_form_editor(data, key_prefix):
     with st.container(border=True):
         st.subheader("Skills")
         skill_rows = st.data_editor(
-            skills_to_rows(data.get("skills", {})),
+            stable_seed(f"{key_prefix}_skills", lambda: skills_to_rows(data.get("skills", {}))),
             key=f"{key_prefix}_skills",
             num_rows="dynamic",
             hide_index=True,
@@ -754,133 +770,6 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
     )
     return True, "Done"
 
-# ---------------------------------------------------------
-# PDF 渲染
-# ---------------------------------------------------------
-def render_pdf_js(pdf_bytes, height=800):
-    """Render every page of a PDF inline with pdf.js.
-
-    This used to take a `max_pages` cap, defaulting to one page behind a
-    "Render all pages" checkbox, on the stated grounds that re-embedding the
-    document as base64 is the most expensive thing this app does on a rerun.
-    That reasoning was wrong: `base64.b64encode` below runs over the whole
-    document regardless of the cap, which only ever limited how many canvases
-    pdf.js painted client-side. The expensive half was paid either way, so the
-    cap bought nothing and cost the user a click plus the hidden pages.
-
-    If the base64 re-embed ever needs fixing for real, cache it on a hash of
-    `pdf_bytes` — that is the part that is actually expensive.
-
-    Canvases are appended synchronously in page order; an earlier version
-    appended them from the getPage callback, so pages could land out of order
-    whenever one resolved before an earlier one.
-    """
-    if not pdf_bytes: return
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_js_html = f"""<!DOCTYPE html><html><head>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<style>
-body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:10px;}}
-canvas{{margin-bottom:10px;border:1px solid #334155;max-width:98%;}}
-#note{{color:#94a3b8;font:13px {FONT_STACK};padding:6px 10px;text-align:center;}}
-</style></head><body><div id="p"></div><div id="note"></div><script>
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-var b=window.atob('{base64_pdf}');
-var bytes=new Uint8Array(b.length);
-for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);
-pdfjsLib.getDocument({{data:bytes}}).promise.then(function(pdf){{
-  var last=pdf.numPages;
-  for(var i=1;i<=last;i++){{
-    (function(n){{
-      var c=document.createElement('canvas');
-      document.getElementById('p').appendChild(c);
-      pdf.getPage(n).then(function(page){{
-        var v=page.getViewport({{scale:1.3}});
-        c.height=v.height;c.width=v.width;
-        page.render({{canvasContext:c.getContext('2d'),viewport:v}});
-      }});
-    }})(i);
-  }}
-  document.getElementById('note').textContent=pdf.numPages+(pdf.numPages===1?' page':' pages');
-}});</script></body></html>"""
-    components.html(pdf_js_html, height=height, scrolling=True)
-
-def escape_latex_chars(obj):
-    """Recursively escape LaTeX special characters to prevent compilation errors."""
-    if isinstance(obj, str):
-        latex_escape_map = {
-            '\\': r'\textbackslash{}',
-            '$': r'\$',
-            '%': r'\%',
-            '&': r'\&',
-            '＆': r'\&',
-            '_': r'\_',
-            '#': r'\#',
-            '{': r'\{',
-            '}': r'\}',
-            '~': r'\textasciitilde{}',
-            '^': r'\textasciicircum{}',
-        }
-        return "".join(latex_escape_map.get(ch, ch) for ch in obj)
-    elif isinstance(obj, list):
-        return [escape_latex_chars(i) for i in obj]
-    elif isinstance(obj, dict):
-        return {k: escape_latex_chars(v) for k, v in obj.items()}
-    return obj
-
-# Shown when lualatex is missing from PATH entirely. That is a different
-# failure from a LaTeX compile error and needs a different answer: no amount of
-# editing the resume will fix it, so the log excerpt the compile-error branch
-# prints would be pure noise. Reachable on Streamlit Cloud whenever
-# packages.txt is absent - see packages.txt.disabled for why it currently is.
-LATEX_MISSING_MESSAGE = (
-    "PDF generation is unavailable in this deployment: LuaLaTeX is not installed. "
-    "Use the Word (.docx) download instead — it is built from the same data and "
-    "needs no LaTeX. Everything else (AI optimization, ATS analysis, the tracker) "
-    "works normally."
-)
-
-
-def template_file_for(template_label):
-    """Map the Template selectbox's label to its .tex file.
-
-    Shared by render_export_settings() (the real export, left column) and
-    render_preview()'s cached base-resume preview (right column) so the two
-    can never silently drift apart on what "Tech" / "Business" resolve to.
-    """
-    return "main.tex" if "Tech" in template_label else "elsa_main.tex"
-
-def generate_preview_pdf_bytes(data, template_name, block_order):
-    try:
-        escaped_data = escape_latex_chars(data)
-        with tempfile.TemporaryDirectory() as td:
-            shutil.copy(template_name, td)
-            tp = os.path.join(td, template_name)
-            with open(tp, "r", encoding="utf-8") as f: c = f.read()
-            if block_order and "BLOCKS_PLACEHOLDER" in c:
-                bs = ""
-                for b in block_order:
-                    if b == "Summary": bs += "\\directlua{printSummary()}\n"
-                    elif b == "Experience": bs += "\\section{WORK EXPERIENCE}\n\\directlua{printExperience()}\n"
-                    elif b == "Education": bs += "\\section{EDUCATION}\n\\directlua{printEducation()}\n"
-                    elif b == "Projects & Patents": bs += "\\directlua{printProjectsAndPatents()}\n"
-                    elif b == "Skills": bs += "\\section{SKILLS}\n\\directlua{printSkills()}\n"
-                c = c.replace("BLOCKS_PLACEHOLDER", bs)
-                with open(tp, "w", encoding="utf-8") as f: f.write(c)
-            with open(os.path.join(td, "ml_resume.json"), "w", encoding="utf-8") as f: json.dump(escaped_data, f, ensure_ascii=False)
-            result = subprocess.run(['lualatex', '-interaction=nonstopmode', template_name], cwd=td, capture_output=True, text=True)
-            if result.returncode != 0:
-                st.error("Resume PDF generation failed. Check the LaTeX log below.")
-                st.code((result.stdout or result.stderr or "")[-4000:], language="text")
-                return None
-            op = tp.replace(".tex", ".pdf")
-            if os.path.exists(op): return open(op, "rb").read()
-            st.error("Resume PDF generation finished without producing a PDF.")
-    except FileNotFoundError:
-        st.error(LATEX_MISSING_MESSAGE)
-    except Exception as e:
-        st.error(f"Resume PDF generation error: {e}")
-    return None
 
 class PreviewCompileFailed(Exception):
     """Raised by base_preview_pdf() on a failed compile - see its docstring.
@@ -947,70 +836,6 @@ def base_preview_pdf(snapshot, template_name, block_order):
     if pdf_bytes is None:
         raise PreviewCompileFailed()
     return pdf_bytes
-
-def generate_cover_letter_pdf_bytes(data):
-    try:
-        # 獲取內容與標頭資訊 (由使用者要求恢復專業版面)
-        txt = data.get('cover_letter') or data.get('coverLetter') or data.get('Cover Letter', '')
-        if not txt: return None
-        
-        escaped_data = escape_latex_chars(data)
-        escaped_txt = escape_latex_chars(txt)
-        
-        heading = escaped_data.get('heading', {})
-        name = heading.get('name', 'Your Name')
-        email = heading.get('email', '')
-        phone = heading.get('phone', '')
-        linkedin = heading.get('linkedin', '')
-        website = heading.get('website', '')
-
-        # 使用自定義 Jinja2 環境，避免與 LaTeX 的 {} 衝突 (由使用者回報錯誤修復)
-        latex_jinja_env = jinja2.Environment(
-            block_start_string='<%-',
-            block_end_string='%>',
-            variable_start_string='<<',
-            variable_end_string='>>',
-            comment_start_string='<#',
-            comment_end_string='#>',
-            line_statement_prefix='%%',
-            line_comment_prefix='%#',
-            trim_blocks=True,
-            autoescape=False,
-            loader=jinja2.FileSystemLoader(os.path.abspath('.'))
-        )
-        template = latex_jinja_env.get_template('cover_letter.tex')
-        
-        # 準備資料
-        template_data = {
-            "name": name,
-            "email": email,
-            "phone": phone,
-            "linkedin": linkedin,
-            "website": website,
-            "body": escaped_txt.replace("\n", "\n\n").replace('**', '')
-        }
-        
-        rendered_tex = template.render(template_data)
-
-        with tempfile.TemporaryDirectory() as td:
-            tex_path = os.path.join(td, "c.tex")
-            with open(tex_path, "w", encoding="utf-8") as f:
-                f.write(rendered_tex)
-            
-            result = subprocess.run(['lualatex', '-interaction=nonstopmode', 'c.tex'], cwd=td, capture_output=True, text=True)
-            if result.returncode != 0:
-                st.error("Cover Letter PDF generation failed. Check the LaTeX log below.")
-                st.code((result.stdout or result.stderr or "")[-4000:], language="text")
-                return None
-            pdf_path = os.path.join(td, "c.pdf")
-            if os.path.exists(pdf_path):
-                return open(pdf_path, "rb").read()
-    except FileNotFoundError:
-        st.error(LATEX_MISSING_MESSAGE)
-        return None
-    except Exception as e:
-        st.error(f"Cover Letter generation error: {e}")
-        return None
 
 # 🔔 處理 Rerun 後的延遲動作 (必須在任何 widget 建立之前執行)
 if st.session_state.pop("pending_reset", False):
@@ -1090,30 +915,32 @@ _SIDEBAR_WIDTH_CSS = """
     /* The toggle straddles the sidebar's right edge as a circular chip, the
        way the owner's reference app does it
        (Dashboard.tsx:71 - `absolute -right-3.5 top-8 rounded-full`, revealed
-       on sidebar hover). Streamlit renders the button in normal flow, so it
-       is lifted out with position:absolute; the sidebar <section> already
-       carries position:relative from Streamlit's own inline style, which is
-       what this anchors against.
+       on sidebar hover).
 
-       overflow must stay visible on the ancestors or a chip hanging 14px past
-       the edge gets clipped. */
-    /* The sidebar must scroll. An earlier version set `overflow: visible` on
-       both the section and its content so the collapse chip could hang 14px
-       past the right edge - which also killed scrolling, hiding the Settings
-       expander and the whole login form below the fold. Scrolling wins; the
-       chip is tucked just inside the edge instead (see its `right` below).
-       Note CSS cannot split the axes here: setting overflow-x: visible with
-       overflow-y: auto silently computes the x axis to auto as well. */
+       The sidebar must scroll, so stSidebarContent keeps overflow-y: auto -
+       and every ancestor up to stApp clips too (overflow hidden), so an
+       absolutely positioned chip hanging past the edge was cut off, and an
+       earlier version tucked it 6px inside the edge instead. The owner
+       flagged that as "not lined up with the border". position: fixed
+       escapes overflow clipping (no ancestor carries a transform/filter,
+       which is the one thing that would re-anchor it), so the chip can sit
+       exactly centred on the 1px border line: left = the sidebar's VISIBLE
+       edge minus half its own 28px. That edge is %(edge)d, not %(w)d: in rail
+       mode the section keeps its full width and is slid off-screen by
+       margin-left (see _SIDEBAR_RAIL_SLIDE_CSS), so only SIDEBAR_RAIL_PX of
+       it shows and the border line sits there. Hover reveal still works:
+       :hover on the sidebar fires for any DOM descendant, wherever it is
+       painted. */
     [data-testid="stSidebar"] > [data-testid="stSidebarContent"] {
         overflow-y: auto !important;
     }
 
     [data-testid="stSidebar"] .st-key-sidebar_toggle {
-        position: absolute !important;
+        position: fixed !important;
         top: 2rem;
-        right: 6px;
+        left: calc(%(edge)dpx - 14px);
         width: auto !important;
-        z-index: 30;
+        z-index: 40;
         opacity: 0;
         transition: opacity var(--ease), transform var(--ease);
     }
@@ -1268,7 +1095,10 @@ _SIDEBAR_RAIL_SLIDE_CSS = """
 def _sidebar_css():
     collapsed = st.session_state.get("sidebar_collapsed", False)
     width = SIDEBAR_RAIL_FLOOR_PX if collapsed else SIDEBAR_EXPANDED_PX
-    css = _SIDEBAR_WIDTH_CSS % {"w": width}
+    # Where the sidebar's right border actually is on screen - the collapse
+    # chip is centred on it (see _SIDEBAR_WIDTH_CSS's toggle rule).
+    edge = SIDEBAR_RAIL_PX if collapsed else SIDEBAR_EXPANDED_PX
+    css = _SIDEBAR_WIDTH_CSS % {"w": width, "edge": edge}
     if collapsed:
         css += _SIDEBAR_RAIL_SLIDE_CSS % {"off": SIDEBAR_RAIL_OFFSET_PX}
         css += _SIDEBAR_RAIL_CSS
@@ -1719,6 +1549,26 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     /* Blue while an AI call is in flight, green once it lands (below). Both use
        the .st-key- hook that ui_feedback.py and render_result_banner set up. */
     .st-key-ai_status details,
+    /* "Ask about this application" chat box. Streamlit draws the chat
+       input's frame as `1px solid transparent` and only colours it on
+       focus, so on the expander's white background the box had no visible
+       edge at all until clicked - the owner could not tell where to type.
+       Give it a resting border in the input colour, and the brand focus
+       ring every other input in this app shows. The border lives on the
+       inner wrapper div (the one carrying the 8px radius), not on
+       [data-testid="stChatInput"] itself, which is a plain flex container. */
+    [data-testid="stChatInput"] > div {
+        border: 1px solid var(--border-input) !important;
+        background: var(--surface) !important;
+        border-radius: var(--radius) !important;
+        box-shadow: var(--shadow-sm);
+        transition: border-color var(--ease), box-shadow var(--ease);
+    }
+    [data-testid="stChatInput"]:focus-within > div {
+        border-color: var(--brand) !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
     .st-key-ai_status [data-testid="stExpander"] {
         border-left: 4px solid var(--brand) !important;
         background: rgba(37, 99, 235, 0.05) !important;
@@ -2616,7 +2466,7 @@ with st.sidebar:
                 if st.form_submit_button("Create Account", type="primary", use_container_width=True):
                     auth_db = get_db()
                     if auth_db is not None:
-                        ok, msg = register_user(auth_db, e.strip(), p)
+                        ok, msg = register_user(auth_db, e.strip(), p, client_ip=st.context.ip_address)
                         if ok: st.success(msg)
                         else: st.error(msg)
     with st.expander("Settings"):
@@ -3206,9 +3056,11 @@ def render_optimized_draft_table():
         )
 
         st.caption("Experience")
+        # Fresh seeds (`*_seed`) feed the baseline comparison below; the
+        # widgets themselves get stable_seed() - see its docstring.
         exp_seed = experience_seed_rows(current.get("experience"))
         experience_rows = st.data_editor(
-            exp_seed,
+            stable_seed(f"draft_experience_{ekey}", lambda: exp_seed),
             key=f"draft_experience_{ekey}",
             num_rows="dynamic",
             hide_index=True,
@@ -3225,7 +3077,7 @@ def render_optimized_draft_table():
         st.caption("Education")
         education_seed = editable_seed(current.get("education", []), EDUCATION_ROW_FIELDS)
         education_rows = st.data_editor(
-            education_seed,
+            stable_seed(f"draft_education_{ekey}", lambda: education_seed),
             key=f"draft_education_{ekey}",
             num_rows="dynamic",
             hide_index=True,
@@ -3241,7 +3093,7 @@ def render_optimized_draft_table():
         st.caption("Projects")
         projects_seed = editable_seed(current.get("projects", []), PROJECT_ROW_FIELDS)
         project_rows = st.data_editor(
-            projects_seed,
+            stable_seed(f"draft_projects_{ekey}", lambda: projects_seed),
             key=f"draft_projects_{ekey}",
             num_rows="dynamic",
             hide_index=True,
@@ -3256,7 +3108,7 @@ def render_optimized_draft_table():
         st.caption("Patents")
         patents_seed = editable_seed(current.get("patents", []), PATENT_ROW_FIELDS)
         patent_rows = st.data_editor(
-            patents_seed,
+            stable_seed(f"draft_patents_{ekey}", lambda: patents_seed),
             key=f"draft_patents_{ekey}",
             num_rows="dynamic",
             hide_index=True,
@@ -3271,7 +3123,7 @@ def render_optimized_draft_table():
         st.caption("Skills")
         skills_seed = skills_to_rows(current.get("skills", {}))
         skill_rows = st.data_editor(
-            skills_seed,
+            stable_seed(f"draft_skills_{ekey}", lambda: skills_seed),
             key=f"draft_skills_{ekey}",
             num_rows="dynamic",
             hide_index=True,
@@ -3383,11 +3235,6 @@ def render_ats_analysis():
                 st.markdown(f"- `{k}`")
     elif m is None:
         st.info("No keyword list was available for this result, so coverage was not scored.")
-
-# Shared between render_export_settings() (left column) and render_preview()'s
-# cached base-resume preview (right column) - two different @st.fragments that
-# both need the same durable list of section names.
-BLOCK_ORDER_OPTIONS = ["Summary", "Experience", "Education", "Projects & Patents", "Skills"]
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -4060,36 +3907,12 @@ else:
     # so removal has to be driven from the view that is actually rendering.
     remove_generator_splitter()
 
-def tracker_resume_pdf(resume_json, template_label):
-    """PDF of a resume saved in the tracker, for render_application_dialog().
-
-    Same compiler and template mapping as the Generator's export, with the
-    default full section order: a tracker row is a record of what was sent,
-    not a place to redesign it. Returns None on failure; the compiler has
-    already shown the error (or LATEX_MISSING_MESSAGE) by then.
-    """
-    return generate_preview_pdf_bytes(resume_json, template_file_for(template_label), list(BLOCK_ORDER_OPTIONS))
-
-def tracker_resume_docx(resume_json):
-    """Word copy of a saved resume, or None if the data is too sparse."""
-    try:
-        if resume_is_empty(resume_json):
-            return None
-        return docx_export.build_resume_docx(resume_json, list(BLOCK_ORDER_OPTIONS))
-    except Exception:
-        return None
-
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
         tracker_db = get_db()
         if tracker_db is not None:
             render_interview_progress(tracker_db, st.session_state.user_email)
-            render_dashboard(
-                tracker_db, st.session_state.user_email,
-                build_pdf=tracker_resume_pdf,
-                build_docx=tracker_resume_docx,
-                render_pdf=render_pdf_js,
-            )
+            render_dashboard(tracker_db, st.session_state.user_email)
         else:
             st.warning("Tracker is unavailable until Firebase secrets are configured.")
     else: st.warning("Login first.")
