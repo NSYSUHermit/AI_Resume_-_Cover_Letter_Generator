@@ -4060,12 +4060,36 @@ else:
     # so removal has to be driven from the view that is actually rendering.
     remove_generator_splitter()
 
+def tracker_resume_pdf(resume_json, template_label):
+    """PDF of a resume saved in the tracker, for render_application_dialog().
+
+    Same compiler and template mapping as the Generator's export, with the
+    default full section order: a tracker row is a record of what was sent,
+    not a place to redesign it. Returns None on failure; the compiler has
+    already shown the error (or LATEX_MISSING_MESSAGE) by then.
+    """
+    return generate_preview_pdf_bytes(resume_json, template_file_for(template_label), list(BLOCK_ORDER_OPTIONS))
+
+def tracker_resume_docx(resume_json):
+    """Word copy of a saved resume, or None if the data is too sparse."""
+    try:
+        if resume_is_empty(resume_json):
+            return None
+        return docx_export.build_resume_docx(resume_json, list(BLOCK_ORDER_OPTIONS))
+    except Exception:
+        return None
+
 if active_view == workspace.TRACKER:      # 原 "Tracker"
     if st.session_state.logged_in:
         tracker_db = get_db()
         if tracker_db is not None:
             render_interview_progress(tracker_db, st.session_state.user_email)
-            render_dashboard(tracker_db, st.session_state.user_email)
+            render_dashboard(
+                tracker_db, st.session_state.user_email,
+                build_pdf=tracker_resume_pdf,
+                build_docx=tracker_resume_docx,
+                render_pdf=render_pdf_js,
+            )
         else:
             st.warning("Tracker is unavailable until Firebase secrets are configured.")
     else: st.warning("Login first.")

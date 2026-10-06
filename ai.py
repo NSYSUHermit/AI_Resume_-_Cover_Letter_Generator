@@ -297,56 +297,7 @@ def keyword_report(keywords, original_resume, optimized_resume):
 
 
 # ---------------------------------------------------------
-# 5. Interview preparation helpers
-# ---------------------------------------------------------
-def predict_interview_questions(jd_text, resume_data, api_key):
-    """Predict likely interview questions for a saved application."""
-    if not api_key:
-        return None
-    try:
-        return _generate_json(api_key, f"""You are a senior interviewer. Based on the following Job Description and
-the candidate's resume, predict 5 technical questions and 3 behavioral questions
-most likely to be asked. Ground every question in something the resume or the JD
-actually says. Return ONLY valid JSON.
-
-[FORMAT]
-{{
-    "technical": ["Question 1", "Question 2"],
-    "behavioral": ["Question 1", "Question 2"]
-}}
-
-[JD]: {jd_text}
-[Resume]: {json.dumps(resume_data, ensure_ascii=False)}""")
-    except Exception:
-        return None
-
-
-def analyze_skill_gap(jd_text, resume_data, api_key):
-    """Score the candidate against the role for a radar chart."""
-    if not api_key:
-        return None
-    try:
-        return _generate_json(api_key, f"""Analyse the match between the candidate's resume and the job description.
-Extract 5 key categories (e.g. Programming, Cloud, Soft Skills, Tools, Domain
-Knowledge). For each, score the candidate's demonstrated proficiency and the
-job's required level from 0-100. Base the candidate score only on evidence
-present in the resume. Return ONLY valid JSON.
-
-[FORMAT]
-{{
-    "categories": ["Category 1", "Category 2"],
-    "candidate_scores": [80, 70],
-    "requirement_scores": [90, 80]
-}}
-
-[JD]: {jd_text}
-[Resume]: {json.dumps(resume_data, ensure_ascii=False)}""")
-    except Exception:
-        return None
-
-
-# ---------------------------------------------------------
-# 6. Application Q&A
+# 5. Application Q&A
 # ---------------------------------------------------------
 
 # Kept as a named constant, and pinned by tests/test_application_chat.py,
@@ -429,10 +380,9 @@ YOU:"""
 def answer_application_question(messages, jd_text, resume_data, optimized_resume, api_key):
     """One chat turn. Returns (ok, text).
 
-    Reports the failure instead of swallowing it the way
-    predict_interview_questions() does. That one degrades to hiding a panel the
-    user never asked for; a chat box that answers nothing and explains nothing
-    is just broken, and the caller needs something to put in the bubble.
+    Reports the failure instead of swallowing it: a chat box that answers
+    nothing and explains nothing is just broken, and the caller needs
+    something to put in the bubble.
     """
     if not api_key:
         return False, "Connect a Gemini API key first."

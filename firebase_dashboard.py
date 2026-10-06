@@ -7,28 +7,7 @@ import plotly.graph_objects as go
 from firebase_admin import credentials, firestore
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
-from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK
-import ai
-
-# ==========================================
-# 0. Reporting wrappers for the AI status panel
-# ==========================================
-def prep_interview_questions(app_data, report=lambda m: None):
-    report("Reading the saved job description and resume...")
-    return ai.predict_interview_questions(
-        app_data.get("jd_text", ""),
-        app_data.get("resume_json", {}),
-        st.session_state.get("api_key", ""),
-    )
-
-def prep_skill_gap(app_data, report=lambda m: None):
-    report("Comparing your resume against the role...")
-    return ai.analyze_skill_gap(
-        app_data.get("jd_text", ""),
-        app_data.get("resume_json", {}),
-        st.session_state.get("api_key", ""),
-    )
 
 # ==========================================
 # 1. 初始化與連接 Firebase
@@ -320,9 +299,190 @@ def render_interview_progress(db, email: str):
     except Exception as e:
         st.error(f"Failed to load analysis data: {e}")
 
-def render_dashboard(db, email: str):
+# Per-status colour for the row's status text, via Streamlit's built-in
+# markdown colours so it tracks the theme instead of hard-coding hex here.
+STATUS_COLORS = {
+    "Applied": "blue",
+    "Interviewing": "orange",
+    "Offered": "green",
+    "Rejected": "red",
+}
+
+# Streamlit dialogs are fragments: widgets inside rerun only the dialog and
+# keep it open, while an app-scope st.rerun() (after Update / Delete) closes
+# it. It is therefore only ever called from the Preview button's `if` branch -
+# calling it unconditionally would reopen it after every dismissal.
+@st.dialog("Application", width="large")
+def render_application_dialog(db, email, app_data, local_time, build_pdf, build_docx, render_pdf):
+    """Preview + download + edit for one saved application.
+
+    `build_pdf(resume_json, template_label)`, `build_docx(resume_json)` and
+    `render_pdf(pdf_bytes, height)` come from app.py: the LaTeX/pdf.js/docx
+    code lives there and this module must not import app.py (app.py imports
+    this one). Any of them may be None, in which case that part of the
+    dialog degrades to a message instead of raising.
+    """
+    doc_id = app_data["id"]
+    company = app_data.get("company_name") or "Unknown"
+    status = app_data.get("status", "Applied")
+    resume_json = app_data.get("resume_json") or {}
+    role = (resume_json.get("target_role") or "").strip()
+
+    st.markdown(f"### {company}")
+    facts = []
+    if role:
+        facts.append(role)
+    facts.append(f":{STATUS_COLORS.get(status, 'gray')}[{status}]")
+    facts.append(f"Applied {local_time(app_data.get('applied_date'))}")
+    for label, field in (("Interview", "interview_date"), ("Offered", "offered_date"), ("Rejected", "rejected_date")):
+        if app_data.get(field):
+            facts.append(f"{label} {local_time(app_data[field])}")
+    st.caption(" · ".join(facts))
+
+    # --- export row --------------------------------------------------------
+    tmpl_col, pdf_col, docx_col = st.columns([2, 1.2, 1.2])
+    with tmpl_col:
+        template_label = st.selectbox(
+            "Template", ["Tech", "Business"],
+            key=f"dlg_tmpl_{doc_id}", label_visibility="collapsed",
+        )
+
+    pdf_bytes = None
+    if build_pdf is not None:
+        # Bounded per-session cache keyed by record + template. lualatex
+        # takes seconds; reopening the same record must be instant. A failed
+        # compile (None) is deliberately not cached, so a transient failure
+        # is retried next time instead of sticking - same reasoning as
+        # base_preview_pdf() in app.py.
+        cache = st.session_state.setdefault("tracker_pdf_cache", {})
+        cache_key = f"{doc_id}:{template_label}"
+        if cache_key in cache:
+            pdf_bytes = cache[cache_key]
+        else:
+            with st.spinner("Compiling PDF..."):
+                pdf_bytes = build_pdf(resume_json, template_label)
+            if pdf_bytes:
+                if len(cache) >= 8:
+                    del cache[next(iter(cache))]
+                cache[cache_key] = pdf_bytes
+
+    docx_bytes = build_docx(resume_json) if build_docx is not None else None
+    file_stem = _export_stem(resume_json)
+
+    with pdf_col:
+        if pdf_bytes:
+            st.download_button(
+                "Download PDF", pdf_bytes, f"{file_stem}_Resume.pdf",
+                icon=":material/download:", key=f"dlg_pdf_{doc_id}", use_container_width=True,
+            )
+    with docx_col:
+        if docx_bytes:
+            st.download_button(
+                "Download Word", docx_bytes, f"{file_stem}_Resume.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                icon=":material/description:", key=f"dlg_docx_{doc_id}", use_container_width=True,
+            )
+
+    # --- preview -----------------------------------------------------------
+    if pdf_bytes and render_pdf is not None:
+        render_pdf(pdf_bytes, height=520)
+    elif build_pdf is None:
+        st.info("PDF preview is not available here.")
+    # A failed compile already reported itself via st.error inside build_pdf.
+
+    # --- raw data ----------------------------------------------------------
+    with st.expander("Saved job description & resume JSON"):
+        st.markdown("**Job Description**")
+        st.info(app_data.get("jd_text") or "No JD saved.")
+        _render_copy_json_button(doc_id, resume_json)
+        st.json(resume_json)
+
+    # --- edit --------------------------------------------------------------
+    st.divider()
+    current_notes = app_data.get("notes", "") or ""
+    new_notes = st.text_area(
+        "Notes", value=current_notes, key=f"dlg_notes_{doc_id}", height=100,
+        placeholder="Interview notes, follow-up reminders...",
+    )
+    options = ["Applied", "Interviewing", "Offered", "Rejected"]
+    current_idx = options.index(status) if status in options else 0
+    stat_col, upd_col, del_col = st.columns([2, 1.2, 1.2])
+    with stat_col:
+        new_status = st.selectbox(
+            "Status", options, index=current_idx,
+            key=f"dlg_status_{doc_id}", label_visibility="collapsed",
+        )
+    with upd_col:
+        if st.button("Update", key=f"dlg_update_{doc_id}", type="primary", use_container_width=True):
+            if new_status != status or new_notes != current_notes:
+                if update_application_status(db, email, doc_id, new_status, new_notes):
+                    st.session_state.pending_toast = "Application updated."
+                    st.rerun()
+            else:
+                st.toast("No changes detected.")
+    confirm_key = f"dlg_confirm_delete_{doc_id}"
+    with del_col:
+        if st.button("Delete", key=f"dlg_delete_{doc_id}", use_container_width=True):
+            st.session_state[confirm_key] = True
+
+    # Two-step delete: Firestore has no undo, so the first click only asks.
+    if st.session_state.get(confirm_key):
+        st.warning(f"Delete the {company} record? This cannot be undone.")
+        yes_col, no_col = st.columns(2)
+        with yes_col:
+            if st.button("Yes, delete", key=f"dlg_delete_confirm_{doc_id}", type="primary", use_container_width=True):
+                del st.session_state[confirm_key]
+                if delete_application(db, email, doc_id):
+                    st.session_state.pending_toast = "Record deleted."
+                    st.rerun()
+        with no_col:
+            if st.button("Cancel", key=f"dlg_delete_cancel_{doc_id}", use_container_width=True):
+                del st.session_state[confirm_key]
+                st.rerun(scope="fragment")
+
+
+def _export_stem(resume_json):
+    """"Acme_Backend_Engineer" - mirrors app.export_file_name()'s naming so a
+    file downloaded from the tracker sits next to the one downloaded at
+    export time under the same name."""
+    def part(value, fallback):
+        text = str(value or fallback).strip().replace(" ", "_")
+        cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
+        return cleaned.strip("_") or fallback
+    company = (resume_json.get("target_company") or "").strip()
+    role = (resume_json.get("target_role") or "").strip()
+    if company or role:
+        return f"{part(company, 'Company')}_{part(role, 'Role')}"
+    return part((resume_json.get("heading") or {}).get("name"), "Resume")
+
+
+def _render_copy_json_button(doc_id, resume_json):
+    resume_json_str = json.dumps(resume_json, ensure_ascii=False, indent=4)
+    b64_resume = base64.b64encode(resume_json_str.encode("utf-8")).decode("utf-8")
+    js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="{TOKENS['success']}";btn.style.color="{TOKENS['success']}";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="{TOKENS['border']}";btn.style.color="{TOKENS['text']}";btn.style.backgroundColor="{TOKENS['surface']}";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
+    html_copy_json = f"""
+    <body style="margin:0; padding:0; background:transparent;">
+        <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
+            width:100%; height:38px; border-radius:8px;
+            background:{TOKENS['surface']}; color:{TOKENS['text']}; border:1px solid {TOKENS['border']};
+            cursor:pointer; font-weight:650; font-size: 14px;
+            font-family: {FONT_STACK};
+            display: flex; align-items: center; justify-content: center;
+            box-shadow:0 1px 2px rgba(15,23,42,0.06);
+            transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
+            Copy JSON
+        </button>
+    </body>
+    """
+    components.html(html_copy_json, height=45)
+
+
+def render_dashboard(db, email: str, build_pdf=None, build_docx=None, render_pdf=None):
     """
     Fetch and render job applications on the dashboard.
+
+    `build_pdf` / `build_docx` / `render_pdf` are forwarded to
+    render_application_dialog() - see its docstring for their contracts.
     """
     col_title, col_tz = st.columns([3, 1])
     with col_title:
@@ -469,152 +629,34 @@ def render_dashboard(db, email: str):
         visible_records = selected_records[:visible_count]
         st.caption(f"Showing {visible_count} of {len(selected_records)} matching records.")
         
-        @st.fragment
         def render_record(app_data, tab_name):
-            """One tracker row, isolated so typing a note or changing a status
-            reruns only this record instead of redrawing all 20."""
+            """One tracker row: who, where it stands, and a Preview button.
+            Everything editable lives in render_application_dialog(), so the
+            row itself has no widgets that need fragment isolation."""
             doc_id = app_data['id']
-            company = app_data.get("company_name", "Unknown")
+            company = app_data.get("company_name") or "Unknown"
             status = app_data.get("status", "Applied")
             date_str = get_local_time_str(app_data.get("applied_date"))
+            role = ((app_data.get("resume_json") or {}).get("target_role") or "").strip()
 
-            with st.expander(f"{company} — {status} ({date_str})", expanded=False):
-                # 現代化佈局: 左側為資訊, 右側為快捷操作區塊
-                c_info, c_actions = st.columns([1, 1])
-
-                with c_info:
-                    st.markdown(f"**Applied:** `{date_str}`")
-                    if app_data.get("interview_date"):
-                        st.markdown(f"**Interview:** `{get_local_time_str(app_data['interview_date'])}`")
-                    if app_data.get("offered_date"):
-                        st.markdown(f"**Offered:** `{get_local_time_str(app_data['offered_date'])}`")
-                    if app_data.get("rejected_date"):
-                        st.markdown(f"**Rejected:** `{get_local_time_str(app_data['rejected_date'])}`")
-                        
-                    st.write("")
-                    col_view, col_copy = st.columns(2)
-                    with col_view:
-                        if st.button("View Data", key=f"view_{tab_name}_{doc_id}", use_container_width=True):
-                            st.session_state.active_tracker_detail = doc_id
-
-                    with col_copy:
-                        if st.session_state.get("active_tracker_detail") == doc_id:
-                            if st.button("Hide Data", key=f"hide_{tab_name}_{doc_id}", use_container_width=True):
-                                del st.session_state.active_tracker_detail
-                                st.rerun()
-                        else:
-                            st.caption("Open View Data to copy JSON.")
-
-                    if st.session_state.get("active_tracker_detail") == doc_id:
-                        with st.container(border=True):
-                            st.markdown("##### Saved Application Data")
-                            st.markdown("**Job Description:**")
-                            st.info(app_data.get("jd_text", "No JD saved."))
-                            resume_json = app_data.get("resume_json", {})
-                            resume_json_str = json.dumps(resume_json, ensure_ascii=False, indent=4)
-                            b64_resume = base64.b64encode(resume_json_str.encode("utf-8")).decode("utf-8")
-                            js_code = f"""try{{var b=window.atob("{b64_resume}");var len=b.length;var bytes=new Uint8Array(len);for(var i=0;i<len;i++){{bytes[i]=b.charCodeAt(i);}}var text=new TextDecoder("utf-8").decode(bytes);var btn=this;var cb=function(t){{if(navigator.clipboard&&window.isSecureContext){{return navigator.clipboard.writeText(t);}}else{{var ta=document.createElement("textarea");ta.value=t;ta.style.position="absolute";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();return Promise.resolve();}}}};cb(text).then(function(){{btn.innerText="Copied";btn.style.borderColor="{TOKENS['success']}";btn.style.color="{TOKENS['success']}";btn.style.backgroundColor="#ecfdf5";setTimeout(function(){{btn.innerText="Copy JSON";btn.style.borderColor="{TOKENS['border']}";btn.style.color="{TOKENS['text']}";btn.style.backgroundColor="{TOKENS['surface']}";}},2000);}});}}catch(e){{console.error(e);this.innerText="Error";}}"""
-                            html_copy_json = f"""
-                            <body style="margin:0; padding:0; background:transparent;">
-                                <button id="copyJsonBtn_{doc_id}" onclick='{js_code}' style="
-                                    width:100%; height:38px; border-radius:8px;
-                                    background:{TOKENS['surface']}; color:{TOKENS['text']}; border:1px solid {TOKENS['border']};
-                                    cursor:pointer; font-weight:650; font-size: 14px;
-                                    font-family: {FONT_STACK};
-                                    display: flex; align-items: center; justify-content: center;
-                                    box-shadow:0 1px 2px rgba(15,23,42,0.06);
-                                    transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
-                                    Copy JSON
-                                </button>
-                            </body>
-                            """
-                            components.html(html_copy_json, height=45)
-                            st.markdown("**Saved Resume JSON:**")
-                            st.json(resume_json)
-                            
-                with c_actions:
-                    current_notes = app_data.get("notes", "")
-                    new_notes = st.text_area("Notes", value=current_notes, key=f"notes_{tab_name}_{doc_id}", height=100, label_visibility="collapsed", placeholder="Add your interview notes or follow-up reminders here...")
-                        
-                    # 操作按鈕列
-                    col_stat, col_upd, col_prep, col_del = st.columns([4, 2, 2, 2])
-                    with col_stat:
-                        options = ["Applied", "Interviewing", "Offered", "Rejected"]
-                        current_idx = options.index(status) if status in options else 0
-                        new_status = st.selectbox("Status", options, index=current_idx, key=f"select_{tab_name}_{doc_id}", label_visibility="collapsed")
-                    with col_upd:
-                        if st.button("Update", key=f"btn_{tab_name}_{doc_id}", use_container_width=True, type="primary"):
-                            if new_status != status or new_notes != current_notes:
-                                if update_application_status(db, email, doc_id, new_status, new_notes):
-                                    st.toast("Application updated successfully.")
-                                    st.rerun()
-                            else:
-                                st.toast("No changes detected.")
-                        
-                    with col_prep:
-                        btn_prep = st.button("Prep", key=f"prep_{tab_name}_{doc_id}", use_container_width=True, help="Predict interview questions for this specific role")
-                        btn_radar = st.button("Radar", key=f"radar_{tab_name}_{doc_id}", use_container_width=True, help="Analyze skill gap for this specific role")
-                            
-                        if btn_prep:
-                            questions = run_ai_call(
-                                "Preparing interview questions",
-                                lambda report: prep_interview_questions(app_data, report),
-                                success=lambda r: r is not None,
-                            )
-                            if questions:
-                                st.session_state[f"prep_result_{doc_id}"] = questions
-                                if f"radar_result_{doc_id}" in st.session_state: del st.session_state[f"radar_result_{doc_id}"]
-                            else:
-                                st.error("Failed to generate questions. Check API key.")
-                            
-                        if btn_radar:
-                            gap_data = run_ai_call(
-                                "Analyzing skill match",
-                                lambda report: prep_skill_gap(app_data, report),
-                                success=lambda r: r is not None,
-                            )
-                            if gap_data:
-                                st.session_state[f"radar_result_{doc_id}"] = gap_data
-                                if f"prep_result_{doc_id}" in st.session_state: del st.session_state[f"prep_result_{doc_id}"]
-                            else:
-                                st.error("Failed to generate radar data.")
-                        
-                    with col_del:
-                        if st.button("Del", key=f"del_{tab_name}_{doc_id}", use_container_width=True):
-                            if delete_application(db, email, doc_id):
-                                st.toast("Record deleted.")
-                                st.rerun()
-                        
-                    # 如果有預測結果，顯示在下方
-                    if f"prep_result_{doc_id}" in st.session_state:
-                        q_data = st.session_state[f"prep_result_{doc_id}"]
-                        with st.container(border=True):
-                            st.markdown("##### Predicted Interview Questions")
-                            t_col, b_col = st.columns(2)
-                            with t_col:
-                                st.markdown("**Technical Questions**")
-                                for q in q_data.get("technical", []): st.caption(f"- {q}")
-                            with b_col:
-                                st.markdown("**Behavioral (STAR)**")
-                                for q in q_data.get("behavioral", []): st.caption(f"- {q}")
-                            if st.button("Close", key=f"close_prep_{doc_id}"):
-                                del st.session_state[f"prep_result_{doc_id}"]
-                                st.rerun()
-
-                    # 如果有雷達圖結果
-                    if f"radar_result_{doc_id}" in st.session_state:
-                        gap_data = st.session_state[f"radar_result_{doc_id}"]
-                        with st.container(border=True):
-                            st.markdown("##### Skill Gap Analysis")
-                            import plotly.graph_objects as go
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatterpolar(r=gap_data['candidate_scores'], theta=gap_data['categories'], fill='toself', name='Proficiency'))
-                            fig.add_trace(go.Scatterpolar(r=gap_data['requirement_scores'], theta=gap_data['categories'], fill='toself', name='Requirement'))
-                            fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, margin=dict(l=40, r=40, t=40, b=40), height=300)
-                            st.plotly_chart(fig, use_container_width=True)
-                            if st.button("Close", key=f"close_radar_{doc_id}"):
-                                del st.session_state[f"radar_result_{doc_id}"]
-                                st.rerun()
+            with st.container(border=True):
+                c_main, c_meta, c_btn = st.columns([3, 2, 1.2], vertical_alignment="center")
+                with c_main:
+                    st.markdown(f"**{company}**")
+                    st.caption(role or "Role not recorded")
+                with c_meta:
+                    st.markdown(f":{STATUS_COLORS.get(status, 'gray')}[{status}]")
+                    st.caption(f"Applied {date_str}")
+                with c_btn:
+                    if st.button(
+                        "Preview", key=f"preview_{tab_name}_{doc_id}",
+                        icon=":material/visibility:", use_container_width=True,
+                        help="Preview and download the resume sent to this company",
+                    ):
+                        render_application_dialog(
+                            db, email, app_data, get_local_time_str,
+                            build_pdf, build_docx, render_pdf,
+                        )
 
         def render_record_list(record_list, tab_name):
             if not record_list:
