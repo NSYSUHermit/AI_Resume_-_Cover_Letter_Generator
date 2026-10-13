@@ -92,10 +92,10 @@ def saved_record(resume_json=None, jd="We need a backend engineer at Acme."):
     }
 
 
-def run_tracker(monkeypatch, records, **state):
+def run_tracker(monkeypatch, records, calls=None, **state):
     docs = [_FakeDoc(f"doc{i}", data) for i, data in enumerate(records)]
     monkeypatch.setattr("firebase_dashboard.init_firebase", lambda: _FakeFirestoreNode(docs))
-    monkeypatch.setattr("subprocess.run", fake_lualatex([]))
+    monkeypatch.setattr("subprocess.run", fake_lualatex([] if calls is None else calls))
     at = AppTest.from_file(str(APP_PATH), default_timeout=60)
     at.session_state["active_view"] = "Tracker"
     at.session_state["logged_in"] = True
@@ -144,10 +144,11 @@ def test_reopen_loads_jd_and_resume_into_generator_as_a_new_application(monkeypa
     assert at.session_state["active_view"] == "Generator"
     assert at.session_state["jd_text"] == "We need a backend engineer at Acme."
     assert at.session_state["optimized_resume_data"] == OPTIMIZED
-    # A new application: nothing recorded yet, no stale PDF, no old chat.
+    # A new application: nothing recorded yet, no old chat - and the PDF is
+    # the reopened version's, not whatever the previous application left.
     assert at.session_state["tracked_application_id"] is None
-    assert at.session_state["resume_preview_bytes"] is None
-    assert at.session_state["resume_dl_data"] is None
+    assert at.session_state["resume_preview_bytes"] == b"%PDF-1.4 fake"
+    assert at.session_state["resume_dl_data"]["bytes"] == b"%PDF-1.4 fake"
     assert at.session_state["application_chat"] == []
     # The Career Profile itself is untouched.
     assert at.session_state["resume_data"] == PROFILE
@@ -179,11 +180,7 @@ def test_download_after_reopen_writes_a_new_tracker_row(monkeypatch):
     at = run_tracker(monkeypatch, [saved_record()], tracked_application_id="doc0")
     reopen(at)
 
-    # Stand in for Generate PDF (a real compile is not what this test is about).
-    at.session_state["resume_preview_bytes"] = b"%PDF-new"
-    at.session_state["resume_dl_data"] = {"bytes": b"%PDF-new", "name": "Acme_Backend_Engineer_Resume.pdf"}
-    at.run()
-    assert not at.exception
+    # No Generate PDF click needed: reopening already produced the PDF.
     pdf_buttons = [d for d in at.download_button if d.key == "dl_pdf"]
     assert len(pdf_buttons) == 1
     pdf_buttons[0].click().run()
@@ -198,3 +195,47 @@ def test_reopen_with_unusable_resume_json_still_loads_the_jd(monkeypatch):
     assert at.session_state["active_view"] == "Generator"
     assert at.session_state["optimized_resume_data"] is None
     assert at.session_state["jd_text"] == "We need a backend engineer at Acme."
+    # Nothing to render, so no PDF - the preview falls back to the profile.
+    assert at.session_state["resume_preview_bytes"] is None
+
+
+def test_reopen_reuses_the_pdf_the_dialog_already_compiled(monkeypatch):
+    """The dialog compiled this exact PDF a moment ago; the Generator
+    preview must show it straight away, not make the user wait for lualatex
+    a second time."""
+    calls = []
+    at = run_tracker(monkeypatch, [saved_record()], calls=calls)
+    reopen(at)
+    assert [c[-1] for c in calls] == ["main.tex"]
+    assert at.session_state["resume_preview_bytes"] == b"%PDF-1.4 fake"
+
+
+def test_reopen_uses_the_template_the_dialog_was_showing(monkeypatch):
+    calls = []
+    at = run_tracker(monkeypatch, [saved_record()], calls=calls, preferred_template="Business")
+    reopen(at)
+    assert [c[-1] for c in calls] == ["elsa_main.tex"]
+    assert at.selectbox(key="tm").value == "Business"
+
+
+def test_reopen_compiles_when_the_dialog_pdf_is_not_cached(monkeypatch):
+    """E.g. the dialog's compile failed (failures are not cached) - the
+    reopen still tries on its own rather than leaving the preview empty."""
+    calls = []
+    at = run_tracker(monkeypatch, [saved_record()], calls=calls)
+    preview_opener(at).click().run()
+    at.session_state["tracker_pdf_cache"] = {}
+    preview_opener(at).click()
+    button(at, "dlg_reopen_doc0").click().run()
+    assert not at.exception
+    assert [c[-1] for c in calls] == ["main.tex", "main.tex"]
+    assert at.session_state["resume_preview_bytes"] == b"%PDF-1.4 fake"
+
+
+def test_reopen_also_prepares_the_cover_letter(monkeypatch):
+    calls = []
+    record = saved_record(resume_json={**OPTIMIZED, "cover_letter": "Dear Acme team, ..."})
+    at = run_tracker(monkeypatch, [record], calls=calls)
+    reopen(at)
+    assert [c[-1] for c in calls] == ["main.tex", "c.tex"]
+    assert at.session_state["cover_letter_preview_bytes"] == b"%PDF-1.4 fake"

@@ -5,7 +5,7 @@ import json
 import base64
 import html
 import streamlit.components.v1 as components
-from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications, template_selectbox, valid_template
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications, template_selectbox, valid_template, cached_tracker_pdf
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block
 import ai
@@ -184,8 +184,8 @@ def reopen_application_from_tracker(record):
 
     Built on start_new_application(): everything per-application is reset
     first (PDFs, chat, ATS metrics, tracked_application_id, the JD widget
-    key), then only the two things the record carries are put back. The
-    Career Profile is untouched. optimized_source_snapshot is set to the
+    key), then only the two things the record carries are put back and its
+    PDF is generated from them. The Career Profile is untouched. optimized_source_snapshot is set to the
     CURRENT profile on purpose: the saved resume is by definition a snapshot
     of an older run, and the user explicitly wants to refine that one, so
     Generate PDF must not refuse it as stale.
@@ -199,16 +199,31 @@ def reopen_application_from_tracker(record):
     start_new_application()
     st.session_state.jd_text = record.get("jd_text") or ""
     resume_json = record.get("resume_json")
-    if isinstance(resume_json, dict) and resume_json:
+    has_resume = isinstance(resume_json, dict) and bool(resume_json)
+    if has_resume:
         st.session_state.optimized_resume_data = json.loads(json.dumps(resume_json, ensure_ascii=False))
         st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
     st.session_state.opt_editor_key += 1
     st.session_state.active_view = workspace.GENERATOR
+    if has_resume:
+        # Generate the PDF now, so the preview opens on THIS version rather
+        # than the Career Profile - otherwise it looks like the reopen did
+        # not take. `tm` and `export_order` are absent here (their widgets
+        # were not rendered on the Tracker), so these are exactly the values
+        # those widgets will show. The template is also the one the dialog
+        # was on (template_selectbox() shares it), so its compiled PDF is
+        # usually reusable as-is.
+        template_label = st.session_state.preferred_template
+        with st.spinner("Preparing the PDF preview..."):
+            generate_pdf_outputs(
+                st.session_state.optimized_resume_data, template_label, list(BLOCK_ORDER_OPTIONS),
+                resume_bytes=cached_tracker_pdf(record.get("id"), template_label),
+            )
     set_result_banner(
         title=f"Reopened {company} from the tracker as a new application",
         details=[
-            "Its job description and optimized resume are loaded below",
-            "Fine-tune in the Draft Table, then Generate PDF",
+            "Its job description and optimized resume are loaded, with its PDF in the preview",
+            "Fine-tune in the Draft Table, then Generate PDF again",
             "Downloading records a new tracker row; the old one is unchanged",
         ],
     )
@@ -287,6 +302,31 @@ def export_file_name(data, suffix, ext=".pdf"):
     else:
         stem = safe_filename_part((data.get("heading") or {}).get("name"), "")
     return f"{stem}_{suffix}{ext}" if stem else f"{suffix}{ext}"
+
+def generate_pdf_outputs(d, template_label, order, resume_bytes=None):
+    """What Generate PDF does: compile `d` into the resume and cover-letter
+    preview/download slots. Shared with reopen_application_from_tracker(), so
+    a reopened application lands with its PDF already in the preview.
+
+    `resume_bytes` skips the resume compile when an identical PDF already
+    exists (the Tracker dialog's). Returns (resume, cover_letter) bytes,
+    either of which may be None.
+    """
+    clear_pdf_outputs()
+    rb = resume_bytes or generate_preview_pdf_bytes(d, template_file_for(template_label), order)
+    if rb:
+        st.session_state.resume_preview_bytes = rb
+        # 統一檔名格式 (由使用者要求)
+        st.session_state.resume_dl_data = {"bytes": rb, "name": export_file_name(d, "Resume")}
+    # A profile with no cover_letter text simply produces no cover-letter PDF
+    # - generate_cover_letter_pdf_bytes() already returns None for that, no
+    # new branch needed.
+    cb = generate_cover_letter_pdf_bytes(d)
+    if cb:
+        st.session_state.cover_letter_preview_bytes = cb
+        # 確保與履歷檔名格式一致
+        st.session_state.cl_dl_data = {"bytes": cb, "name": export_file_name(d, "CL")}
+    return rb, cb
 
 def profile_snapshot():
     return json.dumps(
@@ -1520,8 +1560,8 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         margin: 0.75rem 0;
     }
 
-    /* st.container(border=True) - the cards that hold Source of Truth, Export
-       Settings and the rest. Streamlit's own padding sits tight against the
+    /* st.container(border=True) - the cards that hold Export Settings and
+       the rest. Streamlit's own padding sits tight against the
        frame; the owner asked for the frame to stand further off its contents,
        so this sets it explicitly rather than inheriting.
        Radius corrected in the visual-match follow-up (Item 3): every card
@@ -2651,7 +2691,7 @@ if active_view == workspace.PROFILE:      # 原 "Source"
                     st.error(json_error_report(raw_import, e))
 
 def render_quick_stats():
-    """Quick-stat cards filling the whitespace above Source of Truth.
+    """Quick-stat cards at the top of the Generator's left column.
 
     Each card is only shown when a real number backs it - nothing here is a
     fabricated placeholder:
@@ -2712,19 +2752,10 @@ def render_generator_workspace():
     # not Streamlit's, which also makes it immune to their class renames.
     st.html('<span data-gp-col="workspace" style="display:none"></span>')
     render_quick_stats()
-    with st.container(border=True):
-        st.subheader("Source of Truth")
-        data = st.session_state.resume_data
-        if resume_is_empty(data):
-            st.caption("Your Career Profile is empty. Build it first — every rewrite starts from it.")
-        else:
-            st.caption(
-                f"Career Profile  ·  {len(data.get('experience') or [])} roles"
-                f"  ·  {len(data.get('education') or [])} schools"
-            )
-        if st.button("Edit Career Profile", use_container_width=True, icon=":material/arrow_forward:"):
-            st.session_state.active_view = workspace.PROFILE
-            st.rerun()
+    # No "Source of Truth" card here any more: users did not understand the
+    # name, and everything it said is already on screen - the sidebar's
+    # Career Profile button, the preview's own "profile is empty" state, and
+    # the Experience Entries count just above.
 
     st.subheader("Target & Strategy")
     # Both inputs mirror into durable keys. A widget key alone is dropped by
@@ -2874,8 +2905,6 @@ def render_generator_workspace():
         with dcol2:
             if st.button("Edit Optimized JSON", use_container_width=True): edit_opt_dialog()
 
-    render_application_chat()
-
     # 手動匯入外部推論結果. Deliberately NOT behind show_advanced_tools (its
     # two siblings below still are): running the rewrite in an external model
     # and pasting the result back is a first-class way to use this app, not an
@@ -2951,13 +2980,17 @@ def render_generator_workspace():
     else:
         st.caption("Optimize a resume to see how it scores against the job description.")
 
+    # Last on purpose: users rarely need it, so it stays out of the way of the
+    # optimize -> export flow above.
+    render_application_chat()
+
 def render_application_chat():
     """"Ask about this application" - the Q&A box in the Generator's left column.
 
-    Sits immediately after the Draft Table / Edit Optimized JSON buttons and
-    before the manual-import escape hatches: it is about the result those
-    buttons open, and the owner asked for it on the workspace side rather than
-    the preview side.
+    The very last thing in that column, below Export Settings and the ATS
+    analysis: users rarely use it, so it no longer sits between the optimize
+    step and the export step. Still on the workspace side rather than the
+    preview side, where the owner asked for it.
 
     Rendered unconditionally rather than behind `if optimized_resume_data`. The
     profile and the JD alone already answer plenty of what an application form
@@ -2969,12 +3002,13 @@ def render_application_chat():
     the answer. This function only moves text between session_state and the
     bubbles.
     """
-    # expanded=True, unlike the two import expanders directly below it. Those
-    # are escape hatches that cost one line of vertical space when unused; this
-    # is a feature the owner asked for by name. Collapsed, it was a third
-    # identical grey row in a stack of them, and the owner could not find it -
-    # the exact failure already recorded on Manual Result Import above, which
-    # spent its own stretch invisible behind the advanced-tools checkbox.
+    # expanded=True, unlike the import expanders. Those are escape hatches
+    # that cost one line of vertical space when unused; this is a feature the
+    # owner asked for by name. Collapsed, it was a grey row in a stack of
+    # identical ones and the owner could not find it - the exact failure
+    # already recorded on Manual Result Import, which spent its own stretch
+    # invisible behind the advanced-tools checkbox. Now that it sits alone at
+    # the bottom of the column, being open costs nothing above it.
     with st.expander("Ask about this application", expanded=True):
         st.caption(
             "Drafts answers using only your Career Profile, the optimized result "
@@ -3363,20 +3397,7 @@ def render_export_settings():
                 st.error("This optimized result is stale. Re-run Optimize Resume so the PDF uses the latest Source JSON.")
             else:
                 with st.spinner("Generating..."):
-                    clear_pdf_outputs()
-                    rb = generate_preview_pdf_bytes(d, template_file_for(tmpl), order)
-                    if rb:
-                        st.session_state.resume_preview_bytes = rb
-                        # 統一檔名格式 (由使用者要求)
-                        st.session_state.resume_dl_data = {"bytes": rb, "name": export_file_name(d, "Resume")}
-                    # A profile with no cover_letter text simply produces no
-                    # cover-letter PDF - generate_cover_letter_pdf_bytes()
-                    # already returns None for that, no new branch needed.
-                    cb = generate_cover_letter_pdf_bytes(d)
-                    if cb:
-                        st.session_state.cover_letter_preview_bytes = cb
-                        # 確保與履歷檔名格式一致
-                        st.session_state.cl_dl_data = {"bytes": cb, "name": export_file_name(d, "CL")}
+                    rb, cb = generate_pdf_outputs(d, tmpl, order)
                 if rb or cb:
                     st.session_state.pending_toast = "PDF generated."
                     # App-scope rerun so the sibling preview fragment picks up

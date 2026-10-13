@@ -1,6 +1,6 @@
 """Coverage for UI Task 3: the optimized result as a directly-editable draft
 table (render_optimized_draft_table(), app.py) and the quick-stats cards
-above Source of Truth (render_quick_stats(), app.py).
+at the top of the Generator's left column (render_quick_stats(), app.py).
 
 On simulating st.data_editor edits with AppTest: streamlit==1.61.1's
 streamlit.testing.v1.element_tree has no typed wrapper for st.data_editor -

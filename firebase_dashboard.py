@@ -536,6 +536,17 @@ STATUS_COLORS = {
     "Rejected": "red",
 }
 
+def _tracker_pdf_cache_key(doc_id, template_label):
+    return f"{doc_id}:{template_label}"
+
+
+def cached_tracker_pdf(doc_id, template_label):
+    """The PDF the preview dialog already compiled for this record and
+    template, or None. Lets "Reopen in Generator" show it straight away
+    instead of running lualatex a second time."""
+    return st.session_state.get("tracker_pdf_cache", {}).get(_tracker_pdf_cache_key(doc_id, template_label))
+
+
 def tracker_resume_pdf(resume_json, template_label):
     """PDF of a saved resume: same compiler and template mapping as the
     Generator's export, default full section order - a tracker row records
@@ -615,7 +626,7 @@ def _application_dialog_body(db, email, app_data, local_time):
     # next time instead of sticking - same reasoning as base_preview_pdf()
     # in app.py.
     cache = st.session_state.setdefault("tracker_pdf_cache", {})
-    cache_key = f"{doc_id}:{template_label}"
+    cache_key = _tracker_pdf_cache_key(doc_id, template_label)
     if cache_key in cache:
         pdf_bytes = cache[cache_key]
     else:
