@@ -71,6 +71,10 @@ def template_file_for(template_label):
     """
     return "main.tex" if "Tech" in template_label else "elsa_main.tex"
 
+# Labels for every Template selectbox (Generator export settings, Tracker
+# dialog). The first one is the default for a user who has never picked.
+TEMPLATE_OPTIONS = ("Tech", "Business")
+
 def generate_preview_pdf_bytes(data, template_name, block_order):
     try:
         escaped_data = escape_latex_chars(data)

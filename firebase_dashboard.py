@@ -256,19 +256,74 @@ def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api
         return False, GENERIC_DB_ERROR
 
 def load_user_profile(db, email: str):
-    """Load base resume, custom prompt, and API key from Firestore."""
+    """Load base resume, custom prompt, API key, and preferred template from Firestore."""
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
         doc = doc_ref.get()
         if doc.exists:
             profile_data = doc.to_dict()
-            return profile_data.get("base_resume"), profile_data.get("custom_prompt"), profile_data.get("api_key")
+            return (
+                profile_data.get("base_resume"), profile_data.get("custom_prompt"),
+                profile_data.get("api_key"), profile_data.get("preferred_template"),
+            )
         else:
-            return None, None, None
+            return None, None, None, None
     except Exception:
         logger.exception("Error loading profile")
         st.error(GENERIC_DB_ERROR)
-        return None, None, None
+        return None, None, None, None
+
+def save_preferred_template(db, email: str, template_label: str):
+    """Remember the user's last Template choice on their profile doc.
+
+    merge=True because the same document holds base_resume / custom_prompt /
+    api_key. A failure is only logged: losing this costs the user one extra
+    click next session, which is not worth an error banner.
+    """
+    try:
+        doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
+        doc_ref.set({"preferred_template": template_label}, merge=True)
+    except Exception:
+        logger.exception("Error saving preferred template")
+
+# ==========================================
+# 1.6 Template preference
+# ==========================================
+def valid_template(label):
+    """`label` if it is a current Template option, else the default - a
+    stored value may predate a template being renamed or removed."""
+    return label if label in pdf_export.TEMPLATE_OPTIONS else pdf_export.TEMPLATE_OPTIONS[0]
+
+def remember_template_choice(widget_key):
+    """on_change for every Template selectbox: the template picked last,
+    anywhere, becomes the default everywhere - and, when signed in, in the
+    next session too. Signed-out users have no profile doc, so they never
+    touch Firestore."""
+    label = st.session_state.get(widget_key)
+    if label not in pdf_export.TEMPLATE_OPTIONS:
+        return
+    st.session_state.preferred_template = label
+    email = st.session_state.get("user_email")
+    if st.session_state.get("logged_in") and email:
+        db = init_firebase()
+        if db is not None:
+            save_preferred_template(db, email, label)
+
+def template_selectbox(key, **kwargs):
+    """The Template picker, opening on the user's last choice.
+
+    Seeded from `preferred_template` only when `key` is absent: Streamlit
+    drops a widget's key on any rerun where it is not rendered (switching
+    view, closing a dialog), and this is what stops the selectbox snapping
+    back to "Tech" when it comes back. No `index=` - that plus a seeded key
+    makes Streamlit warn about two sources of truth.
+    """
+    if key not in st.session_state:
+        st.session_state[key] = valid_template(st.session_state.get("preferred_template"))
+    return st.selectbox(
+        "Template", pdf_export.TEMPLATE_OPTIONS, key=key,
+        on_change=remember_template_choice, args=(key,), **kwargs,
+    )
 
 # ==========================================
 # 2. Save Application Record
@@ -524,7 +579,7 @@ def _application_dialog_body(db, email, app_data, local_time):
     doc_id = app_data["id"]
     company = app_data.get("company_name") or "Unknown"
     status = app_data.get("status", "Applied")
-    resume_json = app_data.get("resume_json") or {}
+    resume_json = _resume_dict(app_data)
     role = (resume_json.get("target_role") or "").strip()
 
     facts = []
@@ -538,12 +593,21 @@ def _application_dialog_body(db, email, app_data, local_time):
     st.caption(" · ".join(facts))
 
     # --- export row --------------------------------------------------------
-    tmpl_col, pdf_col, docx_col = st.columns([2, 1.2, 1.2])
+    tmpl_col, pdf_col, docx_col, reopen_col = st.columns([1.6, 1.1, 1.1, 1.5])
     with tmpl_col:
-        template_label = st.selectbox(
-            "Template", ["Tech", "Business"],
-            key=f"dlg_tmpl_{doc_id}", label_visibility="collapsed",
-        )
+        template_label = template_selectbox(f"dlg_tmpl_{doc_id}", label_visibility="collapsed")
+    with reopen_col:
+        # Hands the record to app.py's reopen_application_from_tracker() via
+        # session_state (this module cannot import app.py). The app-scope
+        # rerun closes this dialog and lands on the Generator with the JD
+        # and resume loaded as a NEW application - the old row is untouched.
+        if st.button(
+            "Reopen in Generator", key=f"dlg_reopen_{doc_id}",
+            icon=":material/edit_note:", use_container_width=True,
+            help="Load this JD and resume into the Generator as a new application to fine-tune and regenerate",
+        ):
+            st.session_state.pending_reopen_application = dict(app_data)
+            st.rerun()
 
     # Bounded per-session cache keyed by record + template. lualatex takes
     # seconds; reopening the same record must be instant. A failed compile
@@ -633,6 +697,13 @@ def _application_dialog_body(db, email, app_data, local_time):
             if st.button("Cancel", key=f"dlg_delete_cancel_{doc_id}", use_container_width=True):
                 del st.session_state[confirm_key]
                 st.rerun(scope="fragment")
+
+
+def _resume_dict(app_data):
+    """The record's resume_json as a dict - {} when it is missing or, via the
+    Generator's manual-import paths, not an object at all."""
+    resume = (app_data or {}).get("resume_json")
+    return resume if isinstance(resume, dict) else {}
 
 
 def _export_stem(resume_json):
@@ -825,7 +896,7 @@ def render_dashboard(db, email: str):
             company = app_data.get("company_name") or "Unknown"
             status = app_data.get("status", "Applied")
             date_str = get_local_time_str(app_data.get("applied_date"))
-            role = ((app_data.get("resume_json") or {}).get("target_role") or "").strip()
+            role = (_resume_dict(app_data).get("target_role") or "").strip()
 
             with st.container(border=True):
                 c_main, c_meta, c_btn = st.columns([3, 2, 1.2], vertical_alignment="center")

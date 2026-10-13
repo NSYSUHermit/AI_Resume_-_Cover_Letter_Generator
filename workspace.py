@@ -87,9 +87,13 @@ def recent_applications(records, limit=3):
     for record in (records or [])[:limit]:
         record = record or {}
         status = record.get("status") or "Applied"
+        # resume_json is whatever was exported at the time; the manual import
+        # paths accept arbitrary JSON, so it is not guaranteed to be a dict.
+        resume = record.get("resume_json")
+        resume = resume if isinstance(resume, dict) else {}
         rows.append({
             "company": record.get("company_name") or "Unknown",
-            "role": (record.get("resume_json") or {}).get("target_role") or "",
+            "role": resume.get("target_role") or "",
             "status_dot_token": _STATUS_DOT_TOKENS.get(status, _DEFAULT_STATUS_DOT_TOKEN),
         })
     return rows

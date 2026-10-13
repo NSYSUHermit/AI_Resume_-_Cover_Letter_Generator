@@ -5,7 +5,7 @@ import json
 import base64
 import html
 import streamlit.components.v1 as components
-from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications, template_selectbox, valid_template
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block
 import ai
@@ -65,6 +65,10 @@ if "jd_text" not in st.session_state: st.session_state.jd_text = ""
 if "application_chat" not in st.session_state: st.session_state.application_chat = []
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "user_email" not in st.session_state: st.session_state.user_email = ""
+# Durable copy of the Template choice. `tm` is a widget key and is dropped
+# whenever the Generator is not rendered; template_selectbox() re-seeds it
+# from here. Restored from Firestore on login.
+if "preferred_template" not in st.session_state: st.session_state.preferred_template = valid_template(None)
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
 if "cover_letter_preview_bytes" not in st.session_state: st.session_state.cover_letter_preview_bytes = None
 if "resume_dl_data" not in st.session_state: st.session_state.resume_dl_data = None
@@ -167,6 +171,47 @@ def start_new_application():
     st.session_state.jd_text = ""
     st.session_state.base_editor_key += 1
 
+
+def reopen_application_from_tracker(record):
+    """Load a saved tracker record into the Generator as a NEW application.
+
+    The owner's workflow: a rejected (or any past) application is the best
+    starting point for the next one at the same company, or a re-apply. So
+    the record's JD and its optimized resume are loaded for fine-tuning in
+    the draft table and a fresh Generate PDF - and the next download writes a
+    new tracker row rather than editing the old one, which keeps the history
+    honest (the old row stays exactly what was sent back then).
+
+    Built on start_new_application(): everything per-application is reset
+    first (PDFs, chat, ATS metrics, tracked_application_id, the JD widget
+    key), then only the two things the record carries are put back. The
+    Career Profile is untouched. optimized_source_snapshot is set to the
+    CURRENT profile on purpose: the saved resume is by definition a snapshot
+    of an older run, and the user explicitly wants to refine that one, so
+    Generate PDF must not refuse it as stale.
+
+    Called from the deferred-action block (before any widget renders), fed by
+    firebase_dashboard's dialog through st.session_state.pending_reopen_
+    application - that module cannot import this one.
+    """
+    record = record or {}
+    company = (record.get("company_name") or "").strip() or "this application"
+    start_new_application()
+    st.session_state.jd_text = record.get("jd_text") or ""
+    resume_json = record.get("resume_json")
+    if isinstance(resume_json, dict) and resume_json:
+        st.session_state.optimized_resume_data = json.loads(json.dumps(resume_json, ensure_ascii=False))
+        st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
+    st.session_state.opt_editor_key += 1
+    st.session_state.active_view = workspace.GENERATOR
+    set_result_banner(
+        title=f"Reopened {company} from the tracker as a new application",
+        details=[
+            "Its job description and optimized resume are loaded below",
+            "Fine-tune in the Draft Table, then Generate PDF",
+            "Downloading records a new tracker row; the old one is unchanged",
+        ],
+    )
 
 def clear_pdf_outputs_and_tracking():
     """clear_pdf_outputs() plus resetting the tracker dedupe flag.
@@ -292,6 +337,9 @@ def clear_user_session():
     st.session_state.logged_in = False
     st.session_state.user_email = ""
     st.session_state.api_key = ""
+    st.session_state.preferred_template = valid_template(None)
+    # Popped, not assigned: the widget may already exist in this run.
+    st.session_state.pop("tm", None)
     st.session_state.resume_data = default_resume_data()
     # Recompute now that resume_data is empty again — otherwise a logout (or
     # a Reset All Data, which also routes through this function via the
@@ -840,6 +888,12 @@ def base_preview_pdf(snapshot, template_name, block_order):
 # 🔔 處理 Rerun 後的延遲動作 (必須在任何 widget 建立之前執行)
 if st.session_state.pop("pending_reset", False):
     clear_user_session()
+
+# Set by the Tracker's preview dialog (firebase_dashboard.py); consumed here,
+# before any widget, because it swaps the JD/draft-table widget keys.
+_pending_reopen = st.session_state.pop("pending_reopen_application", None)
+if _pending_reopen:
+    reopen_application_from_tracker(_pending_reopen)
 
 if "pending_toast" in st.session_state:
     st.toast(st.session_state.pending_toast)
@@ -2442,13 +2496,14 @@ with st.sidebar:
                             # account on this browser session survives the switch.
                             clear_user_session()
                             st.session_state.logged_in = True; st.session_state.user_email = email
-                            r, pr, k = load_user_profile(auth_db, email)
+                            r, pr, k, tmpl_pref = load_user_profile(auth_db, email)
                             if r is not None:
                                 st.session_state.resume_data = r
                             if pr is not None:
                                 st.session_state.custom_prompt = pr
                             if k is not None:
                                 st.session_state.api_key = k
+                            st.session_state.preferred_template = valid_template(tmpl_pref)
                             st.session_state.base_editor_key += 1
                             # Session init ran before login, when resume_data was
                             # necessarily empty, so it always landed on Profile.
@@ -3280,7 +3335,7 @@ def render_export_settings():
     with st.container(border=True):
         st.subheader("Export Settings")
         st.caption("Select your preferred template and section order, then generate the final PDFs.")
-        tmpl = st.selectbox("Template", ["Tech", "Business"], key="tm")
+        tmpl = template_selectbox("tm")
         # Keyed (previously wasn't) so render_preview() - a different fragment,
         # in the right column - can read the current order to build the cache
         # key for the base-resume preview.
@@ -3460,7 +3515,7 @@ def render_preview():
             # the key is only ever really absent before that first render.
             saved_order = st.session_state.get("export_order")
             order = tuple(saved_order if saved_order is not None else BLOCK_ORDER_OPTIONS)
-            template_label = st.session_state.get("tm") or "Tech"
+            template_label = st.session_state.get("tm") or st.session_state.preferred_template
             try:
                 base_bytes = base_preview_pdf(resume_snapshot(data), template_file_for(template_label), order)
             except PreviewCompileFailed:
