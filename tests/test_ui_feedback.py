@@ -272,7 +272,7 @@ def test_api_key_check_failure_goes_through_the_real_app_call_site(monkeypatch):
     render_api_key_setup() would no longer even be on screen by the time the
     assertions run; failure leaves the panel in place (st.error(msg) instead
     of a rerun), which is what makes it observable here."""
-    monkeypatch.setattr("ai.test_api_key", lambda api_key: (False, "Invalid key."))
+    monkeypatch.setattr("ai.check_models", lambda api_key: (False, "Invalid key.", []))
 
     at = AppTest.from_file(str(APP_PATH), default_timeout=60)
     at.run()
@@ -280,7 +280,7 @@ def test_api_key_check_failure_goes_through_the_real_app_call_site(monkeypatch):
     assert len(key_inputs) == 1
     key_inputs[0].input("fake-key-value").run()
 
-    save_buttons = [b for b in at.button if b.label == "Save and test key"]
+    save_buttons = [b for b in at.button if b.label == "Test key"]
     assert len(save_buttons) == 1
     save_buttons[0].click().run()
 
@@ -290,6 +290,6 @@ def test_api_key_check_failure_goes_through_the_real_app_call_site(monkeypatch):
     assert at.status[0].state == "error"
     lines = [m.value for m in at.status[0].markdown]
     assert len(lines) == 1
-    assert "Sending a test request to Gemini..." in lines[0]
+    assert "Testing which Gemini models this key can use..." in lines[0]
     assert "<svg" not in lines[0]
     assert any("Invalid key." in e.value for e in at.error)

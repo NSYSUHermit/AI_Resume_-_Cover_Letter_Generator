@@ -256,35 +256,39 @@ def save_user_profile(db, email: str, resume_data: dict, custom_prompt: str, api
         return False, GENERIC_DB_ERROR
 
 def load_user_profile(db, email: str):
-    """Load base resume, custom prompt, API key, and preferred template from Firestore."""
-    try:
-        doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
-        doc = doc_ref.get()
-        if doc.exists:
-            profile_data = doc.to_dict()
-            return (
-                profile_data.get("base_resume"), profile_data.get("custom_prompt"),
-                profile_data.get("api_key"), profile_data.get("preferred_template"),
-            )
-        else:
-            return None, None, None, None
-    except Exception:
-        logger.exception("Error loading profile")
-        st.error(GENERIC_DB_ERROR)
-        return None, None, None, None
+    """The user's profile document as a dict ({} when there is none).
 
-def save_preferred_template(db, email: str, template_label: str):
-    """Remember the user's last Template choice on their profile doc.
-
-    merge=True because the same document holds base_resume / custom_prompt /
-    api_key. A failure is only logged: losing this costs the user one extra
-    click next session, which is not worth an error banner.
+    Fields: base_resume, custom_prompt, api_key, preferred_template,
+    gemini_model, gemini_models - any of them may be missing.
     """
     try:
         doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
-        doc_ref.set({"preferred_template": template_label}, merge=True)
+        doc = doc_ref.get()
+        return (doc.to_dict() or {}) if doc.exists else {}
     except Exception:
-        logger.exception("Error saving preferred template")
+        logger.exception("Error loading profile")
+        st.error(GENERIC_DB_ERROR)
+        return {}
+
+def _merge_into_profile(db, email: str, fields: dict, what: str):
+    """Write `fields` onto the profile doc without touching anything else on
+    it (base_resume / custom_prompt / api_key live there too). A failure is
+    only logged: these are preferences, and losing one costs the user a click
+    next session - not worth an error banner."""
+    try:
+        doc_ref = db.collection('users').document(email).collection('profile').document('base_profile')
+        doc_ref.set(fields, merge=True)
+    except Exception:
+        logger.exception("Error saving %s", what)
+
+def save_preferred_template(db, email: str, template_label: str):
+    """Remember the user's last Template choice on their profile doc."""
+    _merge_into_profile(db, email, {"preferred_template": template_label}, "preferred template")
+
+def save_model_settings(db, email: str, model: str, usable: list):
+    """Remember the chosen Gemini model and the fallback list from the last
+    key check, so a returning user does not have to re-test their key."""
+    _merge_into_profile(db, email, {"gemini_model": model, "gemini_models": list(usable)}, "model settings")
 
 # ==========================================
 # 1.6 Template preference

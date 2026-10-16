@@ -4,13 +4,16 @@ import os
 import json
 import base64
 import html
+import re
+import zlib
 import streamlit.components.v1 as components
-from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications, template_selectbox, valid_template, cached_tracker_pdf
+from firebase_dashboard import init_firebase, authenticate_user, register_user, render_dashboard, save_application, render_interview_progress, save_user_profile, load_user_profile, fetch_applications, template_selectbox, valid_template, cached_tracker_pdf, save_model_settings
 from ui_feedback import run_ai_call
 from theme import TOKENS, FONT_STACK, css_root_block
 import ai
 import docx_export
 import workspace
+import review
 from workspace import resume_is_empty
 from pdf_export import (
     BLOCK_ORDER_OPTIONS, LATEX_MISSING_MESSAGE, escape_latex_chars, template_file_for,
@@ -44,6 +47,15 @@ if "base_editor_key" not in st.session_state: st.session_state.base_editor_key =
 if "opt_editor_key" not in st.session_state: st.session_state.opt_editor_key = 0
 if "ats_metrics" not in st.session_state: st.session_state.ats_metrics = None
 if "changelog" not in st.session_state: st.session_state.changelog = ""
+# For the "Review AI changes" panel (render_change_review()): the model's
+# per-change reasons, the Career Profile as it was when the result was made
+# (None = compare against the current one), and the ids of removed content
+# the user has asked to restore on the next Save & preview.
+if "change_reasons" not in st.session_state: st.session_state.change_reasons = []
+if "review_original" not in st.session_state: st.session_state.review_original = None
+if "review_restores" not in st.session_state: st.session_state.review_restores = []
+# Unsaved text in the review panel, by widget key - see render_change_review().
+if "review_drafts" not in st.session_state: st.session_state.review_drafts = {}
 if "custom_prompt" not in st.session_state:
     st.session_state.custom_prompt = """You are an elite Career Strategist and ATS Architect. Overhaul the resume and cover letter based on the JD:
 1. **Resume (STAR Method)**: Rewrite every experience bullet point using the STAR method (Situation, Task, Action, Result). Keep them concise (1-2 lines) but highly impactful. Surface any metric the original bullet already contains; if it has none, write the strongest accurate version and leave the number out.
@@ -69,6 +81,15 @@ if "user_email" not in st.session_state: st.session_state.user_email = ""
 # whenever the Generator is not rendered; template_selectbox() re-seeds it
 # from here. Restored from Firestore on login.
 if "preferred_template" not in st.session_state: st.session_state.preferred_template = valid_template(None)
+# Gemini model choice. gemini_model is the first choice (None = ai.GEMINI_MODEL);
+# gemini_models is every model the last key check found usable, in rank
+# order - the fallback chain. Both restored from Firestore on login.
+if "gemini_model" not in st.session_state: st.session_state.gemini_model = None
+if "gemini_models" not in st.session_state: st.session_state.gemini_models = []
+# Results of the latest key check, for display only: {"key", "message", "results"}.
+if "model_check" not in st.session_state: st.session_state.model_check = None
+# One line per fallback during the current AI run; set_result_banner() shows them.
+if "model_notes" not in st.session_state: st.session_state.model_notes = []
 if "resume_preview_bytes" not in st.session_state: st.session_state.resume_preview_bytes = None
 if "cover_letter_preview_bytes" not in st.session_state: st.session_state.cover_letter_preview_bytes = None
 if "resume_dl_data" not in st.session_state: st.session_state.resume_dl_data = None
@@ -97,9 +118,13 @@ def set_result_banner(title, details=None, actions=None):
     which left a four-second toast as the only confirmation of a thirty-second
     operation. This survives until the next run or an explicit dismiss.
     """
+    # Any model fallback during the run is part of what it produced: the user
+    # should know their first-choice model was skipped, and why.
+    notes = st.session_state.get("model_notes") or []
+    st.session_state.model_notes = []
     st.session_state.result_banner = {
         "title": title,
-        "details": [d for d in (details or []) if d],
+        "details": [d for d in [*(details or []), *notes] if d],
         "actions": actions or [],
     }
 
@@ -137,6 +162,10 @@ def clear_generated_outputs():
     st.session_state.ats_metrics = None
     st.session_state.ats_analysis = None
     st.session_state.changelog = ""
+    st.session_state.change_reasons = []
+    st.session_state.review_original = None
+    st.session_state.review_restores = []
+    st.session_state.review_drafts = {}
     st.session_state.suggested_metrics = []
     st.session_state.jd_screening = None
     st.session_state.optimized_source_snapshot = None
@@ -328,6 +357,16 @@ def generate_pdf_outputs(d, template_label, order, resume_bytes=None):
         st.session_state.cl_dl_data = {"bytes": cb, "name": export_file_name(d, "CL")}
     return rb, cb
 
+def current_template_label():
+    """What the Template selectbox shows, or will show once drawn."""
+    return st.session_state.get("tm") or st.session_state.preferred_template
+
+def current_block_order():
+    """What the Order multiselect shows. `or` would turn an intentionally
+    cleared selection ([]) back into the full list."""
+    saved = st.session_state.get("export_order")
+    return list(saved if saved is not None else BLOCK_ORDER_OPTIONS)
+
 def profile_snapshot():
     return json.dumps(
         {"resume": st.session_state.resume_data, "prompt": st.session_state.custom_prompt},
@@ -378,6 +417,9 @@ def clear_user_session():
     st.session_state.user_email = ""
     st.session_state.api_key = ""
     st.session_state.preferred_template = valid_template(None)
+    st.session_state.gemini_model = None
+    st.session_state.gemini_models = []
+    st.session_state.model_check = None
     # Popped, not assigned: the widget may already exist in this run.
     st.session_state.pop("tm", None)
     st.session_state.resume_data = default_resume_data()
@@ -771,14 +813,76 @@ def sync_application_to_tracker():
 # AI 核心邏輯 (prompts and scoring live in ai.py)
 # ---------------------------------------------------------
 def check_api_key(api_key, report=lambda m: None):
-    report("Sending a test request to Gemini...")
-    return ai.test_api_key(api_key)
+    """Run ai.check_models() and keep the outcome for the key setup card /
+    Settings to display. Returns (ok, message) for run_ai_call(): ok only
+    when the key was accepted AND at least one model works with it."""
+    report("Testing which Gemini models this key can use...")
+    key_ok, message, results = ai.check_models(api_key)
+    st.session_state.model_check = {"key": (api_key or "").strip(), "message": message, "results": results}
+    if key_ok and results:
+        report(message)
+    return key_ok and bool(ai.usable_models(results)), message
+
+def model_chain():
+    """The models every AI call tries, in order: the user's choice first,
+    then the others the last key check found usable."""
+    first = st.session_state.get("gemini_model") or ai.GEMINI_MODEL
+    return [first] + [m for m in st.session_state.get("gemini_models") or [] if m != first]
+
+def _note_fallback(used, skipped):
+    reasons = "; ".join(f"{m}: {reason}" for m, reason in skipped)
+    st.session_state.model_notes.append(f"Answered by {used} ({reasons})")
+
+def gemini_options():
+    """models= / on_fallback= for every ai.* call."""
+    return {"models": model_chain(), "on_fallback": _note_fallback}
+
+def persist_model_settings():
+    if not st.session_state.logged_in or not st.session_state.user_email:
+        return
+    cloud_db = get_db()
+    if cloud_db is not None and st.session_state.gemini_model:
+        save_model_settings(
+            cloud_db, st.session_state.user_email,
+            st.session_state.gemini_model, st.session_state.gemini_models,
+        )
+
+def apply_model_choice(model, results=None):
+    """Make `model` the first choice. With `results` (a fresh key check), the
+    fallback list is replaced by what that check found usable."""
+    if results is not None:
+        st.session_state.gemini_models = ai.usable_models(results)
+    st.session_state.gemini_model = model
+    persist_model_settings()
+
+def restore_model_settings(profile):
+    """Login: take the saved model choice off the profile doc, ignoring
+    anything malformed rather than handing it to the SDK."""
+    model = profile.get("gemini_model")
+    usable = profile.get("gemini_models")
+    st.session_state.gemini_model = model if isinstance(model, str) and model else None
+    st.session_state.gemini_models = [m for m in usable if isinstance(m, str)] if isinstance(usable, list) else []
+
+MODEL_STATUS_LABELS = {
+    ai.OK: ":material/check_circle: Works",
+    ai.BUSY: ":material/schedule: Allowed, but",
+    ai.NOT_FREE: ":material/block: Not available:",
+    ai.UNAVAILABLE: ":material/cancel: Not available:",
+}
+
+def render_model_check_results(results):
+    """One line per tested model: whether it works on this key, and why not."""
+    for r in results:
+        label = MODEL_STATUS_LABELS.get(r["status"], r["status"])
+        reason = "" if r["status"] == ai.OK else f" {r['reason']}"
+        st.markdown(f"`{r['model']}` — {label}{reason}")
 
 def parse_pdf_resume_to_json(pdf_bytes, api_key, report=lambda m: None):
     if not api_key: return False, "Missing API Key.", None
+    st.session_state.model_notes = []
     try:
         report(f"Uploading {len(pdf_bytes) // 1024} KB to Gemini...")
-        data = ai.parse_resume_pdf(pdf_bytes, api_key)
+        data = ai.parse_resume_pdf(pdf_bytes, api_key, **gemini_options())
         roles = len(data.get("experience") or [])
         schools = len(data.get("education") or [])
         skills = sum(len((s or {}).get("items") or []) for s in (data.get("skills") or {}).values())
@@ -797,10 +901,11 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
     """
     api_key = st.session_state.get("api_key")
     if not api_key: return False, "Missing API Key."
+    st.session_state.model_notes = []
 
     report("Reading the job description...")
     try:
-        screening = ai.screen_job_description(jd_text, api_key)
+        screening = ai.screen_job_description(jd_text, api_key, **gemini_options())
     except Exception as e:
         return False, f"Job description screening failed: {e}"
 
@@ -817,7 +922,7 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
 
     report("Rewriting your resume against those requirements...")
     try:
-        rewrite = ai.rewrite_resume(jd_text, st.session_state.resume_data, custom_prompt, api_key)
+        rewrite = ai.rewrite_resume(jd_text, st.session_state.resume_data, custom_prompt, api_key, **gemini_options())
     except Exception as e:
         return False, f"Resume rewrite failed: {e}"
 
@@ -839,17 +944,30 @@ def ai_optimize_and_update(jd_text, custom_prompt, report=lambda m: None):
 
     st.session_state.optimized_resume_data = optimized
     st.session_state.changelog = rewrite.get("changelog", "")
+    st.session_state.change_reasons = rewrite.get("changes") or []
+    st.session_state.review_original = json.loads(json.dumps(st.session_state.resume_data, ensure_ascii=False))
+    st.session_state.review_restores = []
     st.session_state.suggested_metrics = suggested
     st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
     st.session_state.opt_editor_key += 1
     st.session_state.ats_metrics = metrics
     st.session_state.ats_analysis = {"screening": screening, "rewrite": rewrite}
 
+    # Render the result straight away, so the preview on the right is the new
+    # version the moment the run finishes - not the Career Profile, and not
+    # waiting on a Generate PDF click.
+    report("Rendering the PDF preview...")
+    generate_pdf_outputs(optimized, current_template_label(), current_block_order())
+
+    change_count = len(review.collect_changes(
+        st.session_state.review_original, optimized, st.session_state.change_reasons
+    ))
     set_result_banner(
         title=f"Resume optimised for {target}",
         details=[
             f"Keyword coverage {metrics['original_pct']}% → {metrics['optimized_pct']}%",
             f"{len(metrics['newly_added'])} newly covered" if metrics["newly_added"] else None,
+            f"{change_count} changes to review on the left" if change_count else None,
             f"{len(suggested)} facts to add yourself" if suggested else None,
         ],
         # "ATS" and "Review" are no longer separate destinations to jump to —
@@ -1687,6 +1805,27 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         color: var(--text);
     }
 
+    /* Review AI changes (render_change_review()). The Save & preview bar
+       sticks below the top bar while the user scrolls through a long change
+       list - the same 5.5rem the sticky preview column uses - so saving never
+       means scrolling back up. The rule sits on the stLayoutWrapper around
+       the keyed container, not the container itself: a sticky element only
+       slides within its parent, and that wrapper is exactly the container's
+       own height, so sticking the container did nothing (checked in a real
+       browser). The wrapper's parent is the whole review panel. */
+    [data-testid="stLayoutWrapper"]:has(> .st-key-review_actions) {
+        position: sticky;
+        top: 5.5rem;
+        z-index: 5;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 0.35rem 0 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+    .st-key-change_review [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--surface-soft);
+    }
+
     .st-key-dismiss_result_banner button {
         border: none !important;
         background: transparent !important;
@@ -2469,6 +2608,51 @@ def render_sidebar_account_block(email):
         unsafe_allow_html=True,
     )
 
+def _select_model():
+    apply_model_choice(st.session_state.settings_model)
+
+def render_model_settings():
+    """Sidebar Settings: switch the first-choice model, or re-test the key.
+
+    The selectbox is re-synced from gemini_model before it is drawn, because
+    the choice also changes outside it (Save key, login, a re-test) and a
+    keyed widget would otherwise keep showing its own stale value. The user's
+    own pick is not overwritten: _select_model() has already copied it into
+    gemini_model by the time this runs.
+    """
+    current = st.session_state.gemini_model or ai.GEMINI_MODEL
+    options = list(st.session_state.gemini_models)
+    if current not in options:
+        options.insert(0, current)
+    if st.session_state.get("settings_model") != current:
+        st.session_state.settings_model = current
+    st.selectbox("Gemini model", options, key="settings_model", on_change=_select_model)
+    fallbacks = model_chain()[1:]
+    if fallbacks:
+        st.caption("Falls back to " + ", ".join(fallbacks) + " when it runs out of quota.")
+    elif not st.session_state.gemini_models:
+        st.caption("Test your key to see which models it can use.")
+
+    if st.button("Test models", use_container_width=True, key="retest_models"):
+        ok, msg = run_ai_call(
+            "Checking your key",
+            lambda report: check_api_key(st.session_state.api_key, report),
+            success=lambda r: r[0],
+        )
+        results = st.session_state.model_check["results"]
+        if ok:
+            usable = ai.usable_models(results)
+            # Keep the user's choice if this key can still run it.
+            keep = current if current in usable else ai.recommended_model(results)
+            apply_model_choice(keep, results)
+            if keep != current:
+                st.session_state.pending_toast = f"{current} is no longer usable with this key — switched to {keep}."
+            st.rerun()
+        st.error(msg)
+    check = st.session_state.model_check
+    if check and check["key"] == st.session_state.api_key and check["results"]:
+        render_model_check_results(check["results"])
+
 with st.sidebar:
     # One control, at the top, always visible in both states - the owner asked
     # for a single collapse button and nothing else. Icon-only so it reads the
@@ -2536,14 +2720,15 @@ with st.sidebar:
                             # account on this browser session survives the switch.
                             clear_user_session()
                             st.session_state.logged_in = True; st.session_state.user_email = email
-                            r, pr, k, tmpl_pref = load_user_profile(auth_db, email)
-                            if r is not None:
-                                st.session_state.resume_data = r
-                            if pr is not None:
-                                st.session_state.custom_prompt = pr
-                            if k is not None:
-                                st.session_state.api_key = k
-                            st.session_state.preferred_template = valid_template(tmpl_pref)
+                            profile = load_user_profile(auth_db, email)
+                            if profile.get("base_resume") is not None:
+                                st.session_state.resume_data = profile["base_resume"]
+                            if profile.get("custom_prompt") is not None:
+                                st.session_state.custom_prompt = profile["custom_prompt"]
+                            if profile.get("api_key") is not None:
+                                st.session_state.api_key = profile["api_key"]
+                            st.session_state.preferred_template = valid_template(profile.get("preferred_template"))
+                            restore_model_settings(profile)
                             st.session_state.base_editor_key += 1
                             # Session init ran before login, when resume_data was
                             # necessarily empty, so it always landed on Profile.
@@ -2568,8 +2753,10 @@ with st.sidebar:
         st.markdown("**API Settings**")
         if st.session_state.api_key:
             st.success("Gemini key connected")
+            render_model_settings()
             if st.button("Change key", use_container_width=True):
                 st.session_state.api_key = ""
+                st.session_state.model_check = None
                 st.rerun()
         else:
             st.caption("Add your Gemini key in the main panel to turn on the AI features.")
@@ -2591,14 +2778,22 @@ with st.sidebar:
 @st.fragment
 def render_api_key_setup():
     """First-run gate. The key input used to live only in the sidebar, so a new
-    user's first action was usually clicking an AI button that could not work."""
+    user's first action was usually clicking an AI button that could not work.
+
+    Test, then Save. Free-tier keys do not cover every Gemini model, and the
+    old one-click check tested a single hard-coded model - so a perfectly good
+    free key was rejected whenever that model was paid-only. Test key now
+    shows every candidate model and whether this key can run it; the user
+    picks one (the best usable one is preselected) and only Save key stores
+    anything.
+    """
     with st.container(border=True):
         st.markdown("#### Step 1 — Connect your Gemini API key")
         st.markdown(
             "The AI features run on your own free Google key.\n\n"
             "1. Open [Google AI Studio](https://aistudio.google.com/app/apikey) and sign in\n"
             "2. Click **Create API key**, then copy it\n"
-            "3. Paste it below"
+            "3. Paste it below and test it"
         )
         key_input = st.text_input(
             "Gemini API key",
@@ -2606,18 +2801,45 @@ def render_api_key_setup():
             key="api_key_input",
             placeholder="AIza...",
         )
-        if st.button("Save and test key", type="primary"):
+        check = st.session_state.model_check
+        # Results belong to the key they were run on: editing the key hides
+        # them, so Save key can never store a key nobody tested.
+        tested = bool(check) and bool(check["key"]) and check["key"] == key_input.strip()
+        if st.button("Test key", type="secondary" if tested else "primary"):
             ok, msg = run_ai_call(
                 "Checking your key",
                 lambda report: check_api_key(key_input, report),
                 success=lambda r: r[0],
             )
-            if ok:
-                st.session_state.api_key = key_input.strip()
-                st.session_state.pending_toast = "API key connected."
-                st.rerun()
-            else:
+            if not ok:
                 st.error(msg)
+            check = st.session_state.model_check
+            tested = bool(check) and bool(check["key"]) and check["key"] == key_input.strip()
+
+        if not tested or not check["results"]:
+            return
+        render_model_check_results(check["results"])
+        usable = ai.usable_models(check["results"])
+        if not usable:
+            st.caption(
+                "This key cannot run any of these models right now. If they show "
+                "\"quota used up\", wait and test again; otherwise create a new key "
+                "in Google AI Studio."
+            )
+            return
+        choice = st.selectbox(
+            "Model to use",
+            usable,
+            index=usable.index(ai.recommended_model(check["results"])),
+            key="setup_model_choice",
+        )
+        if len(usable) > 1:
+            st.caption("If it runs out of quota, the app switches to the other usable models automatically.")
+        if st.button("Save key", type="primary"):
+            st.session_state.api_key = check["key"]
+            apply_model_choice(choice, check["results"])
+            st.session_state.pending_toast = f"API key connected — using {choice}."
+            st.rerun()
 
 if not st.session_state.api_key:
     render_api_key_setup()
@@ -2890,6 +3112,8 @@ def render_generator_workspace():
     if st.session_state.optimized_resume_data:
         if optimized_result_is_stale():
             st.warning("Source JSON has changed since the current optimized result was created. Re-run Optimize Resume before generating a new PDF.")
+        render_change_review()
+        st.caption("To edit anything the AI did not change:")
         # Item 2: the draft table used to render inline here, which made the
         # left column enormous (every experience/education/projects/skills
         # grid stacked at once, above Edit Optimized JSON, above Export
@@ -2935,6 +3159,9 @@ def render_generator_workspace():
                     st.session_state.ats_analysis = res
                     st.session_state.optimized_resume_data = optimized
                     st.session_state.changelog = res.get("changelog", "")
+                    st.session_state.change_reasons = res.get("changes") or []
+                    st.session_state.review_original = json.loads(json.dumps(st.session_state.resume_data, ensure_ascii=False))
+                    st.session_state.review_restores = []
                     st.session_state.suggested_metrics = res.get("suggested_metrics", []) or []
                     st.session_state.optimized_source_snapshot = resume_snapshot(st.session_state.resume_data)
                     keywords = res.get("keywords") or (res.get("screening") or {}).get("keywords") or []
@@ -2962,6 +3189,8 @@ def render_generator_workspace():
                     st.session_state.ats_analysis = None
                     st.session_state.ats_metrics = None
                     st.session_state.changelog = ""
+                    st.session_state.change_reasons = []
+                    st.session_state.review_restores = []
                     st.session_state.optimized_source_snapshot = None
                     clear_pdf_outputs_and_tracking()
                     # Same reason as Manual Result Import above: force the draft
@@ -2983,6 +3212,189 @@ def render_generator_workspace():
     # Last on purpose: users rarely need it, so it stays out of the way of the
     # optimize -> export flow above.
     render_application_chat()
+
+REVIEW_KIND_LABELS = {
+    review.EDITED: "Rewritten",
+    review.ADDED: "Added by AI",
+    review.REMOVED: "Removed by AI",
+}
+
+_MARKDOWN_SPECIALS = re.compile(r"([\\`*_{}\[\]()#+\-.!|~$<>])")
+
+def md_escape(text):
+    """Text shown through st.markdown/st.caption exactly as written. Resume
+    text is full of "$" (amounts - Streamlit renders $...$ as maths), "*"
+    and "_", any of which would otherwise be reinterpreted."""
+    return _MARKDOWN_SPECIALS.sub(r"\\\1", str(text or ""))
+
+def review_widget_key(change):
+    """Widget key for one change's edit box.
+
+    Carries opt_editor_key, so a new optimize run or an import starts every
+    box fresh, and a checksum of the AI's current text, so an edit made
+    somewhere else (Draft Table, Edit Optimized JSON) re-seeds this box
+    instead of it holding - and on Save writing back - the stale text.
+    """
+    digest = zlib.crc32((change["after"] or "").encode("utf-8"))
+    return f"review_{st.session_state.opt_editor_key}_{change['id']}_{digest}"
+
+def review_box_height(text):
+    """Tall enough to show the text without scrolling, up to a limit. The
+    column's width is unknown here; ~40 characters a line suits the narrow
+    end of the splitter, and a box that is a little tall when wide is better
+    than one that hides half its text."""
+    lines = sum(max(1, len(line) // 40 + 1) for line in (text or "").splitlines() or [""])
+    return max(68, min(320, 24 * lines + 20))
+
+def _review_set(key, text):
+    st.session_state[key] = text
+    st.session_state.review_drafts[key] = text
+
+def _review_toggle_restore(change_id):
+    restores = st.session_state.review_restores
+    if change_id in restores:
+        restores.remove(change_id)
+    else:
+        restores.append(change_id)
+
+def _review_discard(keys):
+    for key in keys:
+        st.session_state.pop(key, None)
+    st.session_state.review_drafts = {}
+    st.session_state.review_restores = []
+
+def save_review_edits(optimized, edits, restores):
+    """Write the panel's staged edits into the optimized result and render it."""
+    updated = review.apply_edits(optimized, edits, restores)
+    st.session_state.optimized_resume_data = updated
+    st.session_state.review_drafts = {}
+    st.session_state.review_restores = []
+    # The Draft Table and Edit Optimized JSON dialogs seed from the data once
+    # per opt_editor_key; bump it so they show what was just saved.
+    st.session_state.opt_editor_key += 1
+    if optimized_result_is_stale():
+        # Same rule Generate PDF follows: no PDF from a result that no longer
+        # matches the Career Profile. The edits are kept.
+        clear_pdf_outputs()
+        st.session_state.pending_toast = "Edits saved. This result is stale - re-run Optimize Resume to render it."
+        return
+    with st.spinner("Rendering the PDF preview..."):
+        rb, _ = generate_pdf_outputs(updated, current_template_label(), current_block_order())
+    st.session_state.pending_toast = "Saved - the preview shows your edits." if rb else "Edits saved, but the PDF could not be rendered."
+
+@st.fragment
+def render_change_review():
+    """"Review AI changes": what the rewrite changed, why, and an edit box for
+    each, with one Save & preview for all of them.
+
+    Edits are staged - nothing touches optimized_resume_data until Save &
+    preview - so the user can go through every change, then render once. A
+    fragment, so typing into one box reruns only this panel, not the whole
+    page and the PDF preview; Save ends with an app-scope rerun so the
+    sibling preview fragment picks up the new PDF.
+
+    The change list comes from review.collect_changes() (a local comparison
+    with the Career Profile as it was at optimize time), the reasons from the
+    model. Staged text is mirrored into review_drafts so it survives a trip to
+    another view - Streamlit drops a widget's own key whenever it is not
+    rendered.
+    """
+    optimized = st.session_state.optimized_resume_data
+    if not isinstance(optimized, dict):
+        return
+    original = st.session_state.review_original
+    if original is None:
+        original = st.session_state.resume_data
+    changes = review.collect_changes(original, optimized, st.session_state.change_reasons)
+    drafts = st.session_state.setdefault("review_drafts", {})
+
+    keys = {}
+    edits = {}
+    for change in changes:
+        if change["kind"] == review.REMOVED:
+            continue
+        key = review_widget_key(change)
+        keys[change["id"]] = key
+        # Seeded rather than passed as value=: "Use original" writes the key
+        # from a callback, and value= plus a written key makes Streamlit warn.
+        if key not in st.session_state:
+            st.session_state[key] = drafts.get(key, change["after"])
+        if st.session_state[key] != change["after"]:
+            edits[change["path"]] = st.session_state[key]
+    restores = [c for c in changes if c["kind"] == review.REMOVED and c["id"] in st.session_state.review_restores]
+    unsaved = len(edits) + len(restores)
+
+    with st.container(border=True, key="change_review"):
+        st.subheader("Review AI changes")
+        if st.session_state.changelog:
+            st.caption(st.session_state.changelog)
+        if not changes:
+            st.caption("The rewrite kept your Career Profile's wording - nothing to review.")
+            return
+
+        with st.container(key="review_actions"):
+            if unsaved:
+                st.markdown(f"**{unsaved} unsaved edit{'s' if unsaved != 1 else ''}**")
+            else:
+                st.caption(f"{len(changes)} change{'s' if len(changes) != 1 else ''} - the preview shows this version")
+            # A wrapping row, not st.columns: the left column can be dragged
+            # narrow, and fixed columns squeezed "Save & preview" to one
+            # letter per line. Content-width buttons wrap onto a second line
+            # instead.
+            with st.container(horizontal=True, gap="small"):
+                needs_render = not st.session_state.resume_preview_bytes
+                if st.button(
+                    "Save & preview", key="review_save", type="primary", width="content",
+                    icon=":material/visibility:", disabled=not (unsaved or needs_render),
+                ):
+                    save_review_edits(optimized, edits, restores)
+                    st.rerun()
+                if unsaved:
+                    st.button(
+                        "Discard", key="review_discard", width="content",
+                        on_click=_review_discard, args=(list(keys.values()),),
+                    )
+
+        group = None
+        for change in changes:
+            if change["group"] != group:
+                group = change["group"]
+                st.markdown(f"**{md_escape(group)}**")
+            with st.container(border=True):
+                label = REVIEW_KIND_LABELS[change["kind"]]
+                st.caption(label)
+                if change["reason"]:
+                    st.markdown(f"**Why:** {md_escape(change['reason'])}")
+                if change["kind"] == review.REMOVED:
+                    lines = [md_escape(line) for line in change["before"].splitlines() if line.strip()]
+                    st.markdown("  \n".join(f"~~{line}~~" for line in lines))
+                    restoring = change["id"] in st.session_state.review_restores
+                    st.button(
+                        "Undo restore" if restoring else "Restore it",
+                        key=f"review_restore_{st.session_state.opt_editor_key}_{change['id']}",
+                        icon=":material/undo:" if restoring else ":material/restore:",
+                        on_click=_review_toggle_restore, args=(change["id"],),
+                    )
+                    if restoring:
+                        st.caption("Will be added back on Save & preview.")
+                    continue
+                if change["before"] is not None:
+                    st.caption(f"Original: {md_escape(change['before'])}")
+                key = keys[change["id"]]
+                value = st.text_area(
+                    "Edit", key=key, label_visibility="collapsed",
+                    # From the AI's text, not the staged one: a height that
+                    # changed while typing would make a new widget each rerun.
+                    height=review_box_height(change["after"]),
+                    help="Comma-separated" if change["is_list"] else None,
+                )
+                drafts[key] = value
+                if change["before"] is not None and value != change["before"]:
+                    st.button(
+                        "Use original", key=f"{key}_original", icon=":material/history:",
+                        on_click=_review_set, args=(key, change["before"]),
+                    )
+
 
 def render_application_chat():
     """"Ask about this application" - the Q&A box in the Generator's left column.
@@ -3042,6 +3454,7 @@ def render_application_chat():
             # neither shape belongs inside a chat bubble. It also exists to
             # stream real milestones, and there are none here - this is one
             # round trip, so a plain spinner tells the whole truth.
+            st.session_state.model_notes = []
             with st.spinner("Thinking..."):
                 ok, reply = ai.answer_application_question(
                     # Already includes the question just appended above, which
@@ -3051,9 +3464,15 @@ def render_application_chat():
                     st.session_state.resume_data,
                     st.session_state.optimized_resume_data,
                     st.session_state.api_key,
+                    **gemini_options(),
                 )
             answer = reply if ok else f"Could not answer: {reply}"
             st.markdown(answer)
+            # A caption, not part of `answer`: the answer is what the user
+            # pastes into an application form.
+            for note in st.session_state.model_notes:
+                st.caption(note)
+            st.session_state.model_notes = []
 
         # Failures are appended to the transcript too, not just shown once. A
         # bubble that evaporates on the next rerun leaves the user looking at
@@ -3280,6 +3699,9 @@ def edit_opt_dialog():
         if st.button("Apply Optimized JSON Import", use_container_width=True):
             try:
                 st.session_state.optimized_resume_data = json.loads(raw_opt_import)
+                # A wholesale replacement: the reasons pointed into the old data.
+                st.session_state.change_reasons = []
+                st.session_state.review_restores = []
                 st.session_state.opt_editor_key += 1
                 clear_pdf_outputs_and_tracking()
                 st.rerun()
@@ -3287,11 +3709,10 @@ def edit_opt_dialog():
                 st.error(json_error_report(raw_opt_import, e))
 
 def render_ats_analysis():
-    """ATS 分析區塊的內容（左欄底部）；呼叫端已確認有優化結果。"""
-    if st.session_state.changelog:
-        st.markdown("### Optimization Changelog")
-        st.info(st.session_state.changelog)
+    """ATS 分析區塊的內容（左欄底部）；呼叫端已確認有優化結果。
 
+    The rewrite's changelog used to open this section; it now heads the
+    Review AI changes panel, next to the changes it summarises."""
     # Requirements the rewrite deliberately did not claim. This is the
     # counterpart to banning invented metrics: instead of a fabricated
     # number, the user gets a list of what to supply themselves.
@@ -3524,8 +3945,12 @@ def render_preview():
     if target:
         render_pdf_js(target)
     elif ch == "Resume":
-        data = st.session_state.resume_data
-        if resume_is_empty(data):
+        # The version being worked on: the optimized result once there is
+        # one (e.g. right after a Draft Table edit cleared the generated
+        # PDF), otherwise the Career Profile. Showing the profile here after
+        # an optimize made it look as if the rewrite had not happened.
+        data = export_source_data()
+        if not using_optimized_result() and resume_is_empty(data):
             # 未優化前的預覽必須快取，不能急切編譯 - 履歷是空的就不編譯，
             # 直接指向 Career Profile，不要拿一份空白 PDF 浪費 lualatex。
             render_preview_empty_state("Your Career Profile is empty. Build it first — every rewrite starts from it.")

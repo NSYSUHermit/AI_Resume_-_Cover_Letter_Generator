@@ -155,7 +155,7 @@ def test_chat_input_disabled_without_an_api_key():
 def test_asking_a_question_records_both_sides(monkeypatch):
     captured = {}
 
-    def fake_answer(messages, jd_text, resume_data, optimized_resume, api_key):
+    def fake_answer(messages, jd_text, resume_data, optimized_resume, api_key, **kwargs):
         captured["messages"] = list(messages)
         captured["jd_text"] = jd_text
         captured["optimized_resume"] = optimized_resume

@@ -126,7 +126,7 @@ def test_login_restores_the_saved_template(monkeypatch):
     monkeypatch.setattr("firebase_dashboard.authenticate_user", lambda db, e, p: (True, "ok"))
     monkeypatch.setattr(
         "firebase_dashboard.load_user_profile",
-        lambda db, email: (profile, "", "", "Business"),
+        lambda db, email: {"base_resume": profile, "custom_prompt": "", "api_key": "", "preferred_template": "Business"},
     )
     at, fake_db = run_app(monkeypatch)
 
@@ -149,7 +149,7 @@ def test_unknown_saved_template_falls_back_to_tech(monkeypatch):
     monkeypatch.setattr("firebase_dashboard.authenticate_user", lambda db, e, p: (True, "ok"))
     monkeypatch.setattr(
         "firebase_dashboard.load_user_profile",
-        lambda db, email: (None, None, None, "Retired Template"),
+        lambda db, email: {"preferred_template": "Retired Template"},
     )
     at, _ = run_app(monkeypatch)
     [email_box] = [t for t in at.sidebar.text_input if t.label == "Email"]
@@ -191,7 +191,7 @@ def test_load_user_profile_returns_the_saved_template():
         def get(self):
             return Doc()
 
-    assert firebase_dashboard.load_user_profile(Db(), EMAIL) == ({"summary": "x"}, "p", "k", "Business")
+    assert firebase_dashboard.load_user_profile(Db(), EMAIL)["preferred_template"] == "Business"
 
 
 # --- Tracker preview dialog -------------------------------------------------

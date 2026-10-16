@@ -138,7 +138,7 @@ def test_optimize_resume_failure_adds_no_expanding_panel_and_stays_clickable(mon
     used to open below the button), and the button's row is left clickable
     again rather than dead until some unrelated interaction reruns the
     page."""
-    def boom(jd_text, api_key):
+    def boom(jd_text, api_key, **kwargs):
         raise RuntimeError("boom")
     monkeypatch.setattr("ai.screen_job_description", boom)
 

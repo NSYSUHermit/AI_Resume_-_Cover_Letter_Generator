@@ -74,7 +74,7 @@ def test_chat_comes_after_the_ats_analysis():
         active_view="Generator",
         resume_data=PROFILE,
         optimized_resume_data=PROFILE,
-        changelog="Tightened the summary.",
+        suggested_metrics=["Team size on the Acme project"],
     )
-    changelog = position(at, lambda n: n.type == "markdown" and "Optimization Changelog" in n.value)
-    assert position(at, is_chat) > changelog
+    ats = position(at, lambda n: n.type == "markdown" and "Add These Yourself" in n.value)
+    assert position(at, is_chat) > ats
