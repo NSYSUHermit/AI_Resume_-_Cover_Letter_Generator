@@ -3257,6 +3257,27 @@ def _review_toggle_restore(change_id):
     else:
         restores.append(change_id)
 
+def review_sections(changes):
+    """[(group, expander key, changes)] - one section per run of consecutive
+    changes with the same group. The key comes from the group's name (plus an
+    occurrence count, should two sections share one), not its position, so a
+    section keeps its open/closed state when a save makes another one
+    disappear."""
+    sections, seen = [], {}
+    for change in changes:
+        if sections and sections[-1][0] == change["group"]:
+            sections[-1][2].append(change)
+            continue
+        occurrence = seen.get(change["group"], 0)
+        seen[change["group"]] = occurrence + 1
+        digest = zlib.crc32(change["group"].encode("utf-8"))
+        sections.append((change["group"], f"review_section_{digest}_{occurrence}", [change]))
+    return sections
+
+def _review_set_sections(keys, expanded):
+    for key in keys:
+        st.session_state[key] = expanded
+
 def _review_discard(keys):
     for key in keys:
         st.session_state.pop(key, None)
@@ -3355,45 +3376,81 @@ def render_change_review():
                         on_click=_review_discard, args=(list(keys.values()),),
                     )
 
-        group = None
-        for change in changes:
-            if change["group"] != group:
-                group = change["group"]
-                st.markdown(f"**{md_escape(group)}**")
-            with st.container(border=True):
-                label = REVIEW_KIND_LABELS[change["kind"]]
-                st.caption(label)
-                if change["reason"]:
-                    st.markdown(f"**Why:** {md_escape(change['reason'])}")
-                if change["kind"] == review.REMOVED:
-                    lines = [md_escape(line) for line in change["before"].splitlines() if line.strip()]
-                    st.markdown("  \n".join(f"~~{line}~~" for line in lines))
-                    restoring = change["id"] in st.session_state.review_restores
-                    st.button(
-                        "Undo restore" if restoring else "Restore it",
-                        key=f"review_restore_{st.session_state.opt_editor_key}_{change['id']}",
-                        icon=":material/undo:" if restoring else ":material/restore:",
-                        on_click=_review_toggle_restore, args=(change["id"],),
-                    )
-                    if restoring:
-                        st.caption("Will be added back on Save & preview.")
-                    continue
-                if change["before"] is not None:
-                    st.caption(f"Original: {md_escape(change['before'])}")
-                key = keys[change["id"]]
-                value = st.text_area(
-                    "Edit", key=key, label_visibility="collapsed",
-                    # From the AI's text, not the staged one: a height that
-                    # changed while typing would make a new widget each rerun.
-                    height=review_box_height(change["after"]),
-                    help="Comma-separated" if change["is_list"] else None,
-                )
-                drafts[key] = value
-                if change["before"] is not None and value != change["before"]:
-                    st.button(
-                        "Use original", key=f"{key}_original", icon=":material/history:",
-                        on_click=_review_set, args=(key, change["before"]),
-                    )
+        sections = review_sections(changes)
+        section_keys = [key for _, key, _ in sections]
+        # Durable open/closed state per section. Streamlit resets a keyed
+        # expander to closed whenever its label changes - which the unsaved
+        # count does the moment the user edits inside it - and on a full
+        # rerun after Save. So the state is captured here, before any
+        # expander is drawn (it still holds the user's latest toggle or an
+        # Expand all), and written back just before each one below.
+        open_sections = st.session_state.setdefault("review_open", {})
+        for key in section_keys:
+            if key in st.session_state:
+                open_sections[key] = st.session_state[key]
+        with st.container(horizontal=True, gap="small"):
+            st.button(
+                "Expand all", key="review_expand_all", type="tertiary", icon=":material/unfold_more:",
+                on_click=_review_set_sections, args=(section_keys, True),
+            )
+            st.button(
+                "Collapse all", key="review_collapse_all", type="tertiary", icon=":material/unfold_less:",
+                on_click=_review_set_sections, args=(section_keys, False),
+            )
+
+        restore_ids = {c["id"] for c in restores}
+        for group, section_key, section_changes in sections:
+            pending = sum(
+                1 for c in section_changes
+                if (c["path"] in edits if c["kind"] != review.REMOVED else c["id"] in restore_ids)
+            )
+            label = f"{md_escape(group)} · {len(section_changes)} change{'s' if len(section_changes) != 1 else ''}"
+            if pending:
+                label += f" · {pending} unsaved"
+            # Keyed, with on_change="rerun": the key holds the open/closed
+            # state, so it survives the label changing (the unsaved count) and
+            # Expand all / Collapse all can set it. Closed by default - the
+            # point is a short list of headings, not one long page. No icon
+            # that depends on `pending`: changing a keyed expander's icon
+            # between runs made it vanish from the page entirely (reproduced
+            # in streamlit 1.61.1); a changing label is fine.
+            if section_key in open_sections:
+                st.session_state[section_key] = open_sections[section_key]
+            with st.expander(label, key=section_key, on_change="rerun"):
+                for change in section_changes:
+                    with st.container(border=True):
+                        st.caption(REVIEW_KIND_LABELS[change["kind"]])
+                        if change["reason"]:
+                            st.markdown(f"**Why:** {md_escape(change['reason'])}")
+                        if change["kind"] == review.REMOVED:
+                            lines = [md_escape(line) for line in change["before"].splitlines() if line.strip()]
+                            st.markdown("  \n".join(f"~~{line}~~" for line in lines))
+                            restoring = change["id"] in st.session_state.review_restores
+                            st.button(
+                                "Undo restore" if restoring else "Restore it",
+                                key=f"review_restore_{st.session_state.opt_editor_key}_{change['id']}",
+                                icon=":material/undo:" if restoring else ":material/restore:",
+                                on_click=_review_toggle_restore, args=(change["id"],),
+                            )
+                            if restoring:
+                                st.caption("Will be added back on Save & preview.")
+                            continue
+                        if change["before"] is not None:
+                            st.caption(f"Original: {md_escape(change['before'])}")
+                        key = keys[change["id"]]
+                        value = st.text_area(
+                            "Edit", key=key, label_visibility="collapsed",
+                            # From the AI's text, not the staged one: a height that
+                            # changed while typing would make a new widget each rerun.
+                            height=review_box_height(change["after"]),
+                            help="Comma-separated" if change["is_list"] else None,
+                        )
+                        drafts[key] = value
+                        if change["before"] is not None and value != change["before"]:
+                            st.button(
+                                "Use original", key=f"{key}_original", icon=":material/history:",
+                                on_click=_review_set, args=(key, change["before"]),
+                            )
 
 
 def render_application_chat():

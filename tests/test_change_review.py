@@ -270,3 +270,73 @@ def test_preview_shows_the_optimized_version_not_the_profile(monkeypatch):
     at.run()
     assert not at.exception
     assert rendered == ["Unique optimized summary for fallback."]
+
+
+# --- collapsible sections ----------------------------------------------------------
+# One expander per section (Summary, each job, each project, Skills, Cover
+# letter), all closed to start with, so a long change list is a short list of
+# headings. Each keeps its own open/closed state through edits and saves.
+
+SECTION_PREFIXES = ("Summary", "Experience", "Projects", "Patents", "Skills", "Cover letter")
+
+
+def sections(at):
+    """Review section expanders, labels with the markdown escaping removed."""
+    return [e for e in at.expander if e.label.replace("\\", "").startswith(SECTION_PREFIXES)]
+
+
+def section_labels(at):
+    return [e.label.replace("\\", "") for e in sections(at)]
+
+
+def test_changes_are_grouped_into_sections_that_start_closed(monkeypatch):
+    at = optimized_app(monkeypatch)
+    assert section_labels(at) == [
+        "Summary · 1 change",
+        "Experience · Acme — Engineer · 1 change",
+        "Projects · Old Game · 1 change",
+    ]
+    assert not any(e.proto.expanded for e in sections(at))
+    # Closed sections still hold their edit boxes - nothing is lost by closing one.
+    assert box(at, "summary").value == "Backend engineer for high-traffic APIs."
+
+
+def test_expand_all_and_collapse_all(monkeypatch):
+    at = optimized_app(monkeypatch)
+    button(at, "review_expand_all").click().run()
+    assert not at.exception
+    assert all(e.proto.expanded for e in sections(at))
+    button(at, "review_collapse_all").click().run()
+    assert not any(e.proto.expanded for e in sections(at))
+
+
+def test_a_section_with_unsaved_edits_says_so(monkeypatch):
+    at = optimized_app(monkeypatch)
+    box(at, "summary").input("My own summary.").run()
+    assert section_labels(at)[0] == "Summary · 1 change · 1 unsaved"
+    assert section_labels(at)[1] == "Experience · Acme — Engineer · 1 change"
+
+
+def test_open_sections_stay_open_through_an_edit_and_a_save(monkeypatch):
+    at = optimized_app(monkeypatch)
+    button(at, "review_expand_all").click().run()
+    box(at, "summary").input("My own summary.").run()
+    assert all(e.proto.expanded for e in sections(at))
+    button(at, "review_save").click().run()
+    assert not at.exception
+    assert all(e.proto.expanded for e in sections(at))
+
+
+def test_closing_one_section_leaves_the_others_open(monkeypatch):
+    """The saved open/closed state must follow the user's own toggles, not
+    override them. AppTest cannot click an expander header, so the toggle is
+    made the way the frontend reports it: through the expander's key."""
+    import zlib
+    at = optimized_app(monkeypatch)
+    button(at, "review_expand_all").click().run()
+    summary_key = f"review_section_{zlib.crc32('Summary'.encode('utf-8'))}_0"
+    at.session_state[summary_key] = False
+    at.run()
+    assert [e.proto.expanded for e in sections(at)] == [False, True, True]
+    box(at, "experience.0.details.0").input("Built REST APIs").run()
+    assert [e.proto.expanded for e in sections(at)] == [False, True, True]
