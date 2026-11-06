@@ -3,12 +3,28 @@ toolbarMode="viewer"
 
 [theme]
 base="light"
-primaryColor="#2563eb"
-backgroundColor="#f8fafc"
+# Monochrome redesign (see theme.py TOKENS): ink is the primary colour - it
+# drives primary buttons, focus, checkboxes and multiselect chips - and the
+# single blue accent is applied in CSS only to the core CTA and key number.
+primaryColor="#09090b"
+backgroundColor="#fafafa"
 secondaryBackgroundColor="#ffffff"
-textColor="#111827"
+textColor="#09090b"
 # Visible edges on every input. Streamlit derives the default input border
 # from secondaryBackgroundColor, which is white here, so text inputs had a
 # white-on-white frame. Same value as TOKENS["border-input"] in theme.py.
-borderColor="#cbd5e1"
+borderColor="#e4e4e7"
 showWidgetBorder=true
+baseRadius="6px"
+font="Geist:https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"
+headingFont="Geist:https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"
+codeFont="Geist Mono:https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&display=swap"
+headingFontWeights=[600, 600, 600, 600, 600, 600]
+# Info and success notices in ink on soft grey instead of blue and green -
+# they are status, not alarms. Warnings and errors keep their colours.
+blueColor="#71717a"
+blueBackgroundColor="#f4f4f5"
+blueTextColor="#09090b"
+greenColor="#71717a"
+greenBackgroundColor="#f4f4f5"
+greenTextColor="#09090b"

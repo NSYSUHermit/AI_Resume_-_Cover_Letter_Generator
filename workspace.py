@@ -12,7 +12,7 @@ TRACKER = "Tracker"
 # (active_view value, sidebar label, material icon)
 VIEWS = (
     (PROFILE, "Career Profile", ":material/person:"),
-    (GENERATOR, "Generator", ":material/auto_awesome:"),
+    (GENERATOR, "Generator", ":material/description:"),
     (TRACKER, "Tracker", ":material/monitoring:"),
 )
 

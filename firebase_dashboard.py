@@ -454,7 +454,7 @@ def render_interview_progress(db, email: str):
         max_date = max(all_dates)
         today = datetime.now().date()
         
-        with st.container(border=True):
+        with st.container(border=True, key="card_performance"):
             st.markdown("### Performance Overview")
             col_filter, col_metrics = st.columns([1, 3])
             
@@ -792,7 +792,7 @@ def render_dashboard(db, email: str):
         max_record_date = max(dated_records) if dated_records else None
         today = datetime.now().date()
 
-        with st.container(border=True):
+        with st.container(border=True, key="card_tracker_filters"):
             search_col, timeframe_col, sort_col = st.columns([2.2, 1.25, 1])
             with search_col:
                 search_value = st.text_input(
@@ -913,7 +913,7 @@ def render_dashboard(db, email: str):
             date_str = get_local_time_str(app_data.get("applied_date"))
             role = (_resume_dict(app_data).get("target_role") or "").strip()
 
-            with st.container(border=True):
+            with st.container(border=True, key=f"card_app_{doc_id}"):
                 c_main, c_meta, c_btn = st.columns([3, 2, 1.2], vertical_alignment="center")
                 with c_main:
                     st.markdown(f"**{company}**")

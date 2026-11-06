@@ -96,7 +96,9 @@ def test_density_pass_css_values_are_pinned():
     # spacing to fill a screen that looked empty, and the owner later asked for
     # the opposite once the page was full ("太壅擠... 呼吸感"). Deliberate
     # reversal, so this guard tracks the new value rather than the old one.
-    assert "gap: 1.35rem !important;" in css
+    # 1.5rem since the 2026-11 Vercel/Apple-style redesign, whose brief asks
+    # for generous whitespace between components.
+    assert "gap: 1.5rem !important;" in css
     assert '[data-testid="stHorizontalBlock"]' in css
     assert "gap: 0.75rem !important;" in css
 

@@ -62,7 +62,7 @@ def test_source_of_truth_card_is_gone():
 
 def test_chat_comes_after_export_settings():
     at = run_app(active_view="Generator")
-    export = position(at, lambda n: n.type == "subheader" and n.value == "Export Settings")
+    export = position(at, lambda n: n.type == "subheader" and n.value == "Export")
     ats_hint = position(
         at, lambda n: n.type == "caption" and n.value.startswith("Optimize a resume to see how it scores"),
     )
@@ -76,5 +76,5 @@ def test_chat_comes_after_the_ats_analysis():
         optimized_resume_data=PROFILE,
         suggested_metrics=["Team size on the Acme project"],
     )
-    ats = position(at, lambda n: n.type == "markdown" and "Add These Yourself" in n.value)
+    ats = position(at, lambda n: n.type == "markdown" and "Add these yourself" in n.value)
     assert position(at, is_chat) > ats

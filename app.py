@@ -655,7 +655,7 @@ def render_resume_form_editor(data, key_prefix):
     heading = data.get("heading") if isinstance(data.get("heading"), dict) else {}
 
     st.markdown("#### Profile Fields")
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{key_prefix}_basic"):
         st.subheader("Basic Info")
         c1, c2 = st.columns(2)
         with c1:
@@ -671,7 +671,7 @@ def render_resume_form_editor(data, key_prefix):
         about_more = st.text_area("About Me / Notes", value=data.get("about me more", ""), height=90, key=f"{key_prefix}_about")
         cover_letter = st.text_area("Cover Letter", value=data.get("cover_letter", ""), height=180, key=f"{key_prefix}_cover_letter")
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{key_prefix}_education"):
         st.subheader("Education")
         education_rows = st.data_editor(
             stable_seed(f"{key_prefix}_education", lambda: editable_seed(data.get("education", []), EDUCATION_ROW_FIELDS)),
@@ -688,7 +688,7 @@ def render_resume_form_editor(data, key_prefix):
         )
 
     exp_seed = stable_seed(f"{key_prefix}_experience", lambda: experience_seed_rows(data.get("experience", [])))
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{key_prefix}_experience"):
         st.subheader("Experience")
         experience_rows = st.data_editor(
             exp_seed,
@@ -705,7 +705,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{key_prefix}_projects"):
         st.subheader("Projects")
         project_rows = st.data_editor(
             stable_seed(f"{key_prefix}_projects", lambda: editable_seed(data.get("projects", []), PROJECT_ROW_FIELDS)),
@@ -720,7 +720,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{key_prefix}_patents"):
         st.subheader("Patents")
         patent_rows = st.data_editor(
             stable_seed(f"{key_prefix}_patents", lambda: editable_seed(data.get("patents", []), PATENT_ROW_FIELDS)),
@@ -735,7 +735,7 @@ def render_resume_form_editor(data, key_prefix):
             },
         )
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"card_{key_prefix}_skills"):
         st.subheader("Skills")
         skill_rows = st.data_editor(
             stable_seed(f"{key_prefix}_skills", lambda: skills_to_rows(data.get("skills", {}))),
@@ -1320,7 +1320,7 @@ def _sidebar_css():
 st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     html, body, [data-testid="stAppViewContainer"] {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: """ + FONT_STACK + """;
         background: var(--bg);
         color: var(--text);
     }
@@ -1385,7 +1385,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        0.6rem to fill an empty-looking screen; with the page now full, that
        same value reads as cramped. This is the reversal, done deliberately. */
     [data-testid="stVerticalBlock"] {
-        gap: 1.35rem !important;
+        gap: 1.5rem !important;
     }
 
     [data-testid="stHorizontalBlock"] {
@@ -1395,7 +1395,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     [data-testid="stSidebar"] {
         background: var(--surface);
         border-right: 1px solid var(--border);
-        box-shadow: var(--shadow-sm);
+        box-shadow: none;
     }
 
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
@@ -1445,21 +1445,21 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        something to rely on for them either, same as the padding rule above. */
     [data-testid="stHeading"] h1,
     [data-testid="stHeading"] h2 {
-        color: var(--navy-dark);
-        font-weight: 800 !important;
+        color: var(--text);
+        font-weight: 600 !important;
     }
 
     [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4 {
         color: var(--text);
-        font-weight: 700 !important;
+        font-weight: 600 !important;
     }
 
     [data-testid="stHeading"] h1,
     [data-testid="stHeading"] h2,
     [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4 {
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         line-height: 1.25 !important;
         padding-top: 0 !important;
         padding-bottom: 0 !important;
@@ -1471,7 +1471,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        purely because one is a subheader and the other a markdown bold. */
     [data-testid="stHeading"] h1 { font-size: 1.5rem !important; }
     [data-testid="stHeading"] h2 { font-size: 1.2rem !important; }
-    [data-testid="stHeading"] h3 { font-size: 1.05rem !important; }
+    [data-testid="stHeading"] h3 { font-size: 1rem !important; }
     [data-testid="stHeading"] h4 { font-size: 0.95rem !important; }
 
     /* The description under a heading: smaller, muted, and given room before
@@ -1518,11 +1518,11 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        just above it. Only the expander's own clickable header text is out
        of reach, not the field inside it. */
     [data-testid="stWidgetLabel"] {
-        font-size: 0.66rem !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.08em !important;
-        text-transform: uppercase !important;
-        color: var(--muted) !important;
+        font-size: 0.75rem !important;
+        font-weight: 500 !important;
+        letter-spacing: 0 !important;
+        text-transform: none !important;
+        color: var(--text-2) !important;
     }
 
     p, label, [data-testid="stCaptionContainer"] {
@@ -1555,18 +1555,18 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     .stDownloadButton button,
     .stFormSubmitButton button {
         border-radius: var(--radius) !important;
-        min-height: 42px !important;
-        font-weight: 650 !important;
+        min-height: 40px !important;
+        font-weight: 500 !important;
         /* A visible edge, not a transparent one. Measured in the browser: the
            label was already 16.19:1 against the old fill, so "看不到字" was
            never a text-contrast problem - it was that a borderless #f1f5f9
            fill on an #f8fafc page has no edge at all, so the control does not
            read as a button. The reference app's secondary is
            `bg-white border border-gray-200` (ResumeBuilder.tsx:424). */
-        border: 1px solid var(--border) !important;
+        border: 1px solid var(--border-input) !important;
         background: var(--surface) !important;
         color: var(--text) !important;
-        box-shadow: var(--shadow-sm);
+        box-shadow: none;
     }
 
     /* Descendant, not child: a button with help= is wrapped in a tooltip span,
@@ -1583,10 +1583,11 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     .stDownloadButton button:hover,
     .stFormSubmitButton button:hover {
         /* Reference: `hover:border-primary hover:text-primary`. */
-        border-color: var(--navy) !important;
-        color: var(--navy) !important;
-        box-shadow: var(--shadow-md);
-        transform: translateY(-1px);
+        border-color: var(--border-strong) !important;
+        background: var(--surface-soft) !important;
+        color: var(--text) !important;
+        box-shadow: none;
+        transform: none;
     }
 
     /* Primary buttons: solid filled --navy, no border - the reference
@@ -1599,8 +1600,8 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     .stButton button[kind^="primary"],
     .stDownloadButton button[kind^="primary"],
     .stFormSubmitButton button[kind^="primary"] {
-        background: var(--navy) !important;
-        border-color: var(--navy) !important;
+        background: var(--ink) !important;
+        border-color: var(--ink) !important;
         /* TOKENS has no dedicated "on-dark text" token, but --surface is
            already the exact colour this needs (#ffffff) - reused by value
            rather than adding a second token that would only ever equal the
@@ -1612,8 +1613,9 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     .stButton button[kind^="primary"]:hover,
     .stDownloadButton button[kind^="primary"]:hover,
     .stFormSubmitButton button[kind^="primary"]:hover {
-        background: var(--navy-dark) !important;
-        border-color: var(--navy-dark) !important;
+        background: var(--ink-hover) !important;
+        border-color: var(--ink-hover) !important;
+        color: var(--surface) !important;
     }
 
     /* Streamlit dropped BaseWeb entirely, so every data-baseweb hook is gone. */
@@ -1623,14 +1625,14 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     input:focus,
     textarea:focus {
         outline: none !important;
-        border-color: var(--brand) !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18) !important;
+        border-color: var(--ink) !important;
+        box-shadow: 0 0 0 3px rgba(9, 9, 11, 0.08) !important;
     }
 
     input,
     textarea {
         border-radius: var(--radius) !important;
-        border-color: var(--border) !important;
+        border-color: var(--border-input) !important;
         background: var(--surface) !important;
     }
 
@@ -1667,9 +1669,10 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        these two, so it was left alone rather than guessed at. */
     [class*="st-key-jd_input_"] textarea,
     [class*="st-key-cp_input_"] textarea {
-        background: var(--surface-soft) !important;
-        padding: 1rem !important;
+        background: var(--surface) !important;
+        padding: 0.85rem 1rem !important;
         font-size: 0.875rem !important;
+        line-height: 1.65 !important;
     }
 
     hr {
@@ -1726,22 +1729,22 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     }
 
     [data-testid="stAlert"] {
-        border-radius: var(--radius);
+        border-radius: 8px;
         border: 1px solid var(--border);
-        box-shadow: var(--shadow-sm);
+        box-shadow: none;
         /* Task 4 density pass: previously unset (Streamlit's own default);
            set explicitly, matching the tightened stMetric padding below. */
         padding: 0.75rem 1rem;
     }
 
     [data-testid="stMetric"] {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
+        background: transparent;
+        border: 0;
+        border-radius: 0;
         /* Roomier than the Task 4 density pass (0.6rem 0.85rem) - the owner
            wants the frame further from its contents. */
-        padding: 1.25rem 1.4rem;
-        box-shadow: var(--shadow-sm);
+        padding: 0;
+        box-shadow: none;
     }
 
     /* base_preview_pdf's show_spinner (app.py, near generate_preview_pdf_bytes)
@@ -1755,7 +1758,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        (confirmed by reading DynamicIcon's source), so one rule recolours
        both the icon and the text. */
     [data-testid="stSpinner"].stCacheSpinner {
-        color: var(--brand) !important;
+        color: var(--muted) !important;
     }
 
     /* Blue while an AI call is in flight, green once it lands (below). Both use
@@ -1777,14 +1780,13 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         transition: border-color var(--ease), box-shadow var(--ease);
     }
     [data-testid="stChatInput"]:focus-within > div {
-        border-color: var(--brand) !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        border-color: var(--ink) !important;
+        box-shadow: 0 0 0 3px rgba(9, 9, 11, 0.08);
     }
 
     .st-key-ai_status [data-testid="stExpander"] {
-        border-left: 4px solid var(--brand) !important;
-        background: rgba(37, 99, 235, 0.05) !important;
-        border-radius: var(--radius) !important;
+        background: var(--surface-soft) !important;
+        border-radius: 8px !important;
     }
 
     .st-key-ai_status [data-testid="stMarkdownContainer"] p {
@@ -1796,9 +1798,10 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        documented hook, unlike the hashed emotion classes, so it is safe to
        target. Green accent marks it as an outcome rather than another form. */
     .st-key-result_banner {
-        border-color: rgba(5, 150, 105, 0.35) !important;
-        border-left: 4px solid var(--success) !important;
-        background: rgba(5, 150, 105, 0.06) !important;
+        border-color: var(--border) !important;
+        background: var(--surface) !important;
+        border-radius: var(--radius-card) !important;
+        padding: 1rem 1.25rem !important;
     }
 
     .st-key-result_banner p {
@@ -1822,9 +1825,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         padding: 0.35rem 0 0.5rem;
         margin-bottom: 0.25rem;
     }
-    .st-key-change_review [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlockBorderWrapper"] {
-        background: var(--surface-soft);
-    }
+
 
     .st-key-dismiss_result_banner button {
         border: none !important;
@@ -1908,10 +1909,10 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         padding: 0 0.65rem !important;
         gap: 0.25rem !important;
         font-size: 0.72rem !important;
-        font-weight: 650 !important;
+        font-weight: 500 !important;
         line-height: 1 !important;
         white-space: nowrap;
-        border-radius: 999px !important;
+        border-radius: var(--radius) !important;
         color: var(--muted) !important;
         background: transparent !important;
         border: 1px solid var(--border) !important;
@@ -1922,7 +1923,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     [class*="st-key-new_application"] button:hover,
     [class*="st-key-new_application"] button:focus-visible {
-        color: var(--brand) !important;
+        color: var(--text) !important;
         background: var(--surface-soft) !important;
         border-color: var(--border-strong) !important;
     }
@@ -2017,7 +2018,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     .gp-strip-track {
         position: relative;
         flex: 1;
-        height: 4px;
+        height: 1px;
     }
 
     .gp-strip-track::before {
@@ -2026,41 +2027,42 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         left: 0;
         right: 0;
         top: 0;
-        height: 4px;
-        border-radius: 999px;
-        background: var(--border);
+        height: 1px;
+        border-radius: 0;
+        background: var(--border-strong);
     }
 
     .gp-strip-fill {
         position: absolute;
         left: 0;
         top: 0;
-        height: 4px;
-        border-radius: 999px;
-        background: var(--brand);
+        height: 1px;
+        border-radius: 0;
+        background: var(--ink);
         transition: width 420ms ease-in-out;
     }
 
     .gp-strip-stop {
         position: absolute;
-        top: 2px;
-        width: 6px;
-        height: 6px;
+        top: 0.5px;
+        width: 5px;
+        height: 5px;
         border-radius: 50%;
         background: var(--surface);
-        border: 2px solid var(--muted);
+        border: 1px solid var(--border-strong);
         transform: translate(-50%, -50%);
     }
 
     .gp-strip-stop-done {
-        border-color: var(--success);
-        background: var(--success);
+        border-color: var(--ink);
+        background: var(--ink);
     }
 
     .gp-strip-label {
         flex: none;
+        font-family: var(--font-mono);
         font-size: 0.7rem;
-        font-weight: 650;
+        font-weight: 400;
         color: var(--muted);
         white-space: nowrap;
     }
@@ -2109,7 +2111,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         min-height: 42px;
         width: 100%;
         border-radius: var(--radius);
-        background: var(--navy);
+        background: var(--brand);
         box-sizing: border-box;
         padding: 0 1rem;
     }
@@ -2120,7 +2122,7 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     .gp-btn-status span {
         color: var(--surface);
-        font-weight: 650;
+        font-weight: 500;
         font-size: 0.92rem;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -2152,23 +2154,25 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     .sb-logo {
         flex: none;
-        width: 38px;
-        height: 38px;
+        width: 28px;
+        height: 28px;
         border-radius: var(--radius);
-        background: var(--brand-dark);
+        background: var(--ink);
         color: var(--surface);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 800;
-        font-size: 0.95rem;
-        letter-spacing: 0.02em;
+        font-family: var(--font-mono);
+        font-weight: 500;
+        font-size: 0.7rem;
+        letter-spacing: 0;
     }
 
     .sb-wordmark-name {
         color: var(--text);
-        font-weight: 750;
-        font-size: 0.98rem;
+        font-weight: 600;
+        font-size: 0.92rem;
+        letter-spacing: -0.01em;
         line-height: 1.18;
     }
 
@@ -2177,10 +2181,11 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        label, "RECENT APPLICATIONS", and the account block's
        "ACCOUNT · SETTINGS". */
     .sb-micro-label {
-        font-size: 0.66rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 400;
+        letter-spacing: 0;
+        text-transform: lowercase;
         color: var(--muted);
         margin: 0.3rem 0 0.4rem 0.05rem;
     }
@@ -2275,12 +2280,12 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         border-radius: 50%;
         background: var(--surface-soft);
         border: 1px solid var(--border);
-        color: var(--text);
+        color: var(--text-2);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 700;
-        font-size: 0.82rem;
+        font-weight: 500;
+        font-size: 0.72rem;
     }
 
     .sb-account-info {
@@ -2289,9 +2294,9 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     }
 
     .sb-account-email {
-        color: var(--text);
-        font-weight: 650;
-        font-size: 0.85rem;
+        color: var(--text-2);
+        font-weight: 400;
+        font-size: 0.82rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -2322,15 +2327,16 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
        through below the content, which is where the stray grey band came
        from. */
     [data-testid="stColumn"]:has([data-gp-col="workspace"]) {
-        background: var(--surface) !important;
+        background: transparent !important;
         align-self: stretch !important;
         min-height: calc(100vh - 7rem);
         padding: 1.25rem 1.5rem 2rem 0 !important;
     }
 
     [data-testid="stColumn"]:has([data-gp-col="preview"]) {
-        background: var(--bg) !important;
-        border-left: 1px solid var(--border);
+        background: var(--surface-soft) !important;
+        border-left: 0;
+        border-radius: var(--radius-card);
         padding: 1.25rem 1.25rem 2rem !important;
     }
 
@@ -2360,10 +2366,10 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
     /* White card inside the grey panel, matching the reference's
        "Professional Preview" surface. */
     [data-testid="stColumn"]:has([data-gp-col="preview"]) [data-testid="stIFrame"] {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: var(--shadow-sm);
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
     /* Item 1: the preview column's three empty states (render_preview_empty_
@@ -2392,8 +2398,8 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         padding: 3rem;
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: var(--radius);
-        box-shadow: var(--shadow-md);
+        border-radius: 2px;
+        box-shadow: var(--shadow-sm);
     }
 
     .gp-preview-empty svg {
@@ -2405,8 +2411,8 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         margin: 0;
         max-width: 26rem;
         color: var(--muted) !important;
-        font-weight: 700;
-        font-size: 0.95rem;
+        font-weight: 500;
+        font-size: 0.9rem;
     }
 
     /* Item 1: the draggable splitter's own handle - see
@@ -2473,10 +2479,10 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
         position: absolute;
         top: 0;
         bottom: 0;
-        width: 8px;
+        width: 9px;
         margin-left: -4px;
-        border-radius: 999px;
-        background: var(--border);
+        border-radius: 0;
+        background: linear-gradient(var(--border-strong), var(--border-strong)) center / 1px 100% no-repeat;
         cursor: col-resize;
         touch-action: none;
         z-index: 2;
@@ -2485,7 +2491,267 @@ st.markdown(("<style>\n" + css_root_block() + _sidebar_css() + """
 
     .gp-split-handle:hover,
     .gp-split-handle.gp-split-active {
-        background: var(--brand);
+        background: linear-gradient(var(--ink), var(--ink)) center / 1px 100% no-repeat;
+    }
+
+    /* ==================================================================
+       Redesign 2026-11 - restrained Vercel / Apple-style engineering look:
+       white cards on a near-white ground, 1px hairlines, near-invisible
+       shadows, ink type with a steep size hierarchy, Geist + Geist Mono,
+       and one accent colour spent on the core CTA and the key number only.
+       ================================================================== */
+
+    /* Cards. Streamlit 1.61 gives a bordered st.container no hook of its own
+       (the stVerticalBlockBorderWrapper testid older rules above target is
+       gone - checked in a real browser), so every card is a keyed container
+       and its "card_" key prefix is the hook. */
+    [class*="st-key-card_"],
+    .st-key-change_review {
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: var(--radius-card) !important;
+        box-shadow: var(--shadow-sm) !important;
+        padding: 1.75rem 2rem !important;
+    }
+    /* Tracker rows and the in-dialog draft table are denser by nature. */
+    [class*="st-key-card_app_"],
+    .st-key-card_tracker_filters {
+        padding: 1rem 1.25rem !important;
+    }
+
+    /* Plain sections: a hairline and air above, no box. */
+    .st-key-section_export,
+    .st-key-section_keywords {
+        border-top: 1px solid var(--border);
+        padding-top: 2rem !important;
+    }
+
+    /* The primary colour is ink (config.toml); the accent goes on the one
+       core CTA per screen. */
+    /* button[kind] matches the specificity of .stButton button[kind^=...]
+       above, so being later wins; :hover likewise. */
+    .st-key-optimize_resume_btn button[kind],
+    .st-key-optimize_resume_btn_retry button[kind],
+    .st-key-save_api_key button[kind] {
+        background: var(--brand) !important;
+        border-color: var(--brand) !important;
+        color: var(--surface) !important;
+    }
+    .st-key-optimize_resume_btn button[kind]:hover,
+    .st-key-optimize_resume_btn_retry button[kind]:hover,
+    .st-key-save_api_key button[kind]:hover {
+        background: var(--brand-dark) !important;
+        border-color: var(--brand-dark) !important;
+        color: var(--surface) !important;
+    }
+
+    /* Tertiary buttons (Expand all, Collapse all): plain text. */
+    .stButton button[kind="tertiary"] {
+        min-height: 28px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+        color: var(--muted) !important;
+        font-size: 0.8rem !important;
+    }
+    .stButton button[kind="tertiary"]:hover {
+        background: transparent !important;
+        color: var(--text) !important;
+    }
+
+    /* Stats: one row of numbers split by hairlines. */
+    .st-key-stats_row [data-testid="stColumn"] + [data-testid="stColumn"] [data-testid="stMetric"] {
+        border-left: 1px solid var(--border);
+        padding-left: 1.5rem;
+    }
+    [data-testid="stMetricLabel"] p {
+        font-size: 0.75rem !important;
+        color: var(--muted) !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 2.6rem !important;
+        font-weight: 600 !important;
+        letter-spacing: -0.045em !important;
+        line-height: 1.05 !important;
+        font-variant-numeric: tabular-nums;
+        color: var(--text) !important;
+    }
+    /* The global p { color: var(--muted) } rule reaches the value's <p>. */
+    [data-testid="stMetricValue"] p,
+    [data-testid="stMetricValue"] div {
+        color: inherit !important;
+    }
+    .st-key-stat_ats [data-testid="stMetricValue"] {
+        color: var(--brand) !important;
+    }
+
+    /* Expanders in the main area are hairline rows, not boxes. */
+    [data-testid="stMain"] [data-testid="stExpander"] details {
+        border: 0 !important;
+        border-bottom: 1px solid var(--border) !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+    }
+    [data-testid="stMain"] [data-testid="stExpander"] summary {
+        padding: 0.85rem 0 !important;
+        color: var(--text) !important;
+        font-weight: 500;
+    }
+    [data-testid="stMain"] [data-testid="stExpander"] summary:hover {
+        color: var(--text) !important;
+        background: transparent !important;
+    }
+    [data-testid="stMain"] [data-testid="stExpanderDetails"] {
+        padding: 0 0 1rem !important;
+    }
+
+    /* Icons: Material Symbols is a variable font; a lighter weight reads as
+       the thin line icons the design calls for. */
+    [data-testid="stIconMaterial"] {
+        font-variation-settings: 'wght' 300;
+    }
+
+    /* Multiselect chips (section order): grey, not ink-filled. In 1.61 a
+       chip is a plain span inside stMultiSelectTagsContainer - there is no
+       data-baseweb="tag" hook (checked in a real browser). */
+    [data-testid="stMultiSelectTagsContainer"] > span > span {
+        background: var(--surface-soft) !important;
+        color: var(--text) !important;
+        border-radius: 4px !important;
+    }
+    [data-testid="stMultiSelectTagsContainer"] > span > span * {
+        color: var(--text-2) !important;
+    }
+
+    /* Review AI changes. */
+    /* The status line only - a bare "p" also caught the Save & preview
+       button's own label. */
+    .st-key-review_actions [data-testid="stMarkdown"] p,
+    .st-key-review_actions [data-testid="stCaptionContainer"] {
+        font-family: var(--font-mono) !important;
+        font-size: 0.75rem !important;
+        color: var(--text) !important;
+        margin: 0 !important;
+    }
+    [class*="st-key-review_item_"] {
+        border-top: 1px solid var(--border);
+        padding-top: 1rem !important;
+        gap: 0.75rem !important;
+    }
+    .gp-kind {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        color: var(--muted);
+    }
+    .gp-original {
+        padding-left: 0.85rem;
+        border-left: 1px solid var(--border-strong);
+        font-size: 0.82rem;
+        line-height: 1.6;
+        color: var(--muted);
+        white-space: pre-line;
+    }
+    .gp-original span {
+        display: block;
+        font-size: 0.72rem;
+        margin-bottom: 0.15rem;
+    }
+
+    /* Keyword match. */
+    .gp-section-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    .gp-section-head h3 {
+        margin: 0;
+        padding: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: var(--text);
+    }
+    .gp-section-head span {
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        color: var(--text);
+    }
+    .gp-bar {
+        height: 1px;
+        background: var(--border-strong);
+    }
+    .gp-bar span {
+        display: block;
+        height: 1px;
+        background: var(--ink);
+    }
+    .gp-note {
+        margin: 0.75rem 0 0;
+        font-size: 0.75rem;
+        color: var(--muted);
+    }
+    .gp-kw-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.5rem;
+        margin-top: 1.25rem;
+    }
+    .gp-kw-label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-2);
+        margin-bottom: 0.4rem;
+    }
+    .gp-kw {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        line-height: 1.9;
+        color: var(--text-2);
+    }
+    .gp-kw b {
+        font-weight: 500;
+        color: var(--text);
+    }
+    .gp-kw-missing {
+        color: var(--muted);
+    }
+
+    /* Sidebar nav: quiet rows; the active one is a soft grey fill, not a
+       solid button. Scoped to the sidebar and keyed on [kind] so these beat
+       the generic .stButton button[kind^="primary"]:hover rule above -
+       without that the active item flashed solid ink on hover. */
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button[kind] {
+        border-color: transparent !important;
+        background: transparent !important;
+        color: var(--muted) !important;
+        min-height: 36px !important;
+        font-weight: 400 !important;
+    }
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button[kind^="primary"] {
+        background: var(--surface-soft) !important;
+        color: var(--text) !important;
+        font-weight: 500 !important;
+    }
+    [data-testid="stSidebar"] [class*="st-key-nav_"] button[kind]:hover {
+        border-color: transparent !important;
+        background: var(--surface-soft) !important;
+        color: var(--text) !important;
+    }
+
+    /* Disabled buttons must look disabled. The primary/accent rules above
+       force a background with !important, which made a disabled Optimize
+       Resume or Generate PDF look clickable. (0,3,1) and last, so it wins. */
+    .stButton button[kind]:disabled,
+    .stDownloadButton button[kind]:disabled,
+    .stFormSubmitButton button[kind]:disabled {
+        background: var(--surface-soft) !important;
+        border-color: var(--border) !important;
+        color: var(--muted) !important;
+        cursor: not-allowed !important;
     }
 </style>""").replace(
     # Plain string replace, not %-formatting: the stylesheet is full of literal
@@ -2787,7 +3053,7 @@ def render_api_key_setup():
     picks one (the best usable one is preselected) and only Save key stores
     anything.
     """
-    with st.container(border=True):
+    with st.container(border=True, key="card_key_setup"):
         st.markdown("#### Step 1 — Connect your Gemini API key")
         st.markdown(
             "The AI features run on your own free Google key.\n\n"
@@ -2835,7 +3101,7 @@ def render_api_key_setup():
         )
         if len(usable) > 1:
             st.caption("If it runs out of quota, the app switches to the other usable models automatically.")
-        if st.button("Save key", type="primary"):
+        if st.button("Save key", type="primary", key="save_api_key"):
             st.session_state.api_key = check["key"]
             apply_model_choice(choice, check["results"])
             st.session_state.pending_toast = f"API key connected — using {choice}."
@@ -2856,7 +3122,7 @@ if active_view == workspace.PROFILE:      # 原 "Source"
             "**Start here.** Either upload an existing resume PDF below and let the AI fill "
             "the form in for you, or skip the upload and type straight into the fields."
         )
-    with st.container(border=True):
+    with st.container(border=True, key="card_quick_import"):
         st.subheader("Quick Import")
         up = st.file_uploader("Upload PDF", type=["pdf"], key="up1", label_visibility="collapsed")
         no_key = not st.session_state.api_key
@@ -2936,11 +3202,15 @@ def render_quick_stats():
       misleading 0 - satisfying the same rule without a special-cased check.
     """
     experience_count = len((st.session_state.resume_data or {}).get("experience") or [])
-    cards = [("Experience Entries", str(experience_count), "Roles in your base Career Profile")]
+    # (key slug, label, value, help). The slug keys each stat's container so
+    # the stylesheet can find it: the ATS score is the one number the accent
+    # colour is spent on.
+    cards = [("experience", "Experience Entries", str(experience_count), "Roles in your base Career Profile")]
 
     metrics = st.session_state.get("ats_metrics")
     if metrics and metrics.get("total"):
         cards.append((
+            "ats",
             "Latest ATS Score",
             f"{metrics['optimized_pct']}%",
             "Keyword match rate from the most recent Optimize run",
@@ -2948,13 +3218,17 @@ def render_quick_stats():
 
     if st.session_state.get("logged_in") and "app_records" in st.session_state:
         cards.append((
+            "applications",
             "Applications Recorded",
             str(len(st.session_state.app_records or [])),
             "Tracked in your application pipeline",
         ))
 
-    for col, (label, value, help_text) in zip(st.columns(len(cards)), cards):
-        col.metric(label, value, help=help_text)
+    # One row with hairline dividers, not a row of cards (redesign 2026-11).
+    with st.container(key="stats_row"):
+        for col, (slug, label, value, help_text) in zip(st.columns(len(cards)), cards):
+            with col.container(key=f"stat_{slug}"):
+                st.metric(label, value, help=help_text)
 
 def render_generator_workspace():
     """Generator 的左欄：頂部快速統計、資料來源、JD、策略、優化按鈕、可直接編輯的
@@ -2979,135 +3253,138 @@ def render_generator_workspace():
     # Career Profile button, the preview's own "profile is empty" state, and
     # the Experience Entries count just above.
 
-    st.subheader("Target & Strategy")
-    # Both inputs mirror into durable keys. A widget key alone is dropped by
-    # Streamlit on any rerun where the widget is not rendered, which is what
-    # silently emptied the JD whenever the user switched workspace.
-    jd = st.text_area(
-        "Job description",
-        value=st.session_state.jd_text,
-        height=140,
-        key=f"jd_input_{st.session_state.base_editor_key}",
-        placeholder="Paste the job description here...",
-    )
-    with st.expander("Custom Strategy"):
-        # Visual-polish pass, item 4: labelled "Custom Strategy" (was
-        # "Strategy", collapsed) so the [data-testid="stWidgetLabel"]
-        # micro-label rule above actually renders "CUSTOM STRATEGY" above
-        # this field - the reference design's own second named example,
-        # alongside "Job description" just above. The expander's own header
-        # (same words, mixed case) is a different element - st.expander
-        # gives its header no data-testid of its own to anchor on, and this
-        # app has several other expanders whose titles are meant to stay
-        # readable as normal clickable text (see the stWidgetLabel rule's
-        # own comment) - so it is deliberately left as-is; this is the
-        # field-level label the reference actually shows the micro-label
-        # treatment on.
-        strategy = st.text_area(
-            "Custom Strategy",
-            value=st.session_state.custom_prompt,
-            height=200,
-            key=f"cp_input_{st.session_state.base_editor_key}",
+    # One card for everything that goes into a run (redesign 2026-11): the JD,
+    # the strategy and the Optimize / Copy Prompt row.
+    with st.container(border=True, key="card_target"):
+        st.subheader("Target & strategy")
+        # Both inputs mirror into durable keys. A widget key alone is dropped by
+        # Streamlit on any rerun where the widget is not rendered, which is what
+        # silently emptied the JD whenever the user switched workspace.
+        jd = st.text_area(
+            "Job description",
+            value=st.session_state.jd_text,
+            height=140,
+            key=f"jd_input_{st.session_state.base_editor_key}",
+            placeholder="Paste the job description here...",
         )
-    st.session_state.jd_text = jd
-    st.session_state.custom_prompt = strategy
+        with st.expander("Custom Strategy"):
+            # Visual-polish pass, item 4: labelled "Custom Strategy" (was
+            # "Strategy", collapsed) so the [data-testid="stWidgetLabel"]
+            # micro-label rule above actually renders "CUSTOM STRATEGY" above
+            # this field - the reference design's own second named example,
+            # alongside "Job description" just above. The expander's own header
+            # (same words, mixed case) is a different element - st.expander
+            # gives its header no data-testid of its own to anchor on, and this
+            # app has several other expanders whose titles are meant to stay
+            # readable as normal clickable text (see the stWidgetLabel rule's
+            # own comment) - so it is deliberately left as-is; this is the
+            # field-level label the reference actually shows the micro-label
+            # treatment on.
+            strategy = st.text_area(
+                "Custom Strategy",
+                value=st.session_state.custom_prompt,
+                height=200,
+                key=f"cp_input_{st.session_state.base_editor_key}",
+            )
+        st.session_state.jd_text = jd
+        st.session_state.custom_prompt = strategy
 
-    if not st.session_state.api_key:
-        st.caption("Connect a Gemini API key above to enable optimization.")
-    c1, c2 = st.columns(2)
-    with c1:
-        # Item 4 (visual-polish follow-up), owner: 「optimizing resume 的動畫就
-        # 跑在同一顆按鈕上就好不要額外延展」. st.empty() gives the button its own
-        # placeholder slot so run_ai_call(..., target=optimize_slot) can
-        # overwrite that exact slot with the in-flight spinner+milestone line
-        # (ui_feedback.run_ai_call()'s own docstring has the full rationale)
-        # instead of opening a panel below it - the button's row becomes the
-        # status row, nothing new is added to the layout. Confirmed in
-        # streamlit==1.61.1 via a standalone AppTest script before writing
-        # this: a placeholder holding a clicked button can be overwritten
-        # with st.markdown() in the same run with no exception, and the
-        # button is cleanly gone from the tree afterward.
-        optimize_slot = st.empty()
-        optimize_clicked = optimize_slot.button(
-            "Optimize Resume",
-            type="primary",
-            use_container_width=True,
-            disabled=not st.session_state.api_key,
-            key="optimize_resume_btn",
-        )
-        if optimize_clicked:
-            if jd:
-                clear_generated_outputs()
-                ok, rep = run_ai_call(
-                    "Optimizing resume",
-                    lambda report: ai_optimize_and_update(jd, strategy, report),
-                    success=lambda r: r[0],
-                    target=optimize_slot,
-                )
-                if ok:
-                    # The banner was filled in by ai_optimize_and_update with
-                    # the real numbers; no toast needed.
-                    st.rerun()
-                else:
-                    # No rerun on failure (see run_ai_call()'s docstring), so
-                    # optimize_slot is left showing the frozen failure
-                    # message - redraw the real button into it here so the
-                    # row is clickable again immediately, instead of dead
-                    # until some unrelated interaction happens to rerun the
-                    # page. A second explicit key: Streamlit raises on two
-                    # elements sharing one key in the same run, even through
-                    # the same placeholder (confirmed the same way, via
-                    # AppTest, before relying on it).
-                    optimize_slot.button(
-                        "Optimize Resume",
-                        type="primary",
-                        use_container_width=True,
-                        disabled=not st.session_state.api_key,
-                        key="optimize_resume_btn_retry",
+        if not st.session_state.api_key:
+            st.caption("Connect a Gemini API key above to enable optimization.")
+        c1, c2 = st.columns(2)
+        with c1:
+            # Item 4 (visual-polish follow-up), owner: 「optimizing resume 的動畫就
+            # 跑在同一顆按鈕上就好不要額外延展」. st.empty() gives the button its own
+            # placeholder slot so run_ai_call(..., target=optimize_slot) can
+            # overwrite that exact slot with the in-flight spinner+milestone line
+            # (ui_feedback.run_ai_call()'s own docstring has the full rationale)
+            # instead of opening a panel below it - the button's row becomes the
+            # status row, nothing new is added to the layout. Confirmed in
+            # streamlit==1.61.1 via a standalone AppTest script before writing
+            # this: a placeholder holding a clicked button can be overwritten
+            # with st.markdown() in the same run with no exception, and the
+            # button is cleanly gone from the tree afterward.
+            optimize_slot = st.empty()
+            optimize_clicked = optimize_slot.button(
+                "Optimize Resume",
+                type="primary",
+                use_container_width=True,
+                disabled=not st.session_state.api_key,
+                key="optimize_resume_btn",
+            )
+            if optimize_clicked:
+                if jd:
+                    clear_generated_outputs()
+                    ok, rep = run_ai_call(
+                        "Optimizing resume",
+                        lambda report: ai_optimize_and_update(jd, strategy, report),
+                        success=lambda r: r[0],
+                        target=optimize_slot,
                     )
-                    st.error(rep)
-            else:
-                st.warning("Paste a job description before optimizing.")
-    with c2:
-        p_text = ai.build_rewrite_prompt(jd if jd else "JD", st.session_state.resume_data, strategy)
-        b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
-        components.html(f"""
-            <body style="margin:0; padding:0;">
-                <button id="copyPromptBtn" onclick="copyPrompt()" style="
-                    width:100%; height:42px; border-radius:8px;
-                    background:{TOKENS['surface']}; color:{TOKENS['text']}; border:1px solid {TOKENS['border']};
-                    cursor:pointer; font-weight:650; font-family:{FONT_STACK};
-                    display:flex; align-items:center; justify-content:center;
-                    box-shadow:0 1px 2px rgba(15,23,42,0.06);
-                    transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
-                    Copy Prompt
-                </button>
-            </body>
-            <script>
-            function copyPrompt() {{
-                try {{
-                    const b64 = "{b64}";
-                    const text = decodeURIComponent(escape(window.atob(b64)));
-                    const textArea = document.createElement("textarea");
-                    textArea.value = text;
-                    textArea.style.position = "fixed"; textArea.style.left = "-9999px"; textArea.style.top = "0";
-                    document.body.appendChild(textArea);
-                    textArea.focus(); textArea.select();
-                    const successful = document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                    if (successful) {{
-                        const btn = document.getElementById('copyPromptBtn');
-                        btn.innerText = 'Copied';
-                        btn.style.borderColor = '{TOKENS['success']}'; btn.style.color = '{TOKENS['success']}';
-                        setTimeout(() => {{
-                            btn.innerText = 'Copy Prompt';
-                            btn.style.borderColor = '{TOKENS['border']}'; btn.style.color = '{TOKENS['text']}';
-                        }}, 2000);
-                    }}
-                }} catch (err) {{ console.error(err); }}
-            }}
-            </script>
-            """, height=44)
+                    if ok:
+                        # The banner was filled in by ai_optimize_and_update with
+                        # the real numbers; no toast needed.
+                        st.rerun()
+                    else:
+                        # No rerun on failure (see run_ai_call()'s docstring), so
+                        # optimize_slot is left showing the frozen failure
+                        # message - redraw the real button into it here so the
+                        # row is clickable again immediately, instead of dead
+                        # until some unrelated interaction happens to rerun the
+                        # page. A second explicit key: Streamlit raises on two
+                        # elements sharing one key in the same run, even through
+                        # the same placeholder (confirmed the same way, via
+                        # AppTest, before relying on it).
+                        optimize_slot.button(
+                            "Optimize Resume",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=not st.session_state.api_key,
+                            key="optimize_resume_btn_retry",
+                        )
+                        st.error(rep)
+                else:
+                    st.warning("Paste a job description before optimizing.")
+        with c2:
+            p_text = ai.build_rewrite_prompt(jd if jd else "JD", st.session_state.resume_data, strategy)
+            b64 = base64.b64encode(p_text.encode('utf-8')).decode('utf-8')
+            components.html(f"""
+                <body style="margin:0; padding:0;">
+                    <button id="copyPromptBtn" onclick="copyPrompt()" style="
+                        width:100%; height:42px; border-radius:8px;
+                        background:{TOKENS['surface']}; color:{TOKENS['text']}; border:1px solid {TOKENS['border']};
+                        cursor:pointer; font-weight:650; font-family:{FONT_STACK};
+                        display:flex; align-items:center; justify-content:center;
+                        box-shadow:0 1px 2px rgba(15,23,42,0.06);
+                        transition:background-color 180ms ease-in-out,border-color 180ms ease-in-out,box-shadow 180ms ease-in-out,color 180ms ease-in-out;">
+                        Copy Prompt
+                    </button>
+                </body>
+                <script>
+                function copyPrompt() {{
+                    try {{
+                        const b64 = "{b64}";
+                        const text = decodeURIComponent(escape(window.atob(b64)));
+                        const textArea = document.createElement("textarea");
+                        textArea.value = text;
+                        textArea.style.position = "fixed"; textArea.style.left = "-9999px"; textArea.style.top = "0";
+                        document.body.appendChild(textArea);
+                        textArea.focus(); textArea.select();
+                        const successful = document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        if (successful) {{
+                            const btn = document.getElementById('copyPromptBtn');
+                            btn.innerText = 'Copied';
+                            btn.style.borderColor = '{TOKENS['success']}'; btn.style.color = '{TOKENS['success']}';
+                            setTimeout(() => {{
+                                btn.innerText = 'Copy Prompt';
+                                btn.style.borderColor = '{TOKENS['border']}'; btn.style.color = '{TOKENS['text']}';
+                            }}, 2000);
+                        }}
+                    }} catch (err) {{ console.error(err); }}
+                }}
+                </script>
+                """, height=44)
 
     if st.session_state.optimized_resume_data:
         if optimized_result_is_stale():
@@ -3214,9 +3491,9 @@ def render_generator_workspace():
     render_application_chat()
 
 REVIEW_KIND_LABELS = {
-    review.EDITED: "Rewritten",
-    review.ADDED: "Added by AI",
-    review.REMOVED: "Removed by AI",
+    review.EDITED: "rewritten",
+    review.ADDED: "added by AI",
+    review.REMOVED: "removed by AI",
 }
 
 _MARKDOWN_SPECIALS = re.compile(r"([\\`*_{}\[\]()#+\-.!|~$<>])")
@@ -3366,7 +3643,7 @@ def render_change_review():
                 needs_render = not st.session_state.resume_preview_bytes
                 if st.button(
                     "Save & preview", key="review_save", type="primary", width="content",
-                    icon=":material/visibility:", disabled=not (unsaved or needs_render),
+                    disabled=not (unsaved or needs_render),
                 ):
                     save_review_edits(optimized, edits, restores)
                     st.rerun()
@@ -3390,11 +3667,11 @@ def render_change_review():
                 open_sections[key] = st.session_state[key]
         with st.container(horizontal=True, gap="small"):
             st.button(
-                "Expand all", key="review_expand_all", type="tertiary", icon=":material/unfold_more:",
+                "Expand all", key="review_expand_all", type="tertiary",
                 on_click=_review_set_sections, args=(section_keys, True),
             )
             st.button(
-                "Collapse all", key="review_collapse_all", type="tertiary", icon=":material/unfold_less:",
+                "Collapse all", key="review_collapse_all", type="tertiary",
                 on_click=_review_set_sections, args=(section_keys, False),
             )
 
@@ -3418,8 +3695,14 @@ def render_change_review():
                 st.session_state[section_key] = open_sections[section_key]
             with st.expander(label, key=section_key, on_change="rerun"):
                 for change in section_changes:
-                    with st.container(border=True):
-                        st.caption(REVIEW_KIND_LABELS[change["kind"]])
+                    # Hairline-separated rows (CSS: [class*="st-key-review_item_"]),
+                    # not a grey box nested in a card nested in an expander.
+                    item_key = f"review_item_{zlib.crc32(change['id'].encode('utf-8'))}"
+                    with st.container(key=item_key):
+                        st.markdown(
+                            f'<span class="gp-kind">{REVIEW_KIND_LABELS[change["kind"]]}</span>',
+                            unsafe_allow_html=True,
+                        )
                         if change["reason"]:
                             st.markdown(f"**Why:** {md_escape(change['reason'])}")
                         if change["kind"] == review.REMOVED:
@@ -3436,7 +3719,10 @@ def render_change_review():
                                 st.caption("Will be added back on Save & preview.")
                             continue
                         if change["before"] is not None:
-                            st.caption(f"Original: {md_escape(change['before'])}")
+                            st.markdown(
+                                f'<div class="gp-original"><span>Original</span>{html.escape(change["before"])}</div>',
+                                unsafe_allow_html=True,
+                            )
                         key = keys[change["id"]]
                         value = st.text_area(
                             "Edit", key=key, label_visibility="collapsed",
@@ -3471,14 +3757,12 @@ def render_application_chat():
     the answer. This function only moves text between session_state and the
     bubbles.
     """
-    # expanded=True, unlike the import expanders. Those are escape hatches
-    # that cost one line of vertical space when unused; this is a feature the
-    # owner asked for by name. Collapsed, it was a grey row in a stack of
-    # identical ones and the owner could not find it - the exact failure
-    # already recorded on Manual Result Import, which spent its own stretch
-    # invisible behind the advanced-tools checkbox. Now that it sits alone at
-    # the bottom of the column, being open costs nothing above it.
-    with st.expander("Ask about this application", expanded=True):
+    # Collapsed: one hairline row at the very bottom of the column, as in the
+    # 2026-11 redesign the owner approved. It was expanded=True while it sat
+    # mid-column among identical grey rows, where a collapsed copy had gone
+    # unnoticed; alone at the bottom, its row is easy to find and an open
+    # chat box would only lengthen a column users rarely scroll to the end of.
+    with st.expander("Ask about this application", expanded=False):
         st.caption(
             "Drafts answers using only your Career Profile, the optimized result "
             "and the JD above. If a fact is missing it asks you for it rather "
@@ -3599,7 +3883,7 @@ def render_optimized_draft_table():
         current = {}
     ekey = st.session_state.opt_editor_key
 
-    with st.container(border=True):
+    with st.container(border=True, key="card_draft_table"):
         st.markdown("**Optimized Draft**")
         st.caption(
             "Edit any cell in place - changes save automatically and feed the next "
@@ -3765,43 +4049,54 @@ def edit_opt_dialog():
             except json.JSONDecodeError as e:
                 st.error(json_error_report(raw_opt_import, e))
 
+def keyword_list_html(words, emphasise=()):
+    """Keywords as one " · "-joined mono line, escaped; `emphasise` in bold."""
+    return " · ".join(
+        f"<b>{html.escape(str(w))}</b>" if w in emphasise else html.escape(str(w))
+        for w in words
+    ) or "—"
+
 def render_ats_analysis():
-    """ATS 分析區塊的內容（左欄底部）；呼叫端已確認有優化結果。
+    """Keyword match and "add these yourself" (bottom of the left column);
+    the caller has already checked there is an optimized result.
+
+    Redesign 2026-11: a plain section under a hairline, the score as ink
+    text and a 1px bar, keywords as mono lines - it used to be three metric
+    cards, a progress bar and a green and a red alert box. The ATS score's
+    one accent-coloured appearance is in the stats row at the top.
 
     The rewrite's changelog used to open this section; it now heads the
     Review AI changes panel, next to the changes it summarises."""
-    # Requirements the rewrite deliberately did not claim. This is the
-    # counterpart to banning invented metrics: instead of a fabricated
-    # number, the user gets a list of what to supply themselves.
-    if st.session_state.suggested_metrics:
-        st.markdown("### Add These Yourself")
-        st.caption("The rewrite left these out because your resume had no evidence for them. Nothing here was invented on your behalf.")
-        for item in st.session_state.suggested_metrics:
-            st.markdown(f"- {item}")
+    with st.container(key="section_keywords"):
+        m = st.session_state.ats_metrics
+        if m and m.get("total"):
+            pct = max(0, min(100, m["optimized_pct"]))
+            st.html(
+                f'''<div class="gp-section-head"><h3>Keyword match</h3>'''
+                f'''<span>{m["optimized_count"]} / {m["total"]}</span></div>'''
+                f'''<div class="gp-bar" role="img" aria-label="{pct}% of the job description keywords covered">'''
+                f'''<span style="width:{pct}%"></span></div>'''
+                f'''<p class="gp-note">{m["optimized_pct"]}% coverage · was {m["original_pct"]}% before the rewrite. '''
+                f'''New matches are in bold.</p>'''
+                f'''<div class="gp-kw-grid">'''
+                f'''<div><span class="gp-kw-label">Matched</span>'''
+                f'''<p class="gp-kw">{keyword_list_html(m.get("optimized_hits", []), set(m.get("newly_added", [])))}</p></div>'''
+                f'''<div><span class="gp-kw-label">Missing</span>'''
+                f'''<p class="gp-kw gp-kw-missing">{keyword_list_html(m.get("missing_keywords", []))}</p>'''
+                f'''<p class="gp-note">Add them only where they are true of you.</p></div>'''
+                f'''</div>'''
+            )
+        elif m is None:
+            st.info("No keyword list was available for this result, so coverage was not scored.")
 
-    m = st.session_state.ats_metrics
-    if m and m.get("total"):
-        mc1, mc2, mc3 = st.columns(3)
-        mc1.metric(
-            "Match Rate",
-            f"{m['optimized_pct']}%",
-            delta=f"{m['optimized_pct'] - m['original_pct']:+d} pts vs original",
-        )
-        mc2.metric("Keywords Hit", f"{m['optimized_count']}/{m['total']}")
-        mc3.metric("Newly Covered", len(m['newly_added']))
-        st.progress(min(100, m['optimized_pct']) / 100)
-        k1, k2 = st.columns(2)
-        with k1:
-            st.success("Matched Keywords")
-            for k in m.get('optimized_hits', []):
-                st.markdown(f"- `{k}`" + (" (new)" if k in m.get('newly_added', []) else ""))
-        with k2:
-            st.error("Missing Keywords")
-            st.caption("Still absent. Add them only where they are genuinely true of you.")
-            for k in m.get('missing_keywords', []):
-                st.markdown(f"- `{k}`")
-    elif m is None:
-        st.info("No keyword list was available for this result, so coverage was not scored.")
+        # Requirements the rewrite deliberately did not claim. This is the
+        # counterpart to banning invented metrics: instead of a fabricated
+        # number, the user gets a list of what to supply themselves.
+        if st.session_state.suggested_metrics:
+            st.markdown("### Add these yourself")
+            st.caption("The rewrite left these out because your resume had no evidence for them. Nothing here was invented on your behalf.")
+            for item in st.session_state.suggested_metrics:
+                st.markdown(f"- {item}")
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -3844,8 +4139,8 @@ def render_export_settings():
     column - see the app-scope st.rerun() below for why that still works
     across the column boundary.
     """
-    with st.container(border=True):
-        st.subheader("Export Settings")
+    with st.container(key="section_export"):
+        st.subheader("Export")
         st.caption("Select your preferred template and section order, then generate the final PDFs.")
         tmpl = template_selectbox("tm")
         # Keyed (previously wasn't) so render_preview() - a different fragment,

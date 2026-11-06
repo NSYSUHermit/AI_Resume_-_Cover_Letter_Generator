@@ -325,7 +325,7 @@ def test_export_settings_and_ats_moved_into_generator_view():
     task report)."""
     at = run_app(active_view="Generator", resume_data=resume_with_experience("Export Settings Candidate"))
     assert not at.exception
-    assert any(h.value == "Export Settings" for h in at.subheader)
+    assert any(h.value == "Export" for h in at.subheader)
     assert any("Optimize a resume to see how it scores" in c.value for c in at.caption)
 
 

@@ -197,9 +197,9 @@ def render_pdf_js(pdf_bytes, height=800):
     pdf_js_html = f"""<!DOCTYPE html><html><head>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
-body{{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:10px;}}
-canvas{{margin-bottom:10px;border:1px solid #334155;max-width:98%;}}
-#note{{color:#94a3b8;font:13px {FONT_STACK};padding:6px 10px;text-align:center;}}
+body{{margin:0;background:#f4f4f5;display:flex;flex-direction:column;align-items:center;padding:16px;}}
+canvas{{margin-bottom:16px;max-width:96%;border-radius:2px;box-shadow:0 0 0 1px rgba(9,9,11,0.06),0 2px 4px rgba(9,9,11,0.04);}}
+#note{{color:#71717a;font:12px {FONT_STACK};padding:6px 10px;text-align:center;}}
 </style></head><body><div id="p"></div><div id="note"></div><script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 var b=window.atob('{base64_pdf}');

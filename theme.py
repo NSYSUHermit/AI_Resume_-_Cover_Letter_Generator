@@ -7,46 +7,56 @@ page's CSS variables, so the Python dict is the only thing they can share.
 """
 
 TOKENS = {
-    "bg": "#f8fafc",
+    # Restrained monochrome palette (zinc), one accent. Redesign of 2026-11:
+    # Vercel / Apple-style engineering look - near-white ground, white
+    # surfaces, 1px low-contrast hairlines, ink text, and the single blue
+    # accent kept for the one core CTA (Optimize resume, Save key) and the
+    # one key number (the ATS score). Everything else is ink or grey.
+    "bg": "#fafafa",
     "surface": "#ffffff",
-    "surface-soft": "#f1f5f9",
-    "border": "#e2e8f0",
-    "border-strong": "#bfdbfe",
-    # Resting edge of text inputs, the chat box and other fields. --border
-    # (#e2e8f0) is right for dividers on the off-white page, but on a white
-    # card it is nearly invisible; this is one step darker (slate-300). Also
-    # the value of theme.borderColor in .streamlit/config.toml - keep in sync.
-    "border-input": "#cbd5e1",
-    "text": "#111827",
-    "muted": "#64748b",
+    "surface-soft": "#f4f4f5",
+    # Hairline dividers and card edges (~7% ink on white).
+    "border": "#ececee",
+    "border-strong": "#d4d4d8",
+    # Resting edge of text inputs, the chat box and other fields - one step
+    # darker than --border so a field is visible on a white card. Also the
+    # value of theme.borderColor in .streamlit/config.toml - keep in sync.
+    "border-input": "#e4e4e7",
+    "text": "#09090b",
+    # Field labels and secondary copy that must stay readable (zinc-600).
+    "text-2": "#52525b",
+    # Small muted copy. zinc-500, not the lighter zinc-400 the design brief
+    # suggested: 400 is ~2.6:1 on white and fails for small text; 500 is 4.8:1.
+    "muted": "#71717a",
     "brand": "#2563eb",
     "brand-dark": "#1d4ed8",
     "success": "#059669",
     "warning": "#d97706",
     "danger": "#dc2626",
-    # Reference-design "dark navy": the reference React app's primary button,
-    # active nav pill and headings all use a near-black desaturated blue that
-    # reads distinctly darker/cooler than --brand (#2563eb, still used
-    # everywhere else - links, focus rings, status dots, the walker figure).
-    # Added rather than repurposing --brand-dark (#1d4ed8), which is still a
-    # saturated blue, not navy. Two shades, same pattern as brand/brand-dark,
-    # so hover/active states have somewhere to go.
-    "navy": "#1e3a5f",
-    "navy-dark": "#020617",
+    # Ink: primary buttons, the active nav item, progress. Replaced the old
+    # "navy" pair; a hover needs somewhere to go, so it lightens slightly.
+    "ink": "#09090b",
+    "ink-hover": "#27272a",
 }
 
-FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+# Geist is loaded by .streamlit/config.toml ([theme] font / codeFont), which
+# covers the main page. Iframes (components.html buttons, the pdf.js viewer)
+# cannot see it and fall back to the system stack after it.
+FONT_STACK = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+FONT_MONO = '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 
 
 def css_root_block():
     """Render TOKENS as a CSS :root block, plus the non-colour design tokens."""
     variables = "\n".join(f"        --{name}: {value};" for name, value in TOKENS.items())
-    return ":root {\n" + variables + """
-        --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-        --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.08);
-        --radius: 8px;
-        --ease: 180ms ease-in-out;
-    }"""
+    return ":root {\n" + variables + f"""
+        --shadow-sm: 0 1px 1px rgba(9, 9, 11, 0.03);
+        --shadow-md: 0 1px 2px rgba(9, 9, 11, 0.05);
+        --radius: 6px;
+        --radius-card: 12px;
+        --ease: 160ms ease-in-out;
+        --font-mono: {FONT_MONO};
+    }}"""
 
 
 def walker_svg():
